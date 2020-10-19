@@ -1,0 +1,2640 @@
+/*******************************************************************************************
+ *
+ *  A module adapted from the VGPseq library (written by me).  This input module can
+ *  read fasta, fastq, sam, bam, and cram files along with Dazzler db's and dam's.
+ *  Given a target # of threads NTHREADS, it first finds partition points in the input file
+ *  that split the file into the required # of parts:
+ *
+ *         Input_Partition *Partition_Input(int argc, char *argv[])
+ *
+ *  It can then either supply a single large training block:
+ *
+ *         DATA_BLOCK *Get_First_Block(Input_Partition *parts, int64 numbp)
+ *
+ *  or in a thread parallel manner read each partition and transmit it in DATA_BLOCKs to a
+ *  given call-back routine:
+ *
+ *         void Scan_All_Input(Input_Partition *parts)
+ *
+ *  Author:    Gene Myers
+ *  Date:      October 2020
+ *
+ *******************************************************************************************/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <ctype.h>
+#include <time.h>
+#include <pthread.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <stdbool.h>
+
+#include "gene_core.h"
+#include "FastK.h"
+
+#include "LIBDEFLATE/libdeflate.h"
+#include "HTSLIB/htslib/hts.h"
+#include "HTSLIB/htslib/hfile.h"
+#include "HTSLIB/cram/cram.h"
+
+#undef    DEBUG_FIND
+#undef    DEBUG_IO
+#undef    DEBUG_TRAIN
+#undef    DEBUG_OUT
+
+#undef    DEBUG_AUTO
+
+#undef    DEBUG_BAM_IO
+#undef    DEBUG_BAM_RECORD
+
+#ifdef DEBUG_OUT
+#define CALL_BACK  Print_Block
+#else
+#define CALL_BACK  Distribute_Block
+#endif
+
+#define IO_BLOCK 10000000ll
+
+#define DT_BLOCK  1000000ll
+#define DT_READS    10000
+
+typedef struct libdeflate_decompressor DEPRESS;
+
+#define INT_MAXLEN 10
+
+#define CRAM   0
+#define BAM    1
+#define SAM    2
+#define FASTQ  3
+#define FASTA  4
+#define DAZZ   5
+
+static char *Tstring[7] = { "cram", "bam", "sam", "fastq", "fasta", "db", "dam" };
+
+typedef struct
+  { char      *path;   //  Full path name
+    char      *root;   //  Ascii root name
+    int64      fsize;  //  Size of (uncompressed) file in bytes
+    int        ftype;  //  Type of file
+                       //  Fasta/q and Cram specific:
+    int64   zsize;  //    Size of zip index (in blocks)
+    int64     *zoffs;  //    zoffs[i] = offset to compressed block i
+                       //  Fasta/q specific:
+    int        zipd;   //    Is file VGPzip'd (has paired .vzi file)
+    int        recon;  //    Is file an uncompressed regular zip-file?
+    int        DB_all; //  Trim parameters for Dazzler DB's
+    int        DB_cut;
+  } File_Object;
+
+typedef struct
+  { int64  fpos;   //  offset in source file of desired unit (gzip block, cram contaianer)
+    uint32 boff;   //  offset within a unit block of desired record
+  } Location;
+
+#define SAMPLE 0
+#define SPLIT  1
+
+typedef struct
+  { File_Object *fobj;   //  array of file objects
+    uint8       *buf;    //  block buffer
+    int          fid;    //  fid of fobj[bidx].path
+    int          bidx;   //  Scan range is [bidx:beg,eidx:end)
+    Location     beg; 
+    int          eidx;
+    Location     end;
+
+    int          action; //  sampling or splitting
+    int64        work;   //  total sizes of all files
+    DATA_BLOCK   block;  //  block buffer for this thread
+    int          thread_id;  //  thread index (in [0,NTHREAD-1]
+    void *     (*output_thread)(void *);  //  output routine for file type
+
+    DEPRESS     *decomp; //    decompressor
+                         //  fasta/q specific:
+    uint8       *zuf;    //    decode buffer (for zip'd files)
+  } Thread_Arg;
+
+static void do_nothing(Thread_Arg *parm)
+{ (void) parm; }
+
+
+
+/*******************************************************************************************
+ *
+ *  Routines to open and close the sequence file types supported
+ *
+ ********************************************************************************************/
+
+  //  Open and get info about each input file
+
+static int64 *genes_cram_index(char *path, int64 fsize, int64 *zsize);
+static void   read_DB_stub(char *path, int *cut, int *all);
+static int64 *get_dazz_offsets(FILE *idx, int64 *zsize);
+
+static void Fetch_File(char *arg, File_Object *input)
+{ static char *suffix[13] = { ".cram", ".bam", ".sam",
+                              ".fastq.gz", ".fasta.gz", ".fastq", ".fasta",
+                              ".fq.gz",  ".fa.gz", ".fq", ".fa", ".db", ".dam" };
+  static char *sufidx[13] = { "", "", "", ".fastq.vzi", ".fasta.vzi",
+                              "", "", ".fq.vzi", ".fa.vzi", "", "", "", "" };
+
+  struct stat stats;
+  char  *pwd, *root, *path;
+  int    fid, i;
+  int64  fsize, zsize, *zoffs;
+  int    ftype, zipd, recon;
+
+  pwd = PathTo(arg);
+  for (i = 0; i < 13; i++)
+    { root  = Root(arg,suffix[i]);
+      fid   = open(Catenate(pwd,"/",root,suffix[i]),O_RDONLY);
+      if (fid >= 0) break;
+      free(root);
+    }
+  if (fid < 0)
+    { fprintf(stderr,"%s: Cannot open %s as a .cram|[bs]am|f{ast}[aq][.gz]|db|dam file\n",
+                     Prog_Name,arg);
+      exit (1);
+    }
+
+  if (i >= 11)
+    { ftype = DAZZ;
+      zipd  = 0;
+    }
+  else if (i >= 3)
+    if (i >= 7)
+      { ftype = 4 - (i%2);
+        zipd  = (i < 9);
+      }
+    else
+      { ftype = 4 - (i%2);
+        zipd  = (i < 5);
+      }
+  else
+    { ftype = i;
+      zipd  = 0;
+    }
+  path = Strdup(Catenate(pwd,"/",root,suffix[i]),"Allocating full path name");
+
+  zoffs = NULL;
+  recon = 0;
+  if (zipd)
+    { int idx;
+
+      idx = open(Catenate(pwd,"/",root,sufidx[i]),O_RDONLY);
+      free(pwd);
+      if (idx < 0)
+        { if (VERBOSE)
+            fprintf(stderr,"  File %s not VGPzip'd, decompressing\n",arg);
+          system(Catenate("gunzip -k ",path,"",""));
+          path[strlen(path)-3] = '\0';
+          zipd  = 0;
+          recon = 1;
+          if (lstat(path,&stats) == -1)
+            { fprintf(stderr,"%s: Cannot get stats for %s\n",Prog_Name,path);
+              exit (1);
+            }
+          fsize = stats.st_size;
+          zsize = (fsize-1)/IO_BLOCK+1;
+        }
+      else
+        { read(idx,&zsize,sizeof(int64));
+          zoffs = (int64 *) Malloc(sizeof(int64)*(zsize+1),"Allocating VGPzip index");
+          if (zoffs == NULL)
+            exit (1);
+          read(idx,zoffs+1,sizeof(int64)*zsize);
+          zoffs[0] = 0;
+          fsize = IO_BLOCK*zsize;   //  An estimate only, upper bound
+          close(idx);
+        }
+    }
+  else if (ftype == DAZZ)
+    { FILE *idx;
+
+      read_DB_stub(path,&(input->DB_cut),&(input->DB_all));
+      free(path);
+
+      path = Strdup(Catenate(pwd,"/.",root,".bps"),"Allocating full path name");
+      fid = open(path,O_RDONLY);
+      if (fid < 0)
+        { fprintf(stderr,"%s: Dazzler DB %s does not have a .bps file ! ?\n",Prog_Name,root);
+          exit (1);
+        }
+      if (fstat(fid, &stats) == -1)
+        { fprintf(stderr,"%s: Cannot get stats for %s\n",Prog_Name,arg);
+          exit (1);
+        }
+      fsize = stats.st_size;
+      idx = fopen(Catenate(pwd,"/.",root,".idx"),"r");
+      if (idx == NULL)
+        { fprintf(stderr,"%s: Dazzler DB %s does not have a .idx file ! ?\n",Prog_Name,root);
+          exit (1);
+        }
+      zoffs = get_dazz_offsets(idx,&zsize);
+      zoffs[zsize] = fsize;
+      fclose(idx);
+    }
+  else
+    { if (fstat(fid, &stats) == -1)
+        { fprintf(stderr,"%s: Cannot get stats for %s\n",Prog_Name,arg);
+          exit (1);
+        }
+      fsize = stats.st_size;
+      if (ftype == CRAM)
+        zoffs = genes_cram_index(path,fsize,&zsize);
+      else
+        zsize = (fsize-1)/IO_BLOCK+1;
+      free(pwd);
+    }
+
+#ifdef DEBUG_FIND
+  fprintf(stderr,"\n%s is a %s file, ftype = %d, zipd = %d, fsize = %lld\n",
+                 arg,suffix[i],ftype,zipd,fsize);
+#endif
+
+  close(fid);
+
+  input->path  = path;
+  input->root  = root;
+  input->fsize = fsize;
+  input->ftype = ftype;
+  input->zipd  = zipd;
+  input->recon = recon;
+  input->zsize = zsize;
+  input->zoffs = zoffs;
+}
+
+static void Free_File(File_Object *input)
+{ if (input->recon)
+    unlink(input->path);
+  free(input->zoffs);
+  free(input->path);
+  free(input->root);
+}
+
+
+/*******************************************************************************************
+ *
+ *  DATA_BLOCK CODE
+ *
+ ********************************************************************************************/
+
+static int Add_Data_Block(DATA_BLOCK *dset, int len, char *seq)
+{ int   n;
+  int64 o;
+
+  n = dset->nreads;
+  o = dset->boff[n];
+  if (n >= dset->maxrds)
+    return (1);
+  if (o+len >= dset->maxbps)
+    { if (o == 0)
+        { if (dset->maxbps >= 1000000)
+            fprintf(stderr,"  Fatal: longest string >%.1fmbp\n",dset->maxbps/1000000.);
+          else
+            fprintf(stderr,"  Fatal: longest string >%.1fkbp\n",dset->maxbps/1000.);
+          exit (1);
+        }
+      else
+        return (1);
+    }
+  dset->nreads = ++n;
+  memcpy(dset->bases+o,seq,len);
+  o += len;
+  dset->bases[o] = '\0';
+  dset->boff[n] = o+1;
+  dset->totlen += len;
+  if (len > dset->maxlen)
+    dset->maxlen = len;
+  return (0);
+}
+
+#if defined(DEBUG_OUT) || defined(DEBUG_TRAIN)
+
+static void Print_Block(DATA_BLOCK *dset, int tid)
+{ int64 end;
+  int   i;
+  char *bases;
+  static int tc = 0;
+
+  (void) tid;
+
+  bases = dset->bases;
+  for (i = 0; i < dset->nreads; i++)
+    { end = dset->boff[i+1]-1;
+      printf("%5d %8d:\n",i,tc++);
+#define ONE_LINE
+#ifdef ONE_LINE
+      printf("%.80s\n",bases+dset->boff[i]);
+#else
+      { int64 j;
+
+        for (j = dset->boff[i]; j+80 < end; j += 80)
+          printf("%.80s\n",bases+j);
+        if (j < end)
+          printf("%.*s\n",(int) (end-j),bases+j);
+       }
+#endif
+    }
+  fflush(stdout);
+}
+
+#endif
+
+static void Reset_Data_Block(DATA_BLOCK *dset)
+{ dset->nreads = 0;
+  dset->maxlen = 0;
+  dset->totlen = 0;
+  dset->boff[0] = 0;
+}
+
+
+/*******************************************************************************************
+ *
+ *  FASTA / FASTQ SPECIFIC CODE
+ *
+ ********************************************************************************************/
+
+/*******************************************************************************************
+ *
+ *  fast_nearest: Routine to find next entry given arbitray start point.
+ *
+ ********************************************************************************************/
+
+  //  Automata states (buffer is processed char at a time)
+
+#define UK    0
+#define FK    1
+#define FK1   2
+
+#if defined(DEBUG_AUTO)
+
+static char *Name[] =
+  { "UK", "FK", "FK1", "QHL" };
+
+#endif
+
+  //  Check blocks [beg,end) starting with the first complete entry and proceeding
+  //     into blocks end ... if necessary to complete the last entry started in this
+  //     range.
+
+static void fast_nearest(Thread_Arg *data)
+{ int          fid    = data->fid;
+  int64        beg    = data->beg.fpos;
+  uint8       *buf    = data->buf;
+  uint8       *zuf    = data->zuf;
+  File_Object *inp    = data->fobj + data->bidx;
+  DEPRESS     *decomp = data->decomp;
+
+  int          fastq = (inp->ftype == FASTQ);
+  int64       *zoffs = inp->zoffs;
+
+  int64 blk, off;
+  int   slen;
+  int   state;
+  int   nl_1, nl_2, pl_1, alive;
+  int   b, c;
+
+#ifdef DEBUG_FIND
+  fprintf(stderr,"\nFind starting at %lld\n",beg);
+#endif
+
+  blk = beg / IO_BLOCK;
+  off = beg % IO_BLOCK;
+
+  if (inp->zipd)
+    lseek(fid,zoffs[blk],SEEK_SET);
+  else
+    lseek(fid,blk*IO_BLOCK,SEEK_SET);
+
+  if (fastq)
+    { state = UK;
+      nl_1 = pl_1 = 1;
+      alive = 0;
+    }
+  else
+    state = FK;
+
+#ifdef DEBUG_FIND
+  fprintf(stderr,"\nFrom block %lld / offset %lld\n",blk,off);
+#endif
+
+  while (blk < inp->zsize)
+    {
+#ifdef DEBUG_FIND
+      fprintf(stderr,"  Loading block %lld: @%lld",blk,lseek(fid,0,SEEK_CUR));
+#endif
+      if (inp->zipd)
+        { uint32 dlen, tlen;
+          int    rez;
+          size_t x;
+
+          dlen = zoffs[blk+1]-zoffs[blk];
+          tlen = IO_BLOCK;
+          read(fid,zuf,dlen);
+          if ((rez = libdeflate_gzip_decompress(decomp,zuf,dlen,buf,tlen,&x)) != 0)
+            { fprintf(stderr,"Decompression not OK!\n");
+              exit (1);
+            }
+          slen = (int) x;
+#ifdef DEBUG_FIND
+          fprintf(stderr," %d ->",dlen);
+#endif
+        }
+      else
+        slen = read(fid,buf,IO_BLOCK);
+#ifdef DEBUG_FIND
+      fprintf(stderr," %d\n",slen);
+#endif
+
+      for (b = off; b < slen; b++)
+        { c = buf[b];
+#ifdef DEBUG_AUTO
+          fprintf(stderr,"  %.5s: %c\n",Name[state],c);
+#endif
+          switch (state)
+
+          { case UK:
+              if (c == '@' && alive)
+                { data->beg.fpos = blk*IO_BLOCK + b;
+                  data->beg.boff = 0;
+                  return;
+                }
+              alive = (c == '\n' && ! (nl_2 || pl_1));
+              nl_2 = nl_1;
+              nl_1 = (c == '\n');
+              pl_1 = (c == '+');
+#ifdef DEBUG_AUTO
+              fprintf(stderr,"    n2=%d n1=%d p1=%d a=%d\n",nl_2,nl_1,pl_1,alive);
+#endif
+              break;
+
+            case FK:
+              if (c == '\n')
+                state = FK1;
+              break;
+
+            case FK1:
+              if (c == '>')
+                { data->beg.fpos = blk*IO_BLOCK + b;
+                  data->beg.boff = 0;
+                  return;
+                }
+              else if (c != '\n')
+                state = FK;
+              break;
+           }
+        }
+
+      blk += 1;
+      off = 0;
+    }
+
+  data->beg.fpos = -1;
+  data->beg.boff = 0;
+  return;
+}
+
+
+/*******************************************************************************************
+ *
+ *  Second pass thread routines prepare .seq formated output in buffers for each input block.
+ *  Note carefully that there are separate blocks for the forward and reverse files if
+ *  processing a pair, the reads in the blocks need to be paired.
+ *
+ ********************************************************************************************/
+
+  //  Automata states (buffer is processed char at a time)
+
+#define QAT     0
+#define HSKP    1
+#define QSEQ    2
+#define QPLS    3
+#define QSKP    4
+#define ASEQ    5
+#define AEOL    6
+
+#if defined(DEBUG_AUTO)
+
+static char *Name2[] =
+  { "QAT", "HEAD", "HSKP", "QSEQ", "QPLS", "QSKP", "QQVS", "ASEQ", "AEOL" };
+
+#endif
+
+  //  Write fast records in relevant partition
+
+static void *fast_output_thread(void *arg)
+{ Thread_Arg  *parm   = (Thread_Arg *) arg;
+  File_Object *fobj   = parm->fobj;
+  uint8       *buf    = parm->buf;
+  uint8       *zuf    = parm->zuf;
+  DEPRESS     *decomp = parm->decomp;
+  int          action = parm->action;
+  DATA_BLOCK  *dset   = &parm->block;
+  int          tid    = parm->thread_id;
+  int          fastq  = (fobj->ftype == FASTQ);    //  Is the same for all files (already checked)
+
+  File_Object *inp;
+  int          f, fid;
+  int64        blk, off;
+  int64        epos, eblk, eoff;
+  int64       *zoffs;
+  int64        totread;
+
+  int   state;
+  int   omax, olen;
+  char *line;
+
+  int64 estbps, cumbps, nxtbps, pct1;
+  int   CLOCK;
+
+  if (VERBOSE && tid == 0 && action != SAMPLE)
+    { estbps = dset->ratio / NTHREADS;
+      nxtbps = pct1 = estbps/100;
+      cumbps = 0;
+      fprintf(stderr,"\n    0%%");
+      fflush(stderr);
+      CLOCK = 1;
+    }
+  else
+    CLOCK = 0;
+
+  //  Do relevant section of each file assigned to this thread in sequence
+
+  omax = 100000;
+  line = Malloc(omax+1,"Allocating line buffer");
+
+  totread = 0;
+
+  for (f = parm->bidx; f <= parm->eidx; f++)
+    { inp = fobj+f;
+      fid = open(inp->path,O_RDONLY);
+      if (f < parm->eidx)
+        epos = inp->fsize;
+      else
+        epos = parm->end.fpos;
+      if (f > parm->bidx)
+        parm->beg.fpos = 0;
+
+#ifdef DEBUG_IO
+      fprintf(stderr,"Block: %12lld to %12lld --> %8lld\n",
+                     parm->beg.fpos,epos,epos - parm->beg.fpos);
+      fflush(stdout);
+#endif
+
+      blk   = parm->beg.fpos / IO_BLOCK;
+      off   = parm->beg.fpos % IO_BLOCK;
+      eblk  = (epos-1) / IO_BLOCK;
+      eoff  = (epos-1) % IO_BLOCK + 1;
+      zoffs = inp->zoffs;
+
+      if (inp->zipd)
+        lseek(fid,zoffs[blk],SEEK_SET);
+      else
+        lseek(fid,blk*IO_BLOCK,SEEK_SET);
+
+      state = QAT;
+      olen  = 0;
+
+#ifdef DEBUG_IO
+      fprintf(stderr,"\nFrom block %lld / offset %lld\n",blk,off);
+#endif
+
+      while (blk <= eblk)
+        { int c, b, slen;
+
+#ifdef DEBUG_IO
+          fprintf(stderr,"  Loading block %lld: @%lld",blk,lseek(fid,0,SEEK_CUR));
+#endif
+          if (inp->zipd)
+            { uint32 dlen, tlen;
+              int    rez;
+              size_t x;
+
+              dlen = zoffs[blk+1]-zoffs[blk];
+              tlen = IO_BLOCK;
+              read(fid,zuf,dlen);
+              if ((rez = libdeflate_gzip_decompress(decomp,zuf,dlen,buf,tlen,&x)) != 0)
+                { fprintf(stderr,"Decompression not OK!\n");
+                  exit (1);
+                }
+              slen = (int) x;
+#ifdef DEBUG_IO
+              fprintf(stderr," %d ->",dlen);
+#endif
+            }
+          else
+            slen = read(fid,buf,IO_BLOCK);
+          totread += slen;
+#ifdef DEBUG_IO
+          fprintf(stderr," %d\n",slen);
+#endif
+
+          if (blk == eblk && eoff < slen)
+            slen = eoff;
+
+          for (b = off; b < slen; b++)
+            { c = buf[b];
+#ifdef DEBUG_AUTO
+              fprintf(stderr,"  %.5s: %c\n",Name2[state],c);
+#endif
+              switch (state)
+
+              { case QAT:
+                  state = HSKP;
+                  break;
+
+                case HSKP:
+                  if (c == '\n')
+                    { if (fastq)
+                        state = QSEQ;
+                      else
+                        state = ASEQ;
+                    }
+                  break;
+                  
+                case QSEQ:
+                  if (c != '\n')
+                    { if (olen >= omax)
+                        { omax = omax*1.2 + 1000;
+                          line = (char *) Realloc(line,omax+1,"Reallocating line buffer");
+                          if (line == NULL)
+                            exit (1);
+                        }
+                      line[olen++] = c;
+                    }
+                  else
+                    { while (Add_Data_Block(dset,olen,line))
+                        { if (action == SAMPLE)
+                            { dset->ratio = (1.*parm->work) / (totread-(slen-b));
+                              return (NULL);
+                            }
+                          else
+                            { CALL_BACK(dset,tid);
+                              if (CLOCK)
+                                { cumbps += dset->totlen;
+                                  if (cumbps >= nxtbps)
+                                    { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
+                                      fflush(stderr);
+                                      nxtbps = cumbps+pct1;
+                                    }
+                                }
+                              Reset_Data_Block(dset);
+                            }
+                        }
+                      olen  = 0;
+                      state = QPLS;
+                    }
+                  break;
+
+                case QPLS:
+                  if (c == '\n')
+                    state = QSKP;
+                  break;
+
+                case QSKP:
+                  if (c == '\n')
+                    state = QAT;
+                  break;
+
+                case AEOL:
+                  if (c == '>')
+                    { while (Add_Data_Block(dset,olen,line))
+                        { if (action == SAMPLE)
+                            { dset->ratio = (1.*parm->work) / (totread-(slen-b));
+                              return (NULL);
+                            }
+                          else
+                            { CALL_BACK(dset,tid);
+                              if (CLOCK)
+                                { cumbps += dset->totlen;
+                                  if (cumbps >= nxtbps)
+                                    { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
+                                      fflush(stderr);
+                                      nxtbps = cumbps+pct1;
+                                    }
+                                }
+                              Reset_Data_Block(dset);
+                            }
+                        }
+                      olen  = 0;
+                      state = HSKP;
+                      break;
+                    }
+                  state = ASEQ;
+
+                case ASEQ:
+                  if (c == '\n')
+                    state = AEOL;
+                  else
+                    { if (olen >= omax)
+                        { omax = omax*1.2 + 1000;
+                          line = (char *) Realloc(line,omax+1,"Reallocating line buffer");
+                          if (line == NULL)
+                            exit (1);
+                        }
+                      line[olen++] = c;
+                    }
+                  break;
+              }
+            }
+          blk += 1;
+          off = 0;
+        }
+      if (state == AEOL)
+        { while (Add_Data_Block(dset,olen,line))
+            { if (action == SAMPLE)
+                { dset->ratio = (1.*parm->work) / totread;
+                  return (NULL);
+                }
+              else
+                { CALL_BACK(dset,tid);
+                  if (CLOCK)
+                    { cumbps += dset->totlen;
+                      if (cumbps >= nxtbps)
+                        { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
+                          fflush(stderr);
+                          nxtbps = cumbps+pct1;
+                        }
+                    }
+                  Reset_Data_Block(dset);
+                }
+            }
+          olen  = 0;
+        }
+      close(fid);
+    }
+
+  if (action == SAMPLE)
+    { dset->ratio = (1.*parm->work) / totread;
+      return (NULL);
+    }
+
+  if (dset->nreads > 0)
+    CALL_BACK(dset,tid);
+
+  if (CLOCK)
+    fprintf(stderr,"\r         \r");
+
+  free(line);
+  return (NULL);
+}
+
+
+/*******************************************************************************************
+ *
+ *  BAM/SAM SPECIFIC CODE
+ *
+ ********************************************************************************************/
+
+#define BAM_BLOCK  0x10000
+#define HEADER_LEN      36
+#define SEQ_RUN         40
+
+static int DNA[256] =
+  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1,
+    0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1,
+  };
+
+ //  Get value of little endian integer of n-bytes
+
+static inline uint32 getint(uint8 *buf, int n)
+{ uint32 val;
+  int    k;
+
+  val = 0;
+  for (k = n-1; k >= 0; k--)
+    val = (val << 8) | buf[k];
+  return (val);
+}
+
+ //  Next len chars are printable and last is zero?
+
+static inline int valid_name(char *name, int len)
+{ int i;
+
+  if (len < 1)
+    return (0);
+  len -= 1;
+  for (i = 0; i < len; i++)
+    if ( ! isprint(name[i]))
+      return (0);
+  return (name[len] == 0);
+}
+
+ //  Next len ints are plausible cigar codes
+
+static inline int valid_cigar(int32 *cigar, int len, int range)
+{ int i, c;
+
+  for (i = 0; i < len; i++)
+    { c = cigar[i];
+      if ((c & 0xf) > 8)
+        return (0);
+      c >>= 4;
+      if (c < 0 || c > range)
+        return (0);
+    }
+  return (1);
+}
+
+
+/*******************************************************************************************
+ *
+ *  Routines to manage a BAM_FILE stream object
+ *
+ ********************************************************************************************/
+
+  //   Open BAM stream where compressed block start is known.  Compressed BAM blocks are buffered
+  //     in a very big IO buffer and the current uncompressed block is in a 64Kbp array.
+
+typedef struct
+  { int       fid;              //  file descriptor
+    int       last;             //  last block of data in file has been read
+    uint8    *buf;              //  IO buffer (of IO_BLOCK bytes, supplied by caller)
+    int       blen;             //  # of bytes currently in IO buffer
+    int       bptr;             //  start of next BAM block in IO buffer
+    uint8     bam[BAM_BLOCK+1]; //  uncompressed bam block
+    uint32    bsize;            //  length of compressed bam block
+    uint32    ssize;            //  length of uncompressed bam block
+    Location  loc;              //  current location in bam file
+    DEPRESS  *decomp;
+  } BAM_FILE;
+
+  //  Load next len bytes of uncompressed BAM data into array data
+
+static void bam_get(BAM_FILE *file, uint8 *data, int len)
+{ int    chk, off;
+  uint8 *bam  = file->bam;
+  int    boff = file->loc.boff;
+
+  off = 0;
+  chk = file->ssize - boff;
+  while (len >= chk)
+    { int    bptr, blen, bsize;
+      uint8 *block, *buf;
+      uint32 ssize;
+      size_t tsize;
+
+#ifdef DEBUG_BAM_IO
+      printf("Move %d bytes to data+%d from bam+%d\n",chk,off,boff);
+#endif
+      if (data != NULL)
+        memcpy(data+off,bam+boff,chk);
+      off += chk;
+      len -= chk;
+
+      file->loc.fpos += file->bsize;
+#ifdef DEBUG_BAM_IO
+      printf("File pos %lld\n",file->fpos);
+#endif
+
+      if (chk == 0 && len == 0)
+        { file->loc.boff = 0;
+          return;
+        }
+
+      buf   = file->buf;
+      bptr  = file->bptr;
+      blen  = file->blen;
+      block = buf+bptr;
+#ifdef DEBUG_BAM_IO
+      printf("Block at buffer %d\n",bptr);
+#endif
+      while (bptr + 18 > blen || bptr + (bsize = getint(block+16,2) + 1) > blen)
+        { chk = blen-bptr;
+          if (file->last)
+            { fprintf(stderr, "%s: Corrupted BAM file\n",Prog_Name);
+              exit (1);
+            }
+          memmove(buf,block,chk);
+          blen = chk + read(file->fid,buf+chk,IO_BLOCK-chk);
+#ifdef DEBUG_BAM_IO
+          printf("Loaded %d to buf+%d for a total of %d\n",IO_BLOCK-chk,chk,blen);
+#endif
+          if (blen < IO_BLOCK)
+            file->last = 1;
+          file->blen = blen;
+          bptr = 0;
+          block = buf;
+        }
+
+      //  Fetch and uncompress next Bam block
+
+      if (libdeflate_gzip_decompress(file->decomp,block,bsize,bam,BAM_BLOCK,&tsize) != 0)
+        { fprintf(stderr,"%s: Bad gzip block\n",Prog_Name);
+          exit (1);
+        }
+      ssize = tsize;
+      boff = 0;
+#ifdef DEBUG_BAM_IO
+      printf("Loaded gzip block of size %d into %d\n",bsize,ssize);
+#endif
+
+      file->bsize = bsize;
+      file->ssize = ssize;
+      file->bptr  = bptr + bsize;
+      chk = ssize;
+    }
+
+#ifdef DEBUG_BAM_IO
+  printf("Xfer %d bytes to data+%d from bam+%d\n",len,off,boff);
+#endif
+  if (data != NULL)
+    memcpy(data+off,bam+boff,len);
+  file->loc.boff = boff+len;
+}
+
+  //  Startup a bam stream, the location must be valid.
+
+static void bam_start(BAM_FILE *file, int fid, uint8 *buf, Location *loc)
+{ file->fid   = fid;
+  file->ssize = 0;
+  file->bsize = 0;
+  file->buf   = buf;
+  file->bptr  = 0;
+  file->blen  = 0;
+  file->last  = 0;
+  lseek(fid,loc->fpos,SEEK_SET);
+  file->loc.fpos = loc->fpos;
+  file->loc.boff = 0;
+  bam_get(file,NULL,loc->boff);
+}
+
+static int bam_eof(BAM_FILE *file)
+{ return (file->loc.boff == file->ssize && file->bptr == file->blen && file->last); }
+
+
+/*******************************************************************************************
+ *
+ *  Routines to manage a SAM stream, but as a BAM_FILE (only select fields are used)
+ *
+ ********************************************************************************************/
+
+  //  Get next line of SAM input if possible
+
+static uint8 *sam_getline(BAM_FILE *file)
+{ int    rem;
+  int    blen = file->blen;
+  int    bptr = file->bptr;
+  uint8 *buf  = file->buf;
+  uint8  *b, *d;
+
+  b = buf + bptr;
+  rem = blen-bptr;
+  if (rem == 0)
+    d = NULL;
+  else
+    d = memchr(b,'\n',rem);
+  if (d == NULL)
+    { if (file->last)
+        { fprintf(stderr,"%s: Corrupted SAM file",Prog_Name);
+          exit (1);
+        }
+      memmove(buf,buf+bptr,rem);
+      blen = rem + read(file->fid,buf+rem,IO_BLOCK-rem);
+      if (blen < IO_BLOCK)
+        file->last = 1;
+      file->blen = blen;
+      bptr = 0;
+      b = buf;
+      d = memchr(b,'\n',blen);
+      if (d == NULL)
+        { if (blen < IO_BLOCK)
+            fprintf(stderr,"%s: Corrupted SAM file",Prog_Name);
+          else
+            fprintf(stderr,"%s: SAM-line is longer than max %lld\n",Prog_Name,IO_BLOCK);
+          exit (1);
+        }
+    }
+  d += 1;
+  file->bptr = d-buf;
+  file->loc.fpos += d-b;
+  return (b);
+}
+
+  //  Startup a sam stream
+
+static void sam_start(BAM_FILE *file, int fid, uint8 *buf, Location *loc)
+{ file->fid   = fid;
+  file->buf   = buf;
+  file->bptr  = 0;
+  file->blen  = 0;
+  file->last  = 0;
+  lseek(fid,loc->fpos,SEEK_SET);
+  file->loc.fpos = loc->fpos;
+  file->loc.boff = 0;
+}
+
+
+/*******************************************************************************************
+ *
+ *  Routines to find bam blocks and valid locations to start scan threads for first pass
+ *
+ ********************************************************************************************/
+
+  //  Find first record location (skip over header) in parm->fid
+  //    Return value is in parm->beg
+
+static void skip_bam_header(Thread_Arg *parm)
+{ uint8    *buf = parm->buf;
+  int       fid = parm->fid;
+
+  BAM_FILE  _bam, *bam = &_bam;
+  Location  zero = { 0ll, 0 };
+  uint8     data[4];
+  int       i, ntxt, ncnt, nlen;
+
+  //  At start of file so can use BAM stream
+
+  bam->decomp = parm->decomp;
+  bam_start(bam,fid,buf,&zero);
+
+#ifdef DEBUG_FIND
+  fprintf(stderr,"Header seek\n");
+  fflush(stderr);
+#endif
+
+  bam_get(bam,data,4);
+  if (memcmp(data,"BAM\1",4) != 0)
+    { fprintf(stderr, "%s: Corrupted BAM header %.4s\n",Prog_Name,data);
+      exit (1);
+    }
+
+  bam_get(bam,data,4);
+  ntxt = getint(data,4);
+  bam_get(bam,NULL,ntxt);
+
+  bam_get(bam,data,4);
+  ncnt = getint(data,4);
+  for (i = 0; i < ncnt; i++)
+    { bam_get(bam,data,4);
+      nlen = getint(data,4);
+      bam_get(bam,NULL,nlen+4);
+    }
+
+  parm->beg = bam->loc;
+
+#ifdef DEBUG_FIND
+  fprintf(stderr,"  Begin @ %lld/%d\n",parm->beg.fpos,parm->beg.boff);
+  fflush(stderr);
+#endif
+}
+
+  //  Find next identifiable entry location forward of parm->fpos in parm->fid
+  //    Return value is in parm->beg
+
+static void bam_nearest(Thread_Arg *parm)
+{ uint8       *buf  = parm->buf;
+  int          fid  = parm->fid;
+  DEPRESS     *decomp = parm->decomp;
+  int64        fpos = parm->beg.fpos;
+
+  BAM_FILE  _bam, *bam = &_bam;
+
+  uint32 bptr, blen;
+  int    last, notfound;
+
+  uint8 *block;
+  uint32 bsize, ssize;
+  size_t tsize;
+
+#ifdef DEBUG_FIND
+  fprintf(stderr,"Searching from %lld\n",fpos);
+  fflush(stderr);
+#endif
+
+  lseek(fid,fpos,SEEK_SET);
+  blen = 0;
+  bptr = 0;
+  last = 0;
+
+  //  Search until find a gzip block header
+
+  notfound = 1;
+  while (notfound)
+    { int    j;
+      uint32 isize, crc;
+
+      fpos += bptr;      //   Get more data at level of IO blocks
+      if (last)
+        { fprintf(stderr,"%s: Could not find bam block structure!\n",Prog_Name);
+          exit (1);
+        }
+      else
+        { uint32 x = blen-bptr;
+          memmove(buf,buf+bptr,x);
+          blen = x + read(fid,buf+x,IO_BLOCK-x);
+          if (blen < IO_BLOCK)
+            last = 1;
+#ifdef DEBUG_FIND
+          fprintf(stderr,"Loading %d(last=%d)\n",blen,last);
+          fflush(stderr);
+#endif
+          bptr = 0;
+        }
+
+      while (bptr < blen)          //  Search IO block for Gzip block start
+        { if (buf[bptr++] != 31)
+            continue;
+          if ( buf[bptr] != 139)
+            continue;
+          bptr += 1;
+          if ( buf[bptr] != 8)
+            continue;
+          bptr += 1;
+          if ( buf[bptr] != 4)
+            continue;
+  
+#ifdef DEBUG_FIND
+          fprintf(stderr,"  Putative header @ %d\n",bptr-3);
+          fflush(stderr);
+#endif
+
+          if (bptr + 12 > blen)
+            { if (last)
+                continue;
+              bptr -= 3;
+              break;
+            }
+  
+          j = bptr+9;
+          if (buf[j] != 66)
+		  continue;
+          j += 1;
+          if (buf[j] != 67)
+            continue;
+          j += 1;
+          if (buf[j] != 2)
+            continue;
+          j += 1;
+          if (buf[j] != 0)
+            continue;
+          j += 1;
+    
+          bsize = getint(buf+j,2)+1;
+          block = buf+(bptr-3);
+
+          if ((bptr-3) + bsize > blen)
+            { if (last)
+                continue;
+              bptr -= 3;
+              break;
+            }
+
+#ifdef DEBUG_FIND
+          fprintf(stderr,"    Putative Extra %d\n",bsize);
+          fflush(stderr);
+#endif
+  
+          isize = getint(block+(bsize-4),4);
+          crc   = getint(block+(bsize-8),4);
+  
+          if (libdeflate_gzip_decompress(decomp,block,bsize,bam->bam,BAM_BLOCK,&tsize) != 0)
+            continue;
+          ssize = tsize;
+
+          if (ssize == isize && crc == libdeflate_crc32(0,bam->bam,ssize))
+            { bptr -= 3;
+              fpos  += bptr;
+              notfound = 0;
+
+#ifdef DEBUG_FIND
+              fprintf(stderr,"    First block at %lld (%d)\n",fpos,ssize);
+              fflush(stderr);
+#endif
+	      break;
+            }
+        }
+    }
+
+  //  Have found a gzip/bam block start, now scan blocks until can identify the start
+  //    of a sequence entry
+
+  bam->fid      = fid;      //  Kick-start BAM stream object
+  bam->last     = last;
+  bam->buf      = buf;
+  bam->blen     = blen;
+  bam->bptr     = bptr+bsize;
+  bam->bsize    = bsize;
+  bam->ssize    = ssize;
+  bam->loc.fpos = fpos;
+  bam->loc.boff = 0;
+  bam->decomp   = decomp;
+
+  while ( ! bam_eof(bam))
+    { int    j, k;
+      int    run, out, del;
+      int    lname, lcigar, lseq, ldata;
+
+      block = bam->bam;
+      ssize = bam->ssize;
+
+      run = HEADER_LEN-1;
+      out = 1;
+      for (j = HEADER_LEN; j < 10000; j++)
+        if (DNA[block[j]])
+          { if (out && j >= run+SEQ_RUN)
+              {
+#ifdef DEBUG_FIND
+                fprintf(stderr,"      Possible seq @ %d\n",run+1);
+                fflush(stderr);
+#endif
+                for (k = run-(HEADER_LEN-1); k >= 0; k--)
+                  { ldata  = getint(block+k,4);
+                    lname  = block[k+12];
+                    lcigar = getint(block+(k+16),2);
+                    lseq   = getint(block+(k+20),4);
+                    if (lname > 0 && lcigar >= 0 && lseq > 0 &&
+                        (lseq+1)/2+lseq+lname+(lcigar<<2) < ldata)
+                      { del = (k+35+lname+(lcigar<<2)) - run;
+                        if (del >= 0 && del < SEQ_RUN/2)
+                          { if (valid_name((char *) (block+(k+36)),lname) &&
+                                valid_cigar((int32 *) (block+(k+36+lname)),lcigar,lseq))
+                              { parm->beg.fpos = bam->loc.fpos;
+                                parm->beg.boff = k;
+#ifdef DEBUG_FIND
+                                fprintf(stderr,"      Found @ %d: '%s':%d\n",k,block+(k+36),lseq);
+                                fflush(stderr);
+#endif
+
+                                close(fid);
+
+                                return;
+                              }
+                          }
+                      }
+                  }
+                out = 0;
+              }
+          }
+        else
+          { run = j;
+            out = 1;
+          }
+
+      bam_get(bam,NULL,ssize);
+    }
+
+  parm->beg.fpos = -1;
+}
+
+  //  Find next identifiable sam entry location forward of parm->fpos in parm->fid
+  //    Return location is in parm->beg.  NB: works to skip sam header as well
+
+static void sam_nearest(Thread_Arg *parm)
+{ uint8       *buf  = parm->buf;
+  int          fid  = parm->fid;
+
+  BAM_FILE  _bam, *bam = &_bam;
+
+  bam->decomp = parm->decomp;
+  sam_start(bam,fid,buf,&(parm->beg));
+
+  sam_getline(bam);
+  if (parm->beg.fpos == 0)
+    { while (buf[bam->bptr] == '@')
+        sam_getline(bam);
+    }
+  parm->beg = bam->loc;
+}
+
+
+/*******************************************************************************************
+ *
+ *  Routines to scan and parse bam and sam entries
+ *
+ ********************************************************************************************/
+
+typedef struct
+  { int    hlen;
+    char  *header;
+    uint32 flags;
+    int    len;
+    char  *seq;
+    char  *arr;
+    char  *qvs;
+    int    lmax;     //  current max size for seq, arr, and qvs
+    int    dmax;     //  current max size for data
+    uint8 *data;     //  data buffer
+  } samRecord;
+
+static char INT_2_IUPAC[16] = "=acmgrsvtwyhkdbn";
+
+  //  Scan next bam entry and load PacBio info in record 'theR'
+ 
+static int bam_record_scan(BAM_FILE *sf, samRecord *theR)
+{ int ldata, lname, lseq, lcigar, aux;
+
+  { uint8  x[36];     //  Process 36 byte header
+
+    bam_get(sf,x,36);
+
+    ldata  = getint(x,4) - 32;
+    lname  = getint(x+12,1);
+    lcigar = getint(x+16,2);
+    lseq   = getint(x+20,4);
+
+    if (ldata < 0 || lseq < 0 || lname < 1)
+      { fprintf(stderr,"%s: Non-sensical BAM record, file corrupted?\n",Prog_Name);
+        exit (1);
+      }
+
+    aux = lname + ((lseq + 1)>>1) + lseq + (lcigar<<2);
+    if (aux > ldata)
+      { fprintf(stderr,"%s: Non-sensical BAM record, file corrupted?\n",Prog_Name);
+        exit (1);
+      }
+
+    if (lseq > theR->lmax)
+      { theR->lmax = 1.2*lseq + 1000;
+        theR->seq  = (char *) Realloc(theR->seq,3*theR->lmax,"Reallocating sequence buffer");
+        if (theR->seq == NULL)
+          exit (1);
+        theR->arr  = theR->seq + theR->lmax;
+        theR->qvs  = theR->arr + theR->lmax;
+      }
+
+    if (ldata > theR->dmax)
+      { theR->dmax = 1.2*ldata + 1000;
+        theR->data = (uint8 *) Realloc(theR->data,theR->dmax,"Reallocating data buffer");
+        if (theR->data == NULL)
+          exit (1);
+      }
+
+    bam_get(sf,theR->data,ldata);
+
+    if ((getint(x+18,2) & 0x900) != 0)
+      { theR->len = 0;
+        return (0);
+      }
+
+    if (lseq <= 0)
+      fprintf(stderr,"%s: WARNING: no sequence for subread !?\n",Prog_Name);
+
+    theR->header = (char *) theR->data;
+    theR->hlen   = lname;
+    theR->len    = lseq;
+
+    { uint8 *t;
+      char  *s;
+      int    i, e;
+
+      t = theR->data + (lname + (lcigar<<2));
+      s = theR->seq;
+      lseq -= 1;
+      for (e = i = 0; i < lseq; e++)
+        { s[i++] = INT_2_IUPAC[t[e] >> 4];
+          s[i++] = INT_2_IUPAC[t[e] & 0xf];
+        }
+      if (i <= lseq)
+        s[i] = INT_2_IUPAC[t[e++] >> 4];
+      lseq += 1;
+
+      t += e;
+      s  = theR->qvs;
+      if (t[0] == 0xff)
+        return (0);
+      for (i = 0; i < lseq; i++)
+        s[i] = t[i] + 33;
+    }
+  }
+
+  return (1);
+}
+
+  //  Scan next bam entry and load PacBio info in record 'theR'
+
+static char  IUPAC_2_DNA[256] =
+  { 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a',   'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a',
+    'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a',   'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a',
+    'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a',   'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a',
+    'a', 'c', 'g', 't', 'a', 'a', 'a', 'a',   'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a',
+
+    'a', 'a', 'c', 'c', 'a', 'a', 'a', 'g',   'a', 'a', 'a', 'g', 'a', 'a', 'a', 'a',
+    'a', 'a', 'a', 'c', 't', 'a', 'a', 'a',   'a', 'c', 'a', 'a', 'a', 'a', 'a', 'a',
+    'a', 'a', 'c', 'c', 'a', 'a', 'a', 'g',   'a', 'a', 'a', 'g', 'a', 'a', 'a', 'a',
+    'a', 'a', 'a', 'c', 't', 'a', 'a', 'a',   'a', 'c', 'a', 'a', 'a', 'a', 'a', 'a',
+  };
+
+#define CHECK(cond, msg)                                \
+{ if ((cond))                                           \
+    { fprintf(stderr, "%s: %s\n", Prog_Name, msg);      \
+       exit (1); 	                                \
+    }                                                   \
+}
+
+#define NEXT_ITEM(b,e)                                  \
+{ b = e;                                                \
+  while (*e != '\0' && *e != '\t')                      \
+    e++;                                                \
+  CHECK( *e == '\0', "Missing one or more fields")      \
+  *e = 0;                                               \
+}
+
+static int sam_record_scan(BAM_FILE *sf, samRecord *theR)
+{ char      *p;
+  int        qlen, flags;
+
+  //  read next line
+
+  theR->data = sam_getline(sf);
+
+  p = (char *) theR->data;
+
+  { char *q, *seq;     //  Load header and sequence from required fields
+    int   i;
+
+    NEXT_ITEM(q,p)
+    qlen = p-q;
+    CHECK( qlen <= 1, "Empty header name")
+    CHECK( qlen > 255, "Header is too long")
+
+    theR->header = q;
+
+    p = index(p+1,'\t');
+    flags = strtol(q=p+1,&p,0);
+    CHECK( p == q, "Cannot parse flags")
+
+    for (i = 0; i < 7; i++)   // Skip next 8 required fields
+      { p = index(p+1,'\t');
+        CHECK( p == NULL, "Too few required fields in SAM record, file corrupted?")
+      }
+    p += 1;
+
+    NEXT_ITEM(q,p)
+    qlen = p-q;
+    CHECK (*q == '*', "No sequence for read?");
+
+    if (qlen > theR->lmax)
+      { theR->lmax = 1.2*qlen + 1000;
+        theR->seq  = (char *) Realloc(theR->seq,3*theR->lmax,"Reallocating sequence buffer");
+        if (theR->seq == NULL)
+          exit (1);
+        theR->arr  = theR->seq + theR->lmax;
+        theR->qvs  = theR->arr + theR->lmax;
+      }
+
+    if ((flags & 0x900) != 0)
+      { theR->len = 0;
+        return (0);
+      }
+
+    if (qlen <= 0)
+      fprintf(stderr,"%s: WARNING: no sequence for subread !?\n",Prog_Name);
+
+    theR->len = qlen;
+    seq = theR->seq;
+    for (i = 0; i < qlen; i++)
+      seq[i] = IUPAC_2_DNA[(int) (*q++)];
+
+    q = ++p;
+    p = index(p,'\t');
+    CHECK( p == NULL, "No auxilliary tags in SAM record, file corrupted?")
+
+    if (*q == '*')
+      return (0);
+    qlen = p-q;
+    seq = theR->qvs;
+    for (i = 0; i < qlen; i++)
+      seq[i] = *q++;
+  }
+
+  return (1);
+}
+
+/*******************************************************************************************
+ *
+ *  Parallel:  Each thread processes a contiguous stripe across the input files
+ *               sending the compressed binary data lines to their assigned OneFile.
+ *
+ ********************************************************************************************/
+
+  //  Write subread data in samRecord rec to non-NULL file types
+
+static void *bam_output_thread(void *arg)
+{ Thread_Arg  *parm  = (Thread_Arg *) arg;
+  File_Object *fobj  = parm->fobj;
+  uint8       *buf   = parm->buf;
+  int          action = parm->action;
+  DATA_BLOCK  *dset   = &parm->block;
+  int          tid    = parm->thread_id;
+
+  samRecord    _theR, *theR = &_theR;
+  BAM_FILE     _bam, *bam = &_bam;
+
+  int64        epos;
+  uint32       eoff;
+  int          isbam;
+  int          f, fid;
+  int64        totread, fbeg;
+
+  int64 estbps, cumbps, nxtbps, pct1;
+  int   CLOCK;
+
+  if (VERBOSE && tid == 0 && action != SAMPLE)
+    { estbps = dset->ratio / NTHREADS;
+      nxtbps = pct1 = estbps/100;
+      cumbps = 0;
+      fprintf(stderr,"\n    0%%");
+      fflush(stderr);
+      CLOCK = 1;
+    }
+  else
+    CLOCK = 0;
+
+  //  Know the max size of sequence and data from pass 1, so set up accordingly
+
+  if (fobj->ftype == BAM)
+    { theR->dmax = 50000;
+      theR->data = Malloc(theR->dmax,"Allocating sequence array");
+      if (theR->data == NULL)
+        exit (1);
+    }
+  theR->lmax = 75000;
+  theR->seq  = Malloc(3*theR->lmax,"Allocating sequence array");
+  if (theR->seq == NULL)
+    exit (1);
+  theR->arr = theR->seq + theR->lmax;
+  theR->qvs = theR->arr + theR->lmax;
+
+  bam->decomp = parm->decomp;
+
+  totread = 0;
+
+  for (f = parm->bidx; f <= parm->eidx; f++)
+    { fid   = open(fobj[f].path,O_RDONLY);
+      isbam = (fobj[f].ftype == BAM);
+      if (f < parm->eidx || parm->end.fpos >= fobj[f].fsize)
+        { epos  = fobj[f].fsize;
+          eoff  = 0;
+        }
+      else 
+        { epos  = parm->end.fpos;
+          eoff  = parm->end.boff;
+        }
+      if (f > parm->bidx || parm->beg.fpos == 0)
+        { parm->beg.fpos = 0;
+          parm->fid      = fid;
+          if (isbam)
+            skip_bam_header(parm);
+          else
+            sam_nearest(parm);
+        }
+
+      if (isbam)
+        bam_start(bam,fid,buf,&(parm->beg));
+      else
+        sam_start(bam,fid,buf,&(parm->beg));
+
+      fbeg = lseek(fid,0,SEEK_CUR);
+
+#ifdef DEBUG_IO
+      printf("Block: %12lld / %5d to %12lld / %5d --> %8lld\n",bam->loc.fpos,bam->loc.boff,
+                                                               epos,eoff,epos - bam->loc.fpos);
+      fflush(stdout);
+#endif
+
+      while (1)
+        { if (bam->loc.fpos >= epos && bam->loc.boff >= eoff)
+            break;
+
+          if (isbam)
+            bam_record_scan(bam,theR);
+          else
+            sam_record_scan(bam,theR);
+
+          if (theR->len <= 0)
+            continue;
+
+#ifdef DEBUG_BAM_RECORD
+          fprintf(stderr,"S = '%s'\n",theR->seq);
+          if (hasQV)
+            fprintf(stderr,"Q = '%.*s'\n",theR->len,theR->qvs);
+#endif
+
+          while (Add_Data_Block(dset,theR->len,theR->seq))
+            { if (action == SAMPLE)
+                if (isbam)
+                  { int unused = (bam->blen - (bam->bptr + bam->bsize))
+                               - bam->loc.boff * ((1.*bam->bsize) / bam->ssize);
+                    dset->ratio = (1.*parm->work) / ((totread+lseek(fid,0,SEEK_CUR)-unused)-fbeg);
+                    return (NULL);
+                  }
+                else
+                  { dset->ratio = (1.*parm->work) / (totread+bam->loc.fpos);
+                    return (NULL);
+                  }
+              else
+                { CALL_BACK(dset,tid);
+                  if (CLOCK)
+                    { cumbps += dset->totlen;
+                      if (cumbps >= nxtbps)
+                        { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
+                          fflush(stderr);
+                          nxtbps = cumbps+pct1;
+                        }
+                    }
+                  Reset_Data_Block(dset);
+                }
+            }
+        }
+
+      totread += lseek(fid,0,SEEK_CUR) - fbeg;
+      close(fid);
+    }
+
+  if (action == SAMPLE)
+    { dset->ratio = (1.*parm->work) / totread;
+      return (NULL);
+    }
+
+  if (dset->nreads > 0)
+    CALL_BACK(dset,tid);
+
+  if (CLOCK)
+    fprintf(stderr,"\r         \r");
+
+  free(theR->seq);
+  if (fobj->ftype == BAM)
+    free(theR->data);
+
+  return (NULL);
+}
+
+
+/*******************************************************************************************
+ *
+ *  CRAM SPECIFIC CODE
+ *
+ ********************************************************************************************/
+
+/*******************************************************************************************
+ *
+ *  cram_nearest: Routine to find next entry given arbitray start point.
+ *
+ ********************************************************************************************/
+
+#include "htslib/hts.h"
+#include "htslib/hfile.h"
+#include "cram/cram.h"
+
+int ITF_LEN[16] = { 0, 0, 0, 0,
+                    0, 0, 0, 0,
+                    1, 1, 1, 1,
+                    2, 2, 3, 4 };
+
+static void scan_itf8(hFILE *fp)
+{ char buf[4];
+  int  nb = ITF_LEN[hgetc(fp)>>4];
+  if (nb > 0)
+    hread(fp,buf,nb);
+}
+
+const int LTF_LEN[256] = {
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
+
+    2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,
+    2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,
+    3, 3, 3, 3,  3, 3, 3, 3,  3, 3, 3, 3,  3, 3, 3, 3,
+    4, 4, 4, 4,  4, 4, 4, 4,  5, 5, 5, 5,  6, 6, 7, 8 };
+
+static void scan_ltf8(hFILE *fp)
+{ char buf[8];
+  int  nb = LTF_LEN[hgetc(fp)];
+  if (nb > 0)
+    hread(fp,buf,nb);
+}
+
+static int int32_decode(hFILE *fp, int32 *val)
+{ char *v = (char *) val;
+
+  if (hread(fp,v,4) != 4)
+    return (1);
+#if __ORDER_LITTLE_ENDIAN__ != __BYTE_ORDER__
+  { char  x;
+    x = v[0];
+    v[0] = v[3];
+    v[3] = x;
+    x = v[1];
+    v[1] = v[2];
+    v[2] = x;
+  }
+#endif
+  return (0);
+}
+
+// reading cram block, header is a block so wrapped.
+
+static int64 scan_container(cram_fd *fd)
+{ int     i, len;
+  int32   nslice;
+  hFILE  *fp = fd->fp;
+
+  if (int32_decode(fp,&len))                    //  total length
+    return (-1);
+  scan_itf8(fp);                                //  ref seq id
+  scan_itf8(fp);                                //  start pos on ref
+  scan_itf8(fp);                                //  align span
+  scan_itf8(fp);                                //  # of records
+  if (CRAM_MAJOR_VERS(fd->version) > 1)
+    { if (CRAM_MAJOR_VERS(fd->version) >= 3)    //  record counter
+        scan_ltf8(fp);
+      else
+        scan_itf8(fp);
+      scan_ltf8(fp);                            //  # bps
+    }
+  scan_itf8(fp);                                //  # of blocks
+  itf8_decode(fd,&nslice);                      //  # of slices
+  for (i = 0; i < nslice; i++)                  //  landmarks
+    scan_itf8(fp);
+  hread(fp,&nslice,4);                          //  crc code
+  hseek(fp,len,SEEK_CUR);                       //  skip contents of container
+  return (htell(fp));
+}
+
+static int64 *genes_cram_index(char *path, int64 fsize, int64 *zsize)
+{ cram_fd *fd;
+  int64    cash[10], *zoff;
+  int64    s, e;
+  int      i, j;
+ 
+  fd = cram_open(path,"r");
+
+  cash[0] = htell(fd->fp);
+  for (i = 1; i < 10; i++)
+    { cash[i] = s = scan_container(fd);
+      if (s == fsize)
+        { zoff = Malloc(sizeof(int64)*i,"Allocating cram index"); 
+          if (zoff == NULL)
+            exit (1);
+          for (j = 0; j < i; i++)
+            zoff[j] = cash[i];
+          *zsize = i-1;
+          return (zoff);
+        }
+    }
+
+  e = ((fsize-(cash[0]+38))/(cash[9]-cash[0])+1)*9 + 100;
+  zoff = Malloc(sizeof(int64)*e,"Allocating cram index"); 
+  if (zoff == NULL)
+    exit (1);
+  for (j = 0; j < i; j++)
+    zoff[j] = cash[j];
+
+  while (s != fsize)
+    { zoff[i++] = s = scan_container(fd);
+      if (i >= e)
+        { e = ((fsize-(zoff[0]+38.))/(zoff[i-1]-zoff[0]))*(i-1) + 100;
+          zoff = Realloc(zoff,sizeof(int64)*e,"Allocating cram index"); 
+          if (zoff == NULL)
+            exit (1);
+        }
+    }
+
+  cram_close(fd);
+
+  *zsize = i-2;
+  return (zoff);
+}       
+
+static void cram_nearest(Thread_Arg *data)
+{ File_Object *inp   = data->fobj + data->bidx;
+  int64       *zoffs = inp->zoffs;
+  int64        zsize = inp->zsize;
+  int64        pos   = data->beg.fpos;
+  int i;
+
+  for (i = 0; i < zsize; i++)
+    if (zoffs[i] >= pos)
+      break;
+  if (i == zsize)
+    data->beg.fpos = -1;
+  else
+    data->beg.fpos = zoffs[i];
+}
+
+static void *cram_output_thread(void *arg)
+{ Thread_Arg  *parm   = (Thread_Arg *) arg;
+  File_Object *fobj   = parm->fobj;
+  int          action = parm->action;
+  DATA_BLOCK  *dset   = &parm->block;
+  int          tid    = parm->thread_id;
+
+  File_Object *inp;
+  int          f;
+  cram_fd     *fid;
+  int64        bpos, epos;
+  int64        totread;
+
+  int64 estbps, cumbps, nxtbps, pct1;
+  int   CLOCK;
+
+  if (VERBOSE && tid == 0 && action != SAMPLE)
+    { estbps = dset->ratio / NTHREADS;
+      nxtbps = pct1 = estbps/100;
+      cumbps = 0;
+      fprintf(stderr,"\n    0%%");
+      fflush(stderr);
+      CLOCK = 1;
+    }
+  else
+    CLOCK = 0;
+
+  totread = 0;
+
+  for (f = parm->bidx; f <= parm->eidx; f++)
+    { inp = fobj+f;
+      fid = cram_open(inp->path,"r");
+      if (f < parm->eidx || parm->end.fpos >= inp->zoffs[inp->zsize])
+        epos  = inp->zoffs[inp->zsize];
+      else
+        epos  = parm->end.fpos;
+      if (f > parm->bidx || parm->beg.fpos < inp->zoffs[0])
+        bpos  = inp->zoffs[0];
+      else
+        bpos  = parm->beg.fpos;
+      hseek(fid->fp,bpos,SEEK_SET);
+
+#ifdef DEBUG_IO
+      fprintf(stderr,"Block: %12lld to %12lld --> %8lld\n",bpos,epos,epos - bpos);
+      fflush(stderr);
+#endif
+
+      while (1)
+        { cram_record *rec;
+
+          rec = cram_get_seq(fid);
+          if (rec == NULL)
+            break;
+
+          if (htell(fid->fp) > epos)
+            break;
+
+          while (Add_Data_Block(dset,rec->len,(char *) rec->s->seqs_blk->data+rec->seq))
+            { if (action == SAMPLE)
+                { dset->ratio = (1.*parm->work) / (totread+(htell(fid->fp)-bpos));
+                  return (NULL);
+                }
+              else
+                { CALL_BACK(dset,tid);
+                  if (CLOCK)
+                    { cumbps += dset->totlen;
+                      if (cumbps >= nxtbps)
+                        { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
+                          fflush(stderr);
+                          nxtbps = cumbps+pct1;
+                        }
+                    }
+                  Reset_Data_Block(dset);
+                }
+            }
+        }
+
+      totread += epos-bpos;
+    }
+
+  if (action == SAMPLE)
+    { dset->ratio = (1.*parm->work) / totread;
+      return (NULL);
+    }
+
+  if (dset->nreads > 0)
+    CALL_BACK(dset,tid);
+
+  if (CLOCK)
+    fprintf(stderr,"\r         \r");
+
+  return (NULL);
+}
+
+
+
+/*******************************************************************************************
+ *
+ *  DAZZLER SPECIFIC CODE
+ *
+ ********************************************************************************************/
+
+#define DB_QV   0x03ff   //  Mask for 3-digit quality value
+#define DB_CCS  0x0400   //  This is the second or later of a group of subreads from a given insert
+#define DB_BEST 0x0800   //  This is the "best" subread of a given insert (may be the only 1)
+
+#define DB_ARROW 0x2     //  DB is an arrow DB
+#define DB_ALL   0x1     //  all wells are in the trimmed DB
+
+typedef struct
+  { int     origin; //  Well # (DB), Contig # (DAM)
+    int     rlen;   //  Length of the sequence (Last pulse = fpulse + rlen)
+    int     fpulse; //  First pulse (DB), left index of contig in scaffold (DAM)
+    int64   boff;   //  Offset (in bytes) of compressed read in 'bases' file, or offset of
+                    //    uncompressed bases in memory block
+    int64   coff;   //  Offset (in bytes) of compressed quiva streams in '.qvs' file (DB),
+                    //  Offset (in bytes) of scaffold header string in '.hdr' file (DAM)
+                    //  4 compressed shorts containing snr info if an arrow DB.
+    int     flags;  //  QV of read + flags above (DB only)
+  } DAZZ_READ;
+
+typedef struct
+  { int         ureads;     //  Total number of reads in untrimmed DB
+    int         treads;     //  Total number of reads in trimmed DB
+    int         cutoff;     //  Minimum read length in block (-1 if not yet set)
+    int         allarr;     //  DB_ALL | DB_ARROW
+    float       freq[4];    //  frequency of A, C, G, T, respectively
+
+    //  Set with respect to "active" part of DB (all vs block, untrimmed vs trimmed)
+
+    int         maxlen;     //  length of maximum read (initially over all DB)
+    int64       totlen;     //  total # of bases (initially over all DB)
+
+    int         nreads;     //  # of reads in actively loaded portion of DB
+    int         trimmed;    //  DB has been trimmed by cutoff/all
+    int         part;       //  DB block (if > 0), total DB (if == 0)
+    int         ufirst;     //  Index of first read in block (without trimming)
+    int         tfirst;     //  Index of first read in block (with trimming)
+
+       //  In order to avoid forcing users to have to rebuild all thier DBs to accommodate
+       //    the addition of fields for the size of the actively loaded trimmed and untrimmed
+       //    blocks, an additional read record is allocated in "reads" when a DB is loaded into
+       //    memory (reads[-1]) and the two desired fields are crammed into the first two
+       //    integer spaces of the record.
+
+    char       *path;       //  Root name of DB for .bps, .qvs, and tracks
+    int         loaded;     //  Are reads loaded in memory?
+    void       *bases;      //  file pointer for bases file (to fetch reads from),
+                            //    or memory pointer to uncompressed block of all sequences.
+    DAZZ_READ  *reads;      //  Array [-1..nreads] of DAZZ_READ
+    void       *tracks;     //  Linked list of loaded tracks
+  } DAZZ_DB;
+
+static void read_DB_stub(char *path, int *cut, int *all)
+{ FILE *dbfile;
+  char  buf1[10100];
+  char  buf2[10100];
+  int   nread;
+
+  int   i;
+  int   nfiles;
+  int   nblocks;
+  int64 size;
+
+  dbfile = fopen(path,"r");
+
+  if (fscanf(dbfile,"files = %9d\n",&nfiles) != 1)
+    goto stub_trash;
+
+  for (i = 0; i < nfiles; i++)
+    if (fscanf(dbfile,"  %9d %s %s\n",&nread,buf1,buf2) != 3)
+      goto stub_trash;
+
+  if (fscanf(dbfile,"blocks = %9d\n",&nblocks) != 1)
+    goto stub_trash;
+
+  if (fscanf(dbfile,"size = %11lld cutoff = %9d all = %1d\n",&size,cut,all) != 3)
+    goto stub_trash;
+
+  return;
+
+stub_trash:
+  fprintf(stderr,"%s: Stub file %s is junk\n",Prog_Name,path);
+  exit (1);
+}
+
+static int64 *get_dazz_offsets(FILE *idx, int64 *zsize)
+{ DAZZ_DB   header;
+  DAZZ_READ duplo[2];
+  int64    *index;
+  int       i, p, nreads;
+
+  fread(&header,sizeof(DAZZ_DB),1,idx);
+  nreads = header.ureads;
+  index = (int64 *) Malloc(sizeof(int64)*(nreads+3)/2,"Allocating DB index");
+  p = 0;
+  for (i = 0; i < nreads; i += 2)
+    { fread(duplo,sizeof(DAZZ_READ),2,idx);
+      index[p++] = duplo[0].boff;
+    }
+  *zsize = p;
+  return (index); 
+}
+
+static int64 get_dazz_lengths(FILE *idx, int64 *index, int DB_cut, int DB_all)
+{ DAZZ_DB   header;
+  DAZZ_READ read;
+  int      *in = (int *) index;
+  int       cutoff, allflag;
+  int       i, nreads;
+
+  cutoff = DB_cut;
+  if (DB_all)
+    allflag = 0;
+  else
+    allflag = DB_BEST;
+
+  fread(&header,sizeof(DAZZ_DB),1,idx);
+  nreads = header.ureads;
+  for (i = 0; i < nreads; i++)
+    { fread(&read,sizeof(DAZZ_READ),1,idx);
+      if (read.rlen >= cutoff && (read.flags & DB_BEST) >= allflag)
+        in[i] = read.rlen;
+      else
+        in[i] = -read.rlen;
+    }
+  return (nreads); 
+}
+
+static void dazz_nearest(Thread_Arg *data)
+{ File_Object *inp   = data->fobj + data->bidx;
+  int64       *zoffs = inp->zoffs;
+  int64        zsize = inp->zsize;
+  int64        pos   = data->beg.fpos;
+  int i;
+
+  i = ((1.*pos) / inp->fsize) * zsize;
+  if (zoffs[i] >= data->beg.fpos)
+    { while (i >= 0)
+        { if (zoffs[i] < data->beg.fpos)
+            break;
+          i -= 1;
+        }
+      i += 1;
+    }
+  else
+    while (i < zsize)
+      { if (zoffs[i] >= data->beg.fpos)
+          break;
+        i += 1;
+      }
+  if (i == zsize)
+    data->beg.fpos = -1;
+  else
+    { data->beg.fpos = zoffs[i];
+      data->beg.boff = 2*i;
+    }
+}
+
+static void uncompress_read(int len, char *s)
+{ static char letter[4] = { 'a', 'c', 'g', 't' };
+  int   i, tlen, byte;
+  char *s0, *s1, *s2, *s3;
+  char *t;
+
+  s0 = s;
+  s1 = s0+1;
+  s2 = s1+1;
+  s3 = s2+1;
+
+  tlen = (len-1)/4;
+
+  t = s+tlen;
+  for (i = tlen*4; i >= 0; i -= 4)
+    { byte = *t--;
+      s0[i] = letter[(byte >> 6) & 0x3];
+      s1[i] = letter[(byte >> 4) & 0x3];
+      s2[i] = letter[(byte >> 2) & 0x3];
+      s3[i] = letter[byte & 0x3];
+    }
+  s[len] = '\0';
+}
+
+static void *dazz_output_thread(void *arg)
+{ Thread_Arg  *parm   = (Thread_Arg *) arg;
+  File_Object *fobj   = parm->fobj;
+  int          action = parm->action;
+  DATA_BLOCK  *dset   = &parm->block;
+  int          tid    = parm->thread_id;
+
+  File_Object *inp;
+  int          f;
+  FILE        *fid;
+  int64        bpos, epos;
+  int64        totread;
+
+  int  *zoffs;
+  int   r, n, len, purge;
+  int64 o;
+
+  int64 estbps, cumbps, nxtbps, pct1;
+  int   CLOCK;
+
+  if (VERBOSE && tid == 0 && action != SAMPLE)
+    { estbps = dset->ratio / NTHREADS;
+      nxtbps = pct1 = estbps/100;
+      cumbps = 0;
+      fprintf(stderr,"\n    0%%");
+      fflush(stderr);
+      CLOCK = 1;
+    }
+  else
+    CLOCK = 0;
+
+  totread = 0;
+
+  n = dset->nreads;
+  o = dset->boff[n];
+  for (f = parm->bidx; f <= parm->eidx; f++)
+    { inp = fobj+f;
+      fid = fopen(inp->path,"r");
+      if (f < parm->eidx)
+        epos  = inp->zsize;
+      else
+        epos  = parm->end.boff;
+      if (f > parm->bidx)
+        { bpos  = 0;
+          r     = 0;
+	}
+      else
+        { bpos  = parm->beg.fpos;
+          r     = parm->beg.boff;
+        }
+      fseek(fid,bpos,SEEK_SET);
+      zoffs = (int *) inp->zoffs;
+
+#ifdef DEBUG_IO
+      fprintf(stderr,"Block: %12lld: %d to %lld\n",bpos,r,epos);
+      fflush(stderr);
+#endif
+
+      while (r < epos)
+        { len = zoffs[r++];
+          if (len < 0)
+            { fseeko(fid,(3-len)>>2,SEEK_CUR);
+              continue;
+            }
+
+          purge = 0;
+          if (n >= dset->maxrds)
+            purge = 1;
+          else if (o+len >= dset->maxbps)
+            { if (o == 0)
+                { if (dset->maxbps >= 1000000)
+                    fprintf(stderr,"  Fatal: longest string >%.1fmbp\n",dset->maxbps/1000000.);
+                  else
+                    fprintf(stderr,"  Fatal: longest string >%.1fkbp\n",dset->maxbps/1000.);
+		  exit (1);
+                }
+              else
+                purge = 1;
+            }
+
+          if (purge)
+            { dset->nreads = n;
+              if (action == SAMPLE)
+                { dset->ratio = (1.*parm->work) / (totread+(ftello(fid)-bpos));
+                  return (NULL);
+                }
+              else
+                { CALL_BACK(dset,tid);
+                  if (CLOCK)
+                    { cumbps += dset->totlen;
+                      if (cumbps >= nxtbps)
+                        { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
+                          fflush(stderr);
+                          nxtbps = cumbps+pct1;
+                        }
+                    }
+                  Reset_Data_Block(dset);
+                  n = 0;
+                  o = 0;
+                }
+            }
+
+          fread(dset->bases+o,(len+3)>>2,1,fid);
+          uncompress_read(len,dset->bases+o);
+          dset->totlen += len;
+          if (len > dset->maxlen)
+            dset->maxlen = len;
+
+          n += 1;
+          o += len+1;
+          dset->boff[n] = o;
+        }
+
+      totread += ftello(fid)-bpos;
+      fclose(fid);
+    }
+  dset->nreads = n;
+
+  if (action == SAMPLE)
+    { dset->ratio = (1.*parm->work) / totread;
+      return (NULL);
+    }
+
+  if (dset->nreads > 0)
+    CALL_BACK(dset,tid);
+
+  if (CLOCK)
+    fprintf(stderr,"\r         \r");
+
+  return (NULL);
+}
+
+
+/****************************************************************************************
+ *
+ *  The top-level interface
+ *
+ ****************************************************************************************/
+
+  //  Find the NTHREADS partition points in files in argv[0..argc) and return in an
+  //    Input_Partition data structure
+
+Input_Partition *Partition_Input(int argc, char *argv[])
+{ int         nfiles;
+  int         ftype;
+  int         need_decon;
+  int         need_buf;
+  int         need_zuf;
+  void *    (*output_thread)(void *);
+  void      (*scan_header)(Thread_Arg *);
+  void      (*find_nearest)(Thread_Arg *);
+
+  File_Object *fobj;
+  Thread_Arg  *parm;
+
+  nfiles = argc-1;
+
+  parm = (Thread_Arg *) Malloc(sizeof(Thread_Arg)*NTHREADS,"Allocating input threads");
+  fobj = (File_Object *) Malloc (sizeof(File_Object)*nfiles,"Allocating file records"); 
+  if (parm == NULL || fobj == NULL)
+    exit (1);
+
+  //  Find partition points dividing data in all files into NTHREADS roughly equal parts
+  //    and then in parallel threads produce the output for each part.
+
+  { uint8        *bf;
+    int           f, i;
+    int64         b, work, wper;
+
+    //  Get name and size of each file in 'fobj[]', determine type, etc.
+
+    need_decon = 0;
+    need_zuf   = 0;
+
+    work = 0;
+    for (f = 0; f < nfiles; f++)
+      { Fetch_File(argv[f+1],fobj+f);
+
+        if (f > 0)
+          { if (fobj[f].ftype != ftype)
+              { fprintf(stderr,"%s: All files must be of the same type\n",Prog_Name);
+                exit (1);
+              }
+          }
+        else
+          { ftype = fobj[0].ftype;
+            if (ftype == FASTA || ftype == FASTQ)
+              { output_thread = fast_output_thread;
+                  scan_header   = do_nothing;
+                find_nearest  = fast_nearest;
+              }
+            else if (ftype == BAM)
+              { output_thread = bam_output_thread;
+                scan_header   = skip_bam_header;
+                find_nearest  = bam_nearest;
+              }
+            else if (ftype == SAM)
+              { output_thread = bam_output_thread;
+                scan_header   = sam_nearest;
+                find_nearest  = sam_nearest;
+              }
+            else if (ftype == CRAM)
+              { output_thread = cram_output_thread;
+                scan_header   = do_nothing;
+                find_nearest  = cram_nearest;
+              }
+            else // ftype == DAM or DB
+              { output_thread = dazz_output_thread;
+                scan_header   = do_nothing;
+                find_nearest  = dazz_nearest;
+              }
+          }
+        if (ftype == CRAM || ftype == DAZZ)
+          need_buf = 0;
+        else
+          need_buf = 1;
+        if (ftype == BAM)
+          need_decon = 1;
+        else if (fobj[f].zipd)
+          { need_decon = 1;
+            need_zuf   = 1;
+          }
+
+        work += fobj[f].fsize;
+      }
+
+    //  Allocate threads & IO buffer space for threads
+
+    if (need_buf)
+      { if (need_zuf)
+          bf = Malloc(2*NTHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
+        else
+          bf = Malloc(NTHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
+        if (bf == NULL)
+          exit (1);
+      }
+    else
+      bf = NULL;
+
+    if (VERBOSE)
+      { if (nfiles > 1)
+          fprintf(stderr,"\nPartitioning %d %s.%s files into %d parts\n",
+                         nfiles,fobj->zipd?"compressed ":"",Tstring[fobj->ftype],NTHREADS);
+        else
+          fprintf(stderr,"\nPartitioning %d %s.%s file into %d parts\n",
+                         nfiles,fobj->zipd?"compressed ":"",Tstring[fobj->ftype],NTHREADS);
+        fflush(stderr);
+      }
+
+    //  Allocate work evenly amongst threads, setting up search start
+    //    point for each thread.  Also find the beginning of data in
+    //    each file that a thread will start in (place in end.fpos)
+
+    wper = work / NTHREADS;
+
+    f = 0;
+    b = 0;
+    work = fobj[f].fsize;
+    for (i = 0; i < NTHREADS; i++)
+      { parm[i].fobj          = fobj;
+        parm[i].output_thread = output_thread;
+        parm[i].work          = work;
+        parm[i].thread_id     = i;
+        parm[i].action        = SPLIT;
+        if (need_buf)
+          parm[i].buf = bf + i*IO_BLOCK;
+        else
+          parm[i].buf = NULL;
+        if (need_decon)
+          parm[i].decomp = libdeflate_alloc_decompressor();
+        else
+          parm[i].decomp = NULL;
+        if (need_zuf)
+          parm[i].zuf = bf + (NTHREADS+i)*IO_BLOCK;
+
+        if (b != 0)
+          { parm[i].fid = open(fobj[f].path,O_RDONLY);
+            parm[i].beg.fpos = 0;
+            parm[i].beg.boff = 0;
+            scan_header(parm+i);
+            parm[i].end = parm[i].beg;
+          }
+        else
+          parm[i].end.fpos = parm[i].end.boff = 0;
+
+#ifdef DEBUG_FIND
+        fprintf(stderr," %2d: %1d %10lld (%10lld / %5d)\n",
+                       i,f,b,parm[i].end.fpos,parm[i].end.boff);
+        fflush(stderr);
+#endif
+
+        parm[i].beg.fpos = b;
+        parm[i].bidx = f;
+
+        work -= wper;
+        while (work < .01*IO_BLOCK)
+          { if (f == nfiles)
+              { if (VERBOSE && NTHREADS != i+1)
+                  { if (i > 0)
+                      fprintf(stderr,"  File is so small will use only %d threads\n",i+1);
+                    else
+                      fprintf(stderr,"  File is so small will use only 1 thread\n");
+                  }
+                NTHREADS = i+1;
+                break;
+              }
+            work += fobj[++f].fsize;
+          }
+        b = fobj[f].fsize - work;
+        if (b < 0)
+          { work += b;
+            b = 0;
+            if (f == nfiles)
+              { if (VERBOSE && NTHREADS != i+1)
+                  { if (i > 0)
+                      fprintf(stderr,"  File is so small will use only %d threads\n",i+1);
+                    else
+                      fprintf(stderr,"  File is so small will use only 1 thread\n");
+                  }
+                NTHREADS = i+1;
+                break;
+              }
+          }
+      }
+  }
+
+  { int i, f;
+
+    //  For each non-zero start point find synchronization point in
+    //    sequence file.  If can't find it then start at beginning of
+    //    next file, and if at or before first data line then signal
+    //    start at beginning by zero'ing the synch point.
+
+    for (i = 0; i < NTHREADS; i++)
+      { if (parm[i].beg.fpos != 0)
+         { find_nearest(parm+i);
+            if (parm[i].beg.fpos < 0)
+              { parm[i].beg.fpos = 0;
+                parm[i].bidx += 1;
+              }
+            else if (parm[i].beg.fpos <= parm[i].end.fpos)
+              parm[i].beg.fpos = 0;
+            close(parm[i].fid);
+          }
+      }
+
+    //  Paranoid: if one thread's synch point overtakes the next one (will almost
+    //    certainly never happen unless files very small and threads very large),
+    //    remove the redundant threads.
+
+    f = 0;
+    for (i = 1; i < NTHREADS; i++)
+      if (parm[i].bidx > parm[f].bidx || parm[i].beg.fpos > parm[f].beg.fpos)
+        parm[++f] = parm[i];
+      else
+        { if (need_decon)
+            libdeflate_free_decompressor(parm[i].decomp);
+        }
+    if (VERBOSE && NTHREADS != f+1)
+      { if (f > 0)
+          fprintf(stderr,"  File is so small will use only %d threads\n",f+1);
+        else
+          fprintf(stderr,"  File is so small will use on 1 thread\n");
+      }
+    NTHREADS = f+1;
+
+    //  Develop end points of each threads work using the start point of the next thread
+
+    for (i = 1; i < NTHREADS; i++)
+      if (parm[i].beg.fpos == 0)
+        { parm[i-1].end.fpos = fobj[parm[i].bidx-1].fsize;
+          parm[i-1].end.boff = 0;
+          parm[i-1].eidx     = parm[i].bidx-1;
+        }
+      else
+        { parm[i-1].end.fpos = parm[i].beg.fpos;
+          parm[i-1].end.boff = parm[i].beg.boff;
+          parm[i-1].eidx     = parm[i].bidx;
+        }
+    parm[NTHREADS-1].end.fpos = fobj[nfiles-1].fsize;
+    parm[NTHREADS-1].end.boff = 0;
+    parm[NTHREADS-1].eidx = nfiles-1;
+
+#if defined(DEBUG_FIND) || defined(DEBUG_IO)
+    fprintf(stderr,"\nPartition:\n");
+    for (i = 0; i < NTHREADS; i++)
+      { fprintf(stderr," %2d: %2d / %12lld / %5d",
+                       i,parm[i].bidx,parm[i].beg.fpos,parm[i].beg.boff);
+        fprintf(stderr,"  -  %2d / %12lld / %5d\n",
+                         parm[i].eidx,parm[i].end.fpos,parm[i].end.boff);
+      }
+    fflush(stderr);
+#endif
+  }
+
+  if (ftype == DAZZ)
+    { int   f;
+      FILE *idx;
+
+      for (f = 0; f < nfiles; f++)
+        { strcpy(fobj[f].path+(strlen(fobj[f].path)-3),"idx");
+          idx = fopen(fobj[f].path,"r");
+          fobj[f].zsize = get_dazz_lengths(idx,fobj[f].zoffs,fobj[f].DB_cut,fobj[f].DB_all);
+          fclose(idx);
+          strcpy(fobj[f].path+(strlen(fobj[f].path)-3),"bps");
+        }
+      parm[NTHREADS-1].end.boff = fobj[nfiles-1].zsize;
+      parm[0].beg.boff = 0;
+    }
+
+  return ((Input_Partition *) parm);
+}
+
+  //  Get a single block from the start of the input
+
+static Thread_Arg cust;
+
+DATA_BLOCK *Get_First_Block(Input_Partition *parts, int64 numbp)
+{ Thread_Arg *parm = (Thread_Arg *) parts;
+
+  cust = parm[0];
+  cust.action = SAMPLE;
+
+  cust.block.maxrds = numbp/150;
+  cust.block.maxbps = numbp + cust.block.maxrds;
+  cust.block.bases  = Malloc(sizeof(char)*(cust.block.maxbps+1),"Allocating first data block");
+  cust.block.boff   = Malloc(sizeof(int64)*(cust.block.maxrds+1),"Allocating first data block");
+
+  cust.eidx   = parm[NTHREADS-1].eidx;
+  cust.end    = parm[NTHREADS-1].end;
+
+  Reset_Data_Block(&cust.block);
+  cust.output_thread(&cust);
+
+#ifdef DEBUG_TRAIN
+  Print_Block(&cust.block,0);
+  exit (1);
+#endif
+
+  return (&cust.block);
+}
+
+  //  Free the first block returned by Get_First_Block
+
+void Free_First_Block(DATA_BLOCK *block)
+{ free(block->bases);
+  free(block->boff);
+}
+
+  //  Return root of the name of the first file
+
+char *First_Root_Name(Input_Partition *io)
+{ Thread_Arg *parm = (Thread_Arg *) io;
+  return (parm[0].fobj[0].root);
+}
+
+   //  Distribute k-mers
+
+void Scan_All_Input(Input_Partition *parts)
+{ Thread_Arg *parm = (Thread_Arg *) parts;
+#if !defined(DEBUG_IO) && !defined(DEBUG_OUT)
+  pthread_t   threads[NTHREADS];
+#endif
+  char  *bases;
+  int64 *boff;
+  int    i;
+
+  parm[0].block.ratio = cust.block.ratio * cust.block.totlen;
+
+  bases = Malloc(sizeof(char)*1000001*NTHREADS,"Allocating data blocks");
+  boff  = Malloc(sizeof(int64)*10001*NTHREADS,"Allocating data blocks");
+  for (i = 0; i < NTHREADS; i++)
+    { parm[i].block.bases  = bases + (DT_BLOCK+1)*i;
+      parm[i].block.boff   = boff  + (DT_READS+1)*i;
+      parm[i].block.maxbps = DT_BLOCK;
+      parm[i].block.maxrds = DT_READS;
+      Reset_Data_Block(&parm[i].block);
+    }
+
+#if defined(DEBUG_IO) || defined(DEBUG_OUT)
+  for (i = 0; i < NTHREADS; i++)
+    { fprintf(stderr,"Thread %d\n",i);
+      parm[0].output_thread(parm+i);
+    }
+#else
+  for (i = 0; i < NTHREADS; i++)
+    pthread_create(threads+i,NULL,parm[0].output_thread,parm+i);
+
+  for (i = 0; i < NTHREADS; i++)
+    pthread_join(threads[i],NULL);
+#endif
+
+  free(bases);
+  free(boff);
+}
+
+  //  Free an Input_Partition data structure
+
+void Free_Input_Partition(Input_Partition *parts)
+{ Thread_Arg *parm = (Thread_Arg *) parts;
+  int i, f;
+
+  if (parm[0].decomp != NULL)
+    for (i = 0; i < NTHREADS; i++)
+      libdeflate_free_decompressor(parm[i].decomp);
+  free(parm[0].buf);
+  for (f = 0; f < parm[NTHREADS-1].eidx; f++)
+    Free_File(parm[0].fobj+f);
+  free(parm);
+}
