@@ -251,6 +251,7 @@ int main(int argc, char *argv[])
     rsize  = KMER_BYTES + 2;
     gsize  = (block->totlen - KMER*block->nreads)*block->ratio*rsize;
     NPARTS = (gsize-1)/SORT_MEMORY + 1;
+NPARTS *= 3;
 
     if (VERBOSE)
       { double est = gsize/(1.*rsize);
@@ -261,7 +262,7 @@ int main(int argc, char *argv[])
         else
           fprintf(stderr,"  Estimate %.3fK %d-mers\n",est/1.e3,KMER);
         if (NPARTS > 1)
-          fprintf(stderr,"  Dividing data into %d part\n",NPARTS);
+          fprintf(stderr,"  Dividing data into %d parts\n",NPARTS);
       }
 
     MOD_LEN = 1;

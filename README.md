@@ -2,16 +2,16 @@
   
 ## _Author:  Gene Myers_
 ## _First:   July 22, 2020_
-## _Current: October 10, 2020_
+## _Current: October 20, 2020_
 
 FastK is a k-mer counter that is optimized for processing high quality DNA assembly data
 sets such as those produced with an Illumina instrument or a PacBio run in HiFi mode.
-For example it is about X times faster than KMC3 when counting 40-mers in a 50X HiFi data
+For example it is about 2 times faster than KMC3 when counting 40-mers in a 50X HiFi data
 set.  Its relative speedup decreases with increasing error rate or increasing values of k,
 but regardless is a general program that works for any DNA sequence data set and choice of k.
 It is further designed to handle data sets of arbitrarily large size, e.g. a 100X data
 set of a 32GB Axolotl genome (3.2Tbp) can be performed on a machine with just 12GB of memory
-provided it has ~6.4TB of disk space available.
+provided it has ~6.5TB of disk space available.
 
 FastK can produce the following outputs:
 
@@ -86,16 +86,13 @@ Given a histogram file \<data>.K# produced by FastK,
 one can view the histogram of k-mer counts with **Histex** where the -h specifies the 
 interval of frequencies do be displayed where 1 is assumed if the lower bound is not given.
 
-**Histex** further analyzes the histogram to suggest the implied diploid and haploid
-coverge of the underlying genome sequence and threshold values one might use to classify kmers as *ERROR*, *HAPLOID*, *DIPLOID*, or *REPEAT*.
-
 ```
 3. Tabex [-t<int>] <source_root>.K<k>  (LIST|CHECK|(<k-mer:string>) ...
 ```
 
-Given that a set of k-mer counter table files for k = # have been generated, ***Tabex*** opens the tables (one per thread) and then performs the sequence of actions specified by the
+Given that a set of k-mer counter table files for k-mer size \<k> have been generated, ***Tabex*** opens the tables (one per thread) and then performs the sequence of actions specified by the
 remaining arguments on the command line.  The literal argument LIST lists the contents
-of the table in radix order.  CHECK checks that the tables are indeed sorted.  Otherwise the
+of the table in radix order.  CHECK checks that the table is indeed sorted.  Otherwise the
 argument is interpreted as a k-mer and it is looked up in the table and its count returned
 if found.  If the -t option is given than only those k-mers with counts greater or equal to the given value are operated upon.
 
@@ -104,13 +101,13 @@ if found.  If the -t option is given than only those k-mers with counts greater 
 ```
 Given that a set of profile files for k = \<k> have been generated, ***Profex*** opens the profile filles (one per thread) and gives a
 display of each sequence profile whose ordinal id is given on
-the remainder of the command line.  The id of the first read is 1 (and not 0).
+the remainder of the command line.  The index of the first read is 1 (not 0).
 
 ## Data Encodings
 
 ### K-mer Histogram
 
-The histogram file has a name of the form \<data>.K\<k> and it contains an initial integer
+The histogram file has a name of the form \<source\_root>.K\<k> where \<source\_root> is the root name of the input.  It contains an initial integer
 giving the k-mer size <k>, followed by 32,767 64-bit counts for frequencies 1, 2, 3 ... so it
 is precisely 262,140 bytes in size.
 Formally,
@@ -123,7 +120,7 @@ Formally,
 ### K-mer Table
 
 A table of canonical k-mers and their counts is produced in N parts, where N is the number of threads FastK was run with.  The files are placed in the same directory as the input and named
-\<data>.K\<k>T1, T2, ... TN where \<data> is the root name of the input.  The k-mers in each part are lexicographically ordered and the k-mers in Ti are all less than the k-mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
+\<source\_root>.K\<k>.T[1,N] where \<source\_root> is the root name of the input.  The k-mers in each part are lexicographically ordered and the k-mers in Ti are all less than the k-mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
 
 The data in each table file is as follows:
 
@@ -186,6 +183,4 @@ If the 2 highest order bits of the current byte are zero, then the next x+1 coun
 same as the most recent count, where x is the lower 6-bits interpreted as an unsigned integer.
 If the 2 highest order bit of the current byte are 01, then the remaining 6 bits are interpreted
 as a *1's complement* integer and the difference is one more or less than said value depending
-on the sign.  The single byte encoding is used whenever possible. 
-
-ZZ
+on the sign.  The single byte encoding is used whenever possible.
