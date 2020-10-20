@@ -103,6 +103,21 @@ Given that a set of profile files for k = \<k> have been generated, ***Profex***
 display of each sequence profile whose ordinal id is given on
 the remainder of the command line.  The index of the first read is 1 (not 0).
 
+## Current Limitations
+
+Currently if multiple input files are given they must all be of the same type, e.g. fasta
+or cram.  This restriction could be removed with some more code.
+
+Currently the maximum size of any read/sequence is 1Mbp.  This limit will be problematic
+if one is for example counting k-mers in a high-quality assembled genome where the contigs
+exceed this limit.  Again the restriction could be removed but is quite complex if only a limited amount of memory is to be consumed.
+
+Lastly, very small k-mer sizes may not work for large data sets.  The absolute minimum is 5,
+but the core prefix trie used for distributing k-mers may want to use a larger minimizer
+length than 5, and the minimizer length must be less than the k-mer length.  The logic
+here needs to be investigated so that one has at least a dependable lower bound on k-mer
+length.
+
 ## Data Encodings
 
 ### K-mer Histogram

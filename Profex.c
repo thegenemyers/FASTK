@@ -14,7 +14,7 @@
 #include <dirent.h>
 #include <math.h>
 
-#define SHOW_RUN
+#undef SHOW_RUN
 
 #include "gene_core.h"
 
@@ -172,8 +172,6 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
       len = P->index[id+1] - off;
     }
 
-printf("Fetching %lld of len %d (%d) off = %lld file = %p\n",id,len,w,P->index[id],f);
-
   fread(count,1000,1,f);
 
   p = count;
@@ -277,8 +275,6 @@ printf("Even pull\n");
         }
     }
 
-printf("Final length %d\n",n);
-
   return (n);
 }
 
@@ -322,7 +318,7 @@ int main(int argc, char *argv[])
     uint16 *profile;
     int     plen, tlen;
 
-    plen    = 15000;
+    plen    = 20000;
     profile = Malloc(plen*sizeof(uint16),"Profile array");
 
     for (c = 2; c < argc; c++)
@@ -339,10 +335,13 @@ int main(int argc, char *argv[])
         if (tlen > plen)
           { plen    = 1.2*tlen + 1000;
             profile = Realloc(profile,plen*sizeof(uint16),"Profile array");
-            Fetch_Profile(P,(int64) id,plen,profile);
+            Fetch_Profile(P,(int64) id-1,plen,profile);
           }
-        //  Do something with profile[0..tlen)
+        printf("\nRead %d:\n",id);
+        for (int i = 0; i < tlen; i++)
+          printf(" %5d: %5d\n",i,profile[i]);
       }
+    free(profile);
   }
 
   Free_Profiles(P);
