@@ -251,7 +251,6 @@ int main(int argc, char *argv[])
     rsize  = KMER_BYTES + 2;
     gsize  = (block->totlen - KMER*block->nreads)*block->ratio*rsize;
     NPARTS = (gsize-1)/SORT_MEMORY + 1;
-NPARTS *= 3;
 
     if (VERBOSE)
       { double est = gsize/(1.*rsize);

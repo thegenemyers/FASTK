@@ -14,7 +14,7 @@
 #ifndef _KMERS
 #define _KMERS
 
-#undef DEVELOPER
+#define DEVELOPER
 
 #define IO_BUF_LEN   4096       // number of uint's in bit stuffed IO buffer for each part+thread
 #define IO_UBITS       64

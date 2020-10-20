@@ -349,14 +349,13 @@ static void *kmer_list_thread(void *arg)
   int       x, ct, sbytes;
   uint8    *asp, *fill;
 
-int show;
+#ifdef DEBUG_KLIST
   int64  ridx = 0;
 #if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
   uint8  *rbx = ((uint8 *) &ridx) - 1;
 #else
   uint8  *rbx = ((uint8 *) &ridx) + (sizeof(int64)-RUN_BYTES);
 #endif
-#ifdef DEBUG_KLIST
 #endif
 
   int       i, o;
@@ -390,8 +389,8 @@ int show;
           sb[i] = *asp++;
 #endif
  
-show = 0;
-        // printf("Run ids:");
+#ifdef DEBUG_KLIST
+        printf("Run ids:");
         lptr = sptr;
         do
           { lptr += SMER_WORD;
@@ -404,14 +403,9 @@ show = 0;
               rbx[i] = lptr[i-RUN_BYTES];
             rbx[0] &= 0x7ff;
 #endif
-if (ridx == 0)
-  { printf("Ridx 0 kmers began at %lld\n",idx);
-    show = 1;
-  }
-            // printf(" %c%lld",lptr[KMER_WORD]&0x8?'+':' ',ridx);
+            printf(" %c%lld",lptr[KMER_WORD]&0x8?'+':' ',ridx);
           }
         while (*lptr == 0);
-#ifdef DEBUG_KLIST
         printf("\n");
 #endif
 
@@ -421,8 +415,6 @@ if (ridx == 0)
           { lptr += SMER_WORD;
             ct   += 1;
           }
-if (show)
-  printf("Super-mer is %d k-mers\n",ct);
 
         *sptr  = x;
         sbytes = (KMp3 + sln) >> 2;
@@ -690,14 +682,13 @@ static void *profile_list_thread(void *arg)
   uint8  *lb = ((uint8 *) &len) + (sizeof(int)-PLEN_BYTES);
 #endif
 
+#ifdef SHOW_RUN
   int64  ridx = 0;
 #if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
   uint8  *rbx = ((uint8 *) &ridx) - 1;
 #else
   uint8  *rbx = ((uint8 *) &ridx) + (sizeof(int64)-RUN_BYTES);
 #endif
-int show;
-#ifdef SHOW_RUN
 #endif
 
   prof = data->prol;
@@ -717,8 +708,6 @@ int show;
           sb[i] = *asp++;
 #endif
 
-show = ((int64) (asp-data->sort) == 0x1d4a4aecll);
-
         { int j, p, c, d;
           int run;
           uint8 *db = (uint8 *) &d;
@@ -728,9 +717,8 @@ show = ((int64) (asp-data->sort) == 0x1d4a4aecll);
 
           *((uint16 *) b) = p;
           len = 2;
-if (show)
-          printf("  {%d}",p);
 #ifdef SHOW_RUN
+          printf("  {%d}",p);
 #endif
 
           run = 0;
@@ -822,6 +810,7 @@ if (show)
             for (i = STOT; i < SMER_WORD; i++)
               *fill++ = sptr[i];
 
+#ifdef SHOW_RUN
 #if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
             for (i = RUN_BYTES; i > 0; i--)
               rbx[i] = sptr[SMER_WORD-i];
@@ -829,10 +818,7 @@ if (show)
             for (i = 0; i < PLEN_BYTES; i++)
               rbx[i] = sptr[STOT+i];
 #endif
-if (ridx == 0)
-  printf("Frag 0 has asp = %ld\n",asp-data->sort);
-#ifdef SHOW_RUN
-            // printf("%lld",ridx);
+            printf("%lld",ridx);
 #endif
 
             sptr += SMER_WORD;

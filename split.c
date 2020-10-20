@@ -1079,12 +1079,13 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
 
               ptr = Stuff_Int(n,SLEN_BITS,ptr,bit);
               n += KMER;
-              ptr = Stuff_Seq(r+last,n,ptr,bit,flp[m & MOD_MSK],prep);
-              trg->fours[pref] += 1;
 
               if (DO_PROFILE)
                 { int   tbits;
                   int64 tlim;
+
+                  ptr = Stuff_Seq(r+last,n,ptr,bit,0,prep);
+                  trg->fours[pref] += 1;
 
                   if (nidx >= nlim)
                     { nlim <<= 1;
@@ -1108,6 +1109,11 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
 #endif
                     }
                   ptr = Stuff_Int(nidx,nbits,ptr,bit);
+                }
+
+              else
+                { ptr = Stuff_Seq(r+last,n,ptr,bit,flp[m & MOD_MSK],prep);
+                  trg->fours[pref] += 1;
                 }
 
 #ifdef SHOW_PACKETS

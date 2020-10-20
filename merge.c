@@ -287,6 +287,8 @@ static void *merge_profile_thread(void *arg)
               while (sptr >= src->top)
                 { int f;
 
+                  if (CLOCK && n == 0 && src->top - src->block < BUFLEN_UINT8)
+                    partin += src->top - src->block;
                   close(src->stream);
 #ifndef DEVELOPER
                   sprintf(fname,"%s.%d.P%d.%d",data->root,n,data->wch,src->panel);
