@@ -15,6 +15,8 @@
 #include <dirent.h>
 #include <math.h>
 
+#undef DEBUG_PARTITION
+
 #include "gene_core.h"
 
 static char *Usage = "[-h<int>] <source_root>.K<k>";
@@ -97,7 +99,7 @@ static void print_pack(uint8 *seq, int len)
 }
 
 static inline int mycmp(uint8 *a, uint8 *b, int n)
-{ while (n--)
+{ while (n-- > 0)
     { if (*a++ != *b++)
         return (a[-1] < b[-1] ? -1 : 1);
     }
@@ -153,10 +155,10 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_freq)
 
   //  Load the parts into memory
 
-  printf("Loading %d-mer table with ",kmer);
-  Print_Number(nels,0,stdout);
-  printf(" entries in %d parts\n",p-1);
-  fflush(stdout);
+  fprintf(stderr,"Loading %d-mer table with ",kmer);
+  Print_Number(nels,0,stderr);
+  fprintf(stderr," entries in %d parts\n",p-1);
+  fflush(stderr);
 
   nels = 0;
   for (p = 1; 1; p++)
@@ -253,6 +255,7 @@ void Find_Haplo_Pairs(Kmer_Table *T)
   int    khalf;
   uint8 *iptr, *jptr, *nptr;
   uint8 *finger[5];
+  uint8 *flimit[4];
   int    n, i, c, f, x, v;
   int    mc, hc;
   uint8 *mr, *hr;
@@ -262,10 +265,16 @@ void Find_Haplo_Pairs(Kmer_Table *T)
 
   mask = prefs[khalf&0x3]; 
   offs = (khalf >> 2) + 1;
-  rem  =
+  rem  = ((kmer+3) >> 2) - offs;
+
+  setup_fmer_table();
+
+#ifdef DEBUG_PARTITION
+  printf("Extension = K[%d]&%02x . K[%d..%d)\n",offs-1,mask,offs,offs+rem);
+#endif
 
   nptr = KMER(nels);
-  for (iptr = table; iptr < nptr; iptr = jptr)
+  for (iptr = table + 368645*tbyte; iptr < nptr; iptr = jptr)
     { f = 0;
       finger[f++] = iptr;
       for (jptr = iptr+tbyte; jptr < nptr; jptr += tbyte)
@@ -285,15 +294,21 @@ void Find_Haplo_Pairs(Kmer_Table *T)
         continue;
 
       finger[f] = jptr;
-      for (n = (jptr-iptr)/tbyte; n > 0; n--)
-        { mr = finger[0]+offs;
+      for (i = 0; i < f; i++)
+        flimit[i] = finger[i+1];
+
+      for (n = (jptr-iptr)/tbyte; n > 1; n--)
+        { x = 0;
+          while (finger[x] >= flimit[x])
+            x += 1;
+          mr = finger[x]+offs;
           mc = mr[-1] & mask;
           c  = 1;
-          x  = 0;
-          for (i = 1; i < f; i++)
-            if (finger[i] < finger[i+1])
+          for (i = x+1; i < f; i++)
+            if (finger[i] < flimit[i])
               { hr = finger[i]+offs;
                 hc = hr[-1] & mask;
+
                 if (hc == mc)
                   { v = mycmp(hr,mr,rem);
                     if (v == 0)
@@ -312,23 +327,27 @@ void Find_Haplo_Pairs(Kmer_Table *T)
                     x = i;
                   }
               }
+#ifdef DEBUG_PARTITION
+          printf("Min %d cnt %d\n",x,c);
+#endif
           if (c > 1)
-            { for (i = 0; i < f; i++)
-                if (finger[i] < finger[i+1])
+            { print_seq(finger[x],kmer);
+              printf(" %d <%d>\n",COUNT_OF(finger[x]),x);
+              for (i = x+1; i < f; i++)
+                if (finger[i] < flimit[i])
                   { hr = finger[i]+offs;
                     hc = hr[-1] & mask;
                     if (hc == mc && mycmp(hr,mr,rem) == 0)
                       { if (c > 1)
                           { print_seq(finger[i],kmer);
-                            printf(" %d\n",COUNT_OF(finger[i]));
+                            printf(" %d <%d>\n",COUNT_OF(finger[i]),i);
                           }
                         finger[i] += tbyte;
                       }
                   }
-                printf("\n");
-              }
-          else
-            finger[x] += tbyte;
+              printf("\n");
+            }
+          finger[x] += tbyte;
         }
     }
 }
