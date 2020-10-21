@@ -271,7 +271,7 @@ extern const int ltf8_bytes[256];
 
 static inline int safe_itf8_get(const char *cp, const char *endp,
                                 int32_t *val_p) {
-    const unsigned char *up = (unsigned char *)cp;
+    unsigned char *up = (unsigned char *)cp;
 
     if (endp - cp < 5 &&
         (cp >= endp || endp - cp < itf8_bytes[up[0]>>4])) {
@@ -292,8 +292,7 @@ static inline int safe_itf8_get(const char *cp, const char *endp,
         *val_p = (((uint32_t)up[0]<<24) | (up[1]<<16) | (up[2]<<8) | up[3]) & 0x0fffffff;
         return 4;
     } else {
-        uint32_t uv = (((uint32_t)up[0] & 0x0f)<<28) | (up[1]<<20) | (up[2]<<12) | (up[3]<<4) | (up[4] & 0x0f);
-        *val_p = uv < 0x80000000UL ? uv : -((int32_t) (0xffffffffUL - uv)) - 1;
+        *val_p = ((up[0] & 0x0f)<<28) | (up[1]<<20) | (up[2]<<12) | (up[3]<<4) | (up[4] & 0x0f);
         return 5;
     }
 }

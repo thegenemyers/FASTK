@@ -362,9 +362,13 @@ void Find_Haplo_Pairs(Kmer_Table *T)
 int main(int argc, char *argv[])
 { Kmer_Table *T;
 
+  (void) print_pack;
+
   { int    i, j, k;
     int    flags[128];
     char  *eptr;
+
+    (void) flags;
 
     ARG_INIT("Haplex");
 

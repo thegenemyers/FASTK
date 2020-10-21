@@ -196,6 +196,7 @@ static void *supermer_list_thread(void *arg)
   printf("Index at %d(%llx)\n",rbits,rmask);
 #endif
 
+  prev = fours[0];
   for (k = 0; k < nmers; k++)
     { while (1)
         { if (ptr + Fixed_Reload[bit] >= ioend)
@@ -445,6 +446,7 @@ static void *kmer_list_thread(void *arg)
 
         f  = FPT;
         fs = 2;
+        fb = 0;
         r  = RPT + sbytes;
         rs = KRS;
         rb = *r;
@@ -1116,7 +1118,7 @@ void Sorting(char *dpwd, char *dbrt)
     uint8      *p_sort;
     uint8      *a_sort;
 
-    int         ODD_PASS;
+    int         ODD_PASS = 0;
 
 #if !defined(DEBUG) || !defined(SHOW_RUN)
     THREAD      threads[NTHREADS];

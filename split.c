@@ -146,6 +146,7 @@ static void *padded_minimizer_thread(void *arg)
       t = bases + boff[i];
       q = (t-s) - 1;
 
+      m  = 0;
       mc = PAD_TOT;
       c  = u = 0;
       for (p = 0; p < KMER; p++)
@@ -473,7 +474,6 @@ static char DNA[4] = { 'a', 'c', 'g', 't' };
 int Determine_Scheme(DATA_BLOCK *block)
 { int64 *count;
   int    nreads, npieces;
-  double ispec;
   int64  ktot, mtot, kthresh;
   int64  max_count, last_max;
   int    i, j;
@@ -509,8 +509,11 @@ int Determine_Scheme(DATA_BLOCK *block)
   for (i = 1; i < NTHREADS; i++)
     pthread_join(threads[i],NULL);
 
-  { int64 *freq, ftot, f, m;
+  { int64 *freq, f;
     int    c;
+#if defined(DEBUG_SCHEME) || defined(HISTOGRAM_TEST)
+    int64  m, ftot;
+#endif
 
     freq = parmt[0].freq;
     for (i = 0; i < 256; i++)
@@ -522,7 +525,9 @@ int Determine_Scheme(DATA_BLOCK *block)
     freq[2] = freq['g'] + freq['G'];
     freq[3] = freq['t'] + freq['T'];
 
+#if defined(DEBUG_SCHEME) || defined(HISTOGRAM_TEST)
     ftot = m = 0;
+#endif
     for (i = 0; i < 4; i++)
       { c = 0;
         f = freq[i];
@@ -532,11 +537,12 @@ int Determine_Scheme(DATA_BLOCK *block)
           else if (freq[j] == f && j < i)
             c += 1;
         Tran[i] = c;
+#if defined(DEBUG_SCHEME) || defined(HISTOGRAM_TEST)
         if (f > m)
           m = f;
         ftot += f;
+#endif
       }
-    ispec = ((1.*ftot)/m);
 
 #ifndef USE_MAPPING
     for (i = 0; i < 4; i++)
@@ -549,8 +555,8 @@ int Determine_Scheme(DATA_BLOCK *block)
     Tran['t'] = Tran['T'] = Tran[3];
 
 #if defined(DEBUG_SCHEME) || defined(HISTOGRAM_TEST)
-    printf("   Most freq = %lld  Spec = %g gc = %d%%\n",
-           m,ispec,(int) ((100.*(freq[1]+freq[2]))/ftot));
+    printf("   Most freq = %lld  gc = %d%%\n",
+           m,(int) ((100.*(freq[1]+freq[2]))/ftot));
     for (i = 0; i < 4; i++)
       printf(" Tran[%c] -> %lld (%lld / %7.4f)\n",DNA[i],Tran[i],freq[i],(100.*freq[i])/ftot);
     Tran[Tran['a']] = 'a';
@@ -978,7 +984,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   int        m, n, b, y, o;
   int        last;
 
-  int       pref, *prep = &pref;
+  int        pref, *prep = &pref;
   Min_File  *trg;
   IO_UTYPE  *ptr;
   int       *bit;
@@ -991,6 +997,10 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
     printf("Index at %lld (%d/%lld)\n",nidx,nbits,nlim);
 #endif
 
+  trg = out; 
+  ptr = trg->bptrs;
+  bit = &(trg->bbits);
+
   t = bases + boff[-1];
   for (i = 0; i < nreads; i++)
     { s = t;
@@ -1002,6 +1012,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
       printf("READ %d %lld\n",i+1,nidx);
       fflush(stdout);
 #endif
+      m  = 0;
       mc = PAD_TOT;
       c = u = 0;
       for (p = 0; p < KMER; p++)

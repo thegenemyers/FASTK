@@ -114,6 +114,7 @@ static inline void count_smers(uint8 *array, int64 asize, Range *rng)
   r  = array + ROFF;
   rs = RSHIFT;
   rl = Comp[*r];
+  rb = 0;
   if (RSHIFT != 8)
     rb = (rl << 8) | Comp[r[-1]];
 

@@ -168,6 +168,7 @@ static void *merge_table_thread(void *arg)
   int64  pct1, nextin;
   int    CLOCK;
 
+  nextin = pct1 = 0;
   if (VERBOSE && data->id == 0)
     { nextin = pct1 = totin/100;
       fprintf(stderr,"\n    0%%");

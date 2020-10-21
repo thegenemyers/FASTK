@@ -412,6 +412,8 @@ int main(int argc, char *argv[])
     int    flags[128];
     char  *eptr;
 
+    (void) flags;
+
     ARG_INIT("Tabex");
 
     CUT = 1;

@@ -124,9 +124,9 @@ static void *merge_profile_thread(void *arg)
 
   //  Set up clock if required
 
+  nextin = pct1 = partin = 0;
   if (VERBOSE && data->wch == 0)
     { nextin = pct1 = totin/100;
-      partin = 0;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
       CLOCK = 1;

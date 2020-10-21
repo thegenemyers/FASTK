@@ -412,12 +412,11 @@ static void fast_nearest(Thread_Arg *data)
     lseek(fid,blk*IO_BLOCK,SEEK_SET);
 
   if (fastq)
-    { state = UK;
-      nl_1 = pl_1 = 1;
-      alive = 0;
-    }
+    state = UK;
   else
     state = FK;
+  nl_1 = pl_1 = nl_2 = 1;
+  alive = 0;
 
 #ifdef DEBUG_FIND
   fprintf(stderr,"\nFrom block %lld / offset %lld\n",blk,off);
@@ -552,10 +551,10 @@ static void *fast_output_thread(void *arg)
   int64 estbps, cumbps, nxtbps, pct1;
   int   CLOCK;
 
+  estbps = nxtbps = pct1 = cumbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
     { estbps = dset->ratio / NTHREADS;
       nxtbps = pct1 = estbps/100;
-      cumbps = 0;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
       CLOCK = 1;
@@ -723,9 +722,17 @@ static void *fast_output_thread(void *arg)
                         }
                       olen  = 0;
                       state = HSKP;
-                      break;
                     }
-                  state = ASEQ;
+                  else if (c != '\n')
+                    { if (olen >= omax)
+                        { omax = omax*1.2 + 1000;
+                          line = (char *) Realloc(line,omax+1,"Reallocating line buffer");
+                          if (line == NULL)
+                            exit (1);
+                        }
+                      line[olen++] = c;
+                    }
+                  break;
 
                 case ASEQ:
                   if (c == '\n')
@@ -1550,10 +1557,10 @@ static void *bam_output_thread(void *arg)
   int64 estbps, cumbps, nxtbps, pct1;
   int   CLOCK;
 
+  estbps = nxtbps = pct1 = cumbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
     { estbps = dset->ratio / NTHREADS;
       nxtbps = pct1 = estbps/100;
-      cumbps = 0;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
       CLOCK = 1;
@@ -1563,6 +1570,7 @@ static void *bam_output_thread(void *arg)
 
   //  Know the max size of sequence and data from pass 1, so set up accordingly
 
+  theR->data = NULL;
   if (fobj->ftype == BAM)
     { theR->dmax = 50000;
       theR->data = Malloc(theR->dmax,"Allocating sequence array");
@@ -1861,10 +1869,10 @@ static void *cram_output_thread(void *arg)
   int64 estbps, cumbps, nxtbps, pct1;
   int   CLOCK;
 
+  cumbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
     { estbps = dset->ratio / NTHREADS;
       nxtbps = pct1 = estbps/100;
-      cumbps = 0;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
       CLOCK = 1;
@@ -2148,10 +2156,10 @@ static void *dazz_output_thread(void *arg)
   int64 estbps, cumbps, nxtbps, pct1;
   int   CLOCK;
 
+  nxtbps = pct1 = estbps = cumbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
     { estbps = dset->ratio / NTHREADS;
       nxtbps = pct1 = estbps/100;
-      cumbps = 0;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
       CLOCK = 1;
@@ -2301,6 +2309,11 @@ Input_Partition *Partition_Input(int argc, char *argv[])
 
     need_decon = 0;
     need_zuf   = 0;
+    need_buf   = 0;
+    ftype      = FASTA;
+    output_thread = fast_output_thread;
+    scan_header   = do_nothing;
+    find_nearest  = fast_nearest;
 
     work = 0;
     for (f = 0; f < nfiles; f++)

@@ -32,6 +32,8 @@ int main(int argc, char *argv[])
     int    flags[128];
     char  *eptr, *fptr;
 
+    (void) flags;
+
     ARG_INIT("Histex")
 
     HIST_LOW    = 1;
