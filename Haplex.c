@@ -19,7 +19,7 @@
 
 #include "gene_core.h"
 
-static char *Usage = "[-h<int>] <source_root>.K<k>";
+static char *Usage = "[-h<int>:<int>] <source_root>.K<k>";
 
 
 /****************************************************************************************
@@ -216,7 +216,7 @@ void Free_Kmer_Table(Kmer_Table *T)
  *
  *****************************************************************************************/
 
-static int HAPLO_X;
+static int HAPLO_LOW, HAPLO_HGH;
 
 static inline int mypref(uint8 *a, uint8 *b, int n)
 { int   i;
@@ -250,104 +250,124 @@ void Find_Haplo_Pairs(Kmer_Table *T)
   int64  nels  = T->nels;
   uint8 *table = T->table;
 
-  uint8  prefs[] = { 0x3f, 0x0f, 0x03, 0x00 };
-
   int    khalf;
-  uint8 *iptr, *jptr, *nptr;
-  uint8 *finger[5];
-  uint8 *flimit[4];
-  int    n, i, c, f, x, v;
-  int    mc, hc;
-  uint8 *mr, *hr;
+  uint8  prefs[] = { 0x3f, 0x0f, 0x03, 0x00 };
   int    mask, offs, rem;
 
-  khalf = kmer/2;
+  uint8 *iptr, *nptr;
 
-  mask = prefs[khalf&0x3]; 
-  offs = (khalf >> 2) + 1;
-  rem  = ((kmer+3) >> 2) - offs;
+  int    f;
+  uint8 *finger[5];
+  uint8 *flimit[4];
+
+  int    a, advn[4];
+  int    c, good[4];
+  int    mc, hc;
+  uint8 *mr, *hr;
 
   setup_fmer_table();
+
+  khalf = kmer/2;
+  mask  = prefs[khalf&0x3]; 
+  offs  = (khalf >> 2) + 1;
+  rem   = ((kmer+3) >> 2) - offs;
 
 #ifdef DEBUG_PARTITION
   printf("Extension = K[%d]&%02x . K[%d..%d)\n",offs-1,mask,offs,offs+rem);
 #endif
 
   nptr = KMER(nels);
-  for (iptr = table + 368645*tbyte; iptr < nptr; iptr = jptr)
+  iptr = table + 368645*tbyte;
+  while (iptr < nptr)
     { f = 0;
       finger[f++] = iptr;
-      for (jptr = iptr+tbyte; jptr < nptr; jptr += tbyte)
-        { x = mypref(jptr-tbyte,jptr,khalf); 
+      for (iptr += tbyte; iptr < nptr; iptr += tbyte)
+        { int x = mypref(iptr-tbyte,iptr,khalf); 
           if (x < khalf)
             break;
           if (x == khalf)
-            finger[f++] = jptr;
+            finger[f++] = iptr;
         }
+
 #ifdef DEBUG_PARTITION
       printf("part %d",f);
-      for (i = 0; i < f; i++)
+      for (int i = 0; i < f; i++)
         printf(" %ld",(finger[i]-table)/tbyte);
-      printf(" %ld\n",(jptr-table)/tbyte);
+      printf(" %ld\n",(iptr-table)/tbyte);
 #endif
+
       if (f <= 1)
         continue;
-
-      finger[f] = jptr;
-      for (i = 0; i < f; i++)
+      finger[f] = iptr;
+      for (int i = 0; i < f; i++)
         flimit[i] = finger[i+1];
 
-      for (n = (jptr-iptr)/tbyte; n > 1; n--)
-        { x = 0;
-          while (finger[x] >= flimit[x])
-            x += 1;
-          mr = finger[x]+offs;
-          mc = mr[-1] & mask;
-          c  = 1;
-          for (i = x+1; i < f; i++)
+#define ADD(i)					\
+{ int cn;					\
+  advn[a++] = i;				\
+  cn = COUNT_OF(finger[i]);			\
+  if (HAPLO_LOW <= cn && cn <= HAPLO_HGH)	\
+    good[c++] = i;				\
+}
+
+#define SET(i)	\
+{ mc = hc;	\
+  mr = hr;	\
+  a = c = 0;	\
+  ADD(i);	\
+}
+
+      while (1)
+        { mc = 0x100;
+          a  = 0;
+          for (int i = 0; i < f; i++)
             if (finger[i] < flimit[i])
               { hr = finger[i]+offs;
                 hc = hr[-1] & mask;
-
                 if (hc == mc)
-                  { v = mycmp(hr,mr,rem);
+                  { int v = mycmp(hr,mr,rem);
                     if (v == 0)
-                      c += 1;
+                      ADD(i)
                     else if (v < 0)
-                      { mc = hc;
-                        mr = hr;
-                        c = 1;
-                        x = i;
-                      }
+                      SET(i)
                   }
                 else if (hc < mc)
-                  { mc = hc;
-                    mr = hr;
-                    c = 1;
-                    x = i;
+                  SET(i)
+              }
+          if (a == 0)
+            break;
+
+#ifdef DEBUG_PARTITION
+          { int j;
+
+            j = 0;
+            for (int i = 0; i < a; i++)
+              { printf(" %d",advn[i]);
+                if (j < c && advn[i] == good[j])
+                  { printf("+");
+                    j += 1;
                   }
               }
-#ifdef DEBUG_PARTITION
-          printf("Min %d cnt %d\n",x,c);
+            printf("\n");
+          }
 #endif
-          if (c > 1)
-            { print_seq(finger[x],kmer);
-              printf(" %d <%d>\n",COUNT_OF(finger[x]),x);
-              for (i = x+1; i < f; i++)
-                if (finger[i] < flimit[i])
-                  { hr = finger[i]+offs;
-                    hc = hr[-1] & mask;
-                    if (hc == mc && mycmp(hr,mr,rem) == 0)
-                      { if (c > 1)
-                          { print_seq(finger[i],kmer);
-                            printf(" %d <%d>\n",COUNT_OF(finger[i]),i);
-                          }
-                        finger[i] += tbyte;
-                      }
-                  }
+
+          if (c > 1) 
+            { for (int i = 0; i < c; i++)
+                { uint8 *fp = finger[good[i]];
+                  print_seq(fp,kmer);
+                  printf(" %d\n",COUNT_OF(fp));
+                }
               printf("\n");
             }
-          finger[x] += tbyte;
+          for (int i = 0; i < a; i++)
+            finger[advn[i]] += tbyte;
+
+#ifdef DEBUG_PARTITION
+          for (int i = 0; i < f; i++)
+            printf(" %ld",(finger[i]-table)/tbyte);
+          printf("\n");
+#endif
         }
     }
 }
@@ -366,11 +386,14 @@ int main(int argc, char *argv[])
 
   { int    i, j, k;
     int    flags[128];
-    char  *eptr;
+    char  *eptr, *fptr;
 
     (void) flags;
 
     ARG_INIT("Haplex");
+
+    HAPLO_LOW = 1;
+    HAPLO_HGH = 0x7fff;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -380,8 +403,31 @@ int main(int argc, char *argv[])
             ARG_FLAGS("")
             break;
           case 'h':
-            ARG_POSITIVE(HAPLO_X,"Mean Haplotype Coverage")
-            break;
+            HAPLO_LOW = strtol(argv[i]+2,&eptr,10);
+            if (eptr > argv[i]+2)
+              { if (HAPLO_LOW < 1 || HAPLO_LOW > 0x7fff)
+                  { fprintf(stderr,"%s: Haplotype minimum count %d is out of range\n",
+                                   Prog_Name,HAPLO_LOW);
+                    exit (1);
+                  }
+                if (*eptr == ':')
+                  { HAPLO_HGH = strtol(eptr+1,&fptr,10);
+                    if (fptr > eptr+1 && *fptr == '\0')
+                      { if (HAPLO_HGH < 1 || HAPLO_HGH > 0x7fff)
+                          { fprintf(stderr,"%s: Haplotype maximum count %d is out of range\n",
+                                           Prog_Name,HAPLO_HGH);
+                            exit (1);
+                          }
+                        if (HAPLO_LOW > HAPLO_HGH)
+                          { fprintf(stderr,"%s: Histogram range is invalid\n",Prog_Name);
+                            exit (1);
+                          }
+                        break;
+                      }
+                  }
+              }
+            fprintf(stderr,"%s: Syntax of -h option invalid -h[<int(1)>:]<int>\n",Prog_Name);
+            exit (1);
         }
       else
         argv[j++] = argv[i];
@@ -389,6 +435,9 @@ int main(int argc, char *argv[])
 
     if (argc != 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -v: Verbose mode, output statistics/progress.\n");
+        fprintf(stderr,"      -h: Accept only haplotypes with count in given range (inclusive).\n");
         exit (1);
       }
   }
