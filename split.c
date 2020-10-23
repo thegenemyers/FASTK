@@ -144,6 +144,8 @@ static void *padded_minimizer_thread(void *arg)
   for (i = beg; i < end; i++)
     { s = t;
       t = bases + boff[i];
+
+      s += BC_PREFIX;
       q = (t-s) - 1;
 
       m  = 0;
@@ -1005,8 +1007,10 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   for (i = 0; i < nreads; i++)
     { s = t;
       t = bases + boff[i];
-      r = s-KM1;
+
+      s += BC_PREFIX;
       q = (t-s)-1;
+      r = s-KM1;
 
 #if defined(DEBUG_DISTRIBUTE) || defined(SHOW_PACKETS)
       printf("READ %d %lld\n",i+1,nidx);
@@ -1346,6 +1350,7 @@ int64 nids;
         ntot += m;
       }
 
+    awide = kwide = nwide = 0;
     if (VERBOSE)
       { fprintf(stderr,"  There are ");
         Print_Number((int64) nreads,0,stderr);
@@ -1444,4 +1449,5 @@ int64 nids;
   free(nfirst);
   free(buffers);
   free(out);
+  free(Min_Part);
 }

@@ -197,13 +197,11 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
                   fread(count+1,999,1,f);
                   p  = count;
                   q -= 999;
-printf("Odd pull\n");
                 }
               else
                 { fread(count,1000,1,f);
                   p = count;
                   q -= 1000;
-printf("Even pull\n");
                 }
             }
           x = *p++;
@@ -347,5 +345,10 @@ int main(int argc, char *argv[])
   }
 
   Free_Profiles(P);
+
+  Catenate(NULL,NULL,NULL,NULL);
+  Numbered_Suffix(NULL,0,NULL);
+  free(Prog_Name);
+
   exit (0);
 }

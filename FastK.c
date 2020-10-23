@@ -29,7 +29,7 @@ int    DO_STAGE;   //  Which step to perform
 
 #endif
 
-static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t<int(3)>] [-p]",
+static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t<int(3)>] [-p] [-bc<int(0)>]",
                          "  [-v] [-T<int(4)>] [-P<dir(/tmp)>] [-M<int(12)>]",
                          "    <data::cram|[bs]am|f[ast][aq][.gz]|db|dam> ..."
                        };
@@ -46,6 +46,7 @@ int    HIST_LOW;     // Start count for histogram
 int       HIST_HGH;  // End count for histogram
 int    DO_TABLE;     // Zero or table cutoff
 int    DO_PROFILE;   // Do or not
+int    BC_PREFIX;    // Ignore prefix of each read of this length
 
   //  Major parameters, sizes of things
 
@@ -100,6 +101,7 @@ int main(int argc, char *argv[])
     HIST_LOW    = 0;
     HIST_HGH    = 0x7fff;
     DO_TABLE    = 0;
+    BC_PREFIX   = 0;
 #ifdef DEVELOPER
     DO_STAGE    = 0;
 #endif
@@ -110,6 +112,15 @@ int main(int argc, char *argv[])
         switch (argv[i][1])
         { default:
             ARG_FLAGS("vdp")
+            break;
+          case 'b':
+            if (argv[i][2] != 'c')
+              { fprintf(stderr,"%s: -%s is not a legal optional argument\n",Prog_Name,argv[i]);
+                exit (1);
+              }                
+            argv[i] += 1;
+            ARG_NON_NEGATIVE(BC_PREFIX,"Bar code prefiex")
+            argv[i] -= 1;
             break;
           case 'k':
             ARG_POSITIVE(KMER,"K-mer length")
@@ -193,6 +204,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -h: Output histogram of counts in range given\n");
         fprintf(stderr,"      -t: Produce table of sorted k-mer & counts >= level specified\n");
         fprintf(stderr,"      -p: Produce read count profiles\n");
+        fprintf(stderr,"     -bc: Ignore prefix of each read of given length (e.g. bar code)\n");
         exit (1);
       }
   }
@@ -334,5 +346,10 @@ int main(int argc, char *argv[])
 #endif
 
   free(SORT_PATH);
+
+  Catenate(NULL,NULL,NULL,NULL);  //  frees internal buffers of these routines
+  Numbered_Suffix(NULL,0,NULL);
+  free(Prog_Name);
+
   exit (0);
 }

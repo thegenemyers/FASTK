@@ -108,7 +108,10 @@ char *Catenate(char *path, char *sep, char *root, char *suffix)
   int len;
 
   if (path == NULL || root == NULL || sep == NULL || suffix == NULL)
-    return (NULL);
+    { free(cat);
+      max = -1;
+      return (NULL);
+    }
   len =  strlen(path);
   len += strlen(sep);
   len += strlen(root);
@@ -130,7 +133,10 @@ char *Numbered_Suffix(char *left, int num, char *right)
   int len;
 
   if (left == NULL || right == NULL)
-    return (NULL);
+    { free(suffix);
+      max = -1;
+      return (NULL);
+    }
   len =  strlen(left);
   len += strlen(right) + 40;
   if (len > max)

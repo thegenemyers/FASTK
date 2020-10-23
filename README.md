@@ -27,7 +27,7 @@ line options.  The table (2.) is over just the canonical k-mers present in the d
 about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 
 ```
-FastK [-k<int(40)] [-h[<int(1)>:]<int>] [-t<int(3)>] [-p]
+FastK [-k<int(40)] [-h[<int(1)>:]<int>] [-t<int(3)>] [-p] [-bc<int>]
         [-v] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
           <source:cram|[bs]am|f[ast][aq][.gz]|db|dam> ...
 ```
@@ -66,6 +66,8 @@ equal sized pairs of files with the names
 files is described in the section on Data Encodings.
 
 The -v option asks FastK to output information about its ongoing operation to standard error.
+The -bc option allows you to ignore the prefix of each read of the indicated length, e.g. the
+reads have a bar code at the start of each read.
 The -P option specifies where FastK should place all the numerous temporary files it creates, if not `/tmp` by default.
 The -M options specifies the maximum amount of memory, in GB, FastK should use at any given
 moment.
@@ -123,14 +125,21 @@ length.
 ### K-mer Histogram
 
 The histogram file has a name of the form \<source\_root>.K\<k> where \<source\_root> is the root name of the input.  It contains an initial integer
-giving the k-mer size <k>, followed by 32,767 64-bit counts for frequencies 1, 2, 3 ... so it
-is precisely 262,140 bytes in size.
+giving the k-mer size <k>, followed by two integers giving the range [l,h] (inclusive) of frequencies in the histogram, followed by (h-l)+1 64-bit counts for frequencies l, l+1, ..., h.
 Formally,
 
 ```
-    < kmer size(k) : int >
-    ( < k-mer count for f=1,2,3, ... : int64 > ) ^ 32,767
+    < kmer size(k)  : int >
+    < 1st freq.(l)  : int >
+    < last freq.(h) : int >
+    ( < k-mer count for f=l, l+1, ... h : int64 > ) ^ (h-l)+1
 ```
+
+FastK always outputs a histogram with l=1 and h=32,637, and so the file is exactly 262,140
+bytes in size.  Other auxiliary programs can produce histograms over a subrange of this range.
+Note carefully that the count for the entry h, is actually the count of all k-mers that occur
+h-or-more times, and when l>1, the entry l, is the count of all k-mers that occur l-or-fewer
+times.
 
 ### K-mer Table
 
@@ -142,14 +151,16 @@ The data in each table file is as follows:
 ```
     < kmer size(k)   : int   >
     < # of k-mers(n) : int64 >
-    ( < bit-encoded k-mer : uint8 ^ (k+3)/4 > < cnt : int16> ) ^ n
+    ( < bit-encoded k-mer : uint8 ^ (k+3)/4 > < count : uint16 ) ^ n
 ```
     
-In words, an intial 64-bit int, n, gives the # of entries in the file that is followed by an int, k, giving the k-mer size that FastK was run with.  The remainder of the file is then n
-k-mer,cnt pairs.  The k-mer is encoded in (k+3)/4 bytes where each base is compressed into 2-bits so thata each byte contains up to four bases, in order of high bits to low bits.  The
+In words, an initial integer gives the kmer size that FastK was run with followed by
+a 64-bit int, n, that gives the # of entries in the file.  The remainder of the file is then n
+k-mer,cnt pairs.  The k-mer is encoded in (k+3)/4 bytes where each base is compressed into 2-bits so that each byte contains up to four bases, in order of high bits to low bits.  The
 bases a,c,g,t are assigned to the values 0,1,2,3, respectively.  As an example, 0xc6 encodes
-tacg.  The last byte is partially filled if k is not a multiple of 4.  The byte sequence for a
-k-mer is then followed by a 2-byte integer count with a maximumb value of 32,767.
+tacg.  The last byte is partially filled if k is not a multiple of 4, and the remainder is
+guaranteed to be zeroed.  The byte sequence for a k-mer is then followed by a 2-byte 
+unsigned integer count with a maximumb value of 32,767.
 
 ### Sequence Profiles
 

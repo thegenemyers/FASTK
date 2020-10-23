@@ -41,6 +41,8 @@ extern int    HIST_LOW;    // Zero or start count for histogram
 extern int       HIST_HGH; // End count for histogram
 extern int    DO_TABLE;    // Zero or table cutoff
 extern int    DO_PROFILE;  // Do or not
+extern int    BC_PREFIX;   // Ignore prefix of each read of this length
+
 
   //  Sizes and numbers of items (k-mers, super-mers, reads, positions)
 

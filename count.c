@@ -1053,7 +1053,7 @@ void Sorting(char *dpwd, char *dbrt)
     int  l0, l1, l2, l3;
     int *s;
 
-    reload  = Malloc(sizeof(int)*IO_UBITS*MAX_SUPER,"Allocating reload table");
+    reload = Malloc(sizeof(int)*IO_UBITS*MAX_SUPER,"Allocating reload table");
 
     for (i = 0; i < 0x8000; i++)
       counts[i] = 0;
@@ -1621,9 +1621,14 @@ void Sorting(char *dpwd, char *dbrt)
     sprintf(fname,"%s/%s.K%d",dpwd,dbrt,KMER);
     f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
     write(f,&KMER,sizeof(int));
+    i = 1;
+    write(f,&i,sizeof(int));
+    i = 0x7fff;
+    write(f,&i,sizeof(int));
     write(f,counts,0x8000*sizeof(int64));
     close(f);
   }
 
+  free(reload);
   free(fname);
 }

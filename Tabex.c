@@ -462,5 +462,10 @@ int main(int argc, char *argv[])
   }
 
   Free_Kmer_Table(T);
+
+  Catenate(NULL,NULL,NULL,NULL);
+  Numbered_Suffix(NULL,0,NULL);
+  free(Prog_Name);
+
   exit (0);
 }

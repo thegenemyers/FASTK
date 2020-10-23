@@ -22,6 +22,7 @@ static char *Usage = " [-h[<int(1)>:]<int(100)>] <source_root>.K<k>";
 int main(int argc, char *argv[])
 { int64 *cgram;
   int    kmer;
+  int    low, high;
 
   int    HIST_LOW;
   int    HIST_HGH;
@@ -91,6 +92,7 @@ int main(int argc, char *argv[])
   //  Load histogram into "cgram"
 
   { FILE *f;
+    int   problem;
 
     f = fopen(argv[1],"r");
     if (f == NULL)
@@ -98,10 +100,26 @@ int main(int argc, char *argv[])
         exit (1);
       }
 
-    cgram = Malloc(sizeof(int64)*HSIZE,"Allocating histogram");
-
     fread(&kmer,sizeof(int),1,f);
-    fread(cgram,sizeof(int64),HSIZE,f);
+    fread(&low,sizeof(int),1,f);
+    fread(&high,sizeof(int),1,f);
+
+    problem = 0;
+    if (low > HIST_LOW)
+      { HIST_LOW = low;
+        problem  = 1;
+      }
+    if (high < HIST_HGH)
+      { HIST_HGH = high;
+        problem  = 1;
+      }
+    if (problem)
+      printf("\nWarning: histogram range [%d,%d] is not a superset of requested display range\n",
+             low,high);
+
+    cgram = Malloc(sizeof(int64)*((high-low)+1),"Allocating histogram");
+  
+    fread(cgram,sizeof(int64),(high-low)+1,f);
     
     fclose(f);
   }
@@ -109,7 +127,7 @@ int main(int argc, char *argv[])
   //  Generate display
 
   { char       *root;
-    int         i;
+    int         i, j;
     int64       ssum, stotal;
 
     root = Root(argv[1],NULL);
@@ -117,7 +135,7 @@ int main(int argc, char *argv[])
     free(root);
 
     stotal = 0;
-    for (i = 0; i < HSIZE; i++)
+    for (i = high-low; i >= 0; i--)
       stotal += cgram[i];
 
     printf("\n  Input: ");
@@ -126,22 +144,27 @@ int main(int argc, char *argv[])
 
     printf("\n     Freq:        Count   Cum. %%\n");
     ssum = 0;
-    for (i = HSIZE-1; i >= HIST_LOW; i--)
+    for (j = high, i = high-low; i > 0; j--, i--)
       if (cgram[i] > 0)
         { ssum += cgram[i];
-          if (i == HIST_HGH)
-            { printf(" >= %5d: %12lld",i,ssum);
+          if (j == HIST_HGH)
+            { printf(" >= %5d: %12lld",j,ssum);
               printf("   %5.1f%%\n",(100.*ssum)/stotal);
             }
-          else if (i < HIST_HGH)
-            { printf("    %5d: %12lld",i,cgram[i]);
+          else if (j < HIST_HGH && j > HIST_LOW)
+            { printf("    %5d: %12lld",j,cgram[i]);
               printf("   %5.1f%%\n",(100.*ssum)/stotal);
             }
         }
     if (HIST_LOW > 1)
-      printf("  < %5d: %12lld   100.0%%\n",i,stotal-ssum);
+      printf(" <= %5d: %12lld   100.0%%\n",j,stotal-ssum);
+    else
+      printf("    %5d: %12lld   100.0%%\n",j,stotal-ssum);
   }
 
+  Catenate(NULL,NULL,NULL,NULL);
+  Numbered_Suffix(NULL,0,NULL);
   free(Prog_Name);
+
   exit (0);
 }

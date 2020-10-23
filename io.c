@@ -186,7 +186,6 @@ static void Fetch_File(char *arg, File_Object *input)
     { int idx;
 
       idx = open(Catenate(pwd,"/",root,sufidx[i]),O_RDONLY);
-      free(pwd);
       if (idx < 0)
         { if (VERBOSE)
             fprintf(stderr,"  File %s not VGPzip'd, decompressing\n",arg);
@@ -248,7 +247,6 @@ static void Fetch_File(char *arg, File_Object *input)
         zoffs = genes_cram_index(path,fsize,&zsize);
       else
         zsize = (fsize-1)/IO_BLOCK+1;
-      free(pwd);
     }
 
 #ifdef DEBUG_FIND
@@ -256,6 +254,7 @@ static void Fetch_File(char *arg, File_Object *input)
                  arg,suffix[i],ftype,zipd,fsize);
 #endif
 
+  free(pwd);
   close(fid);
 
   input->path  = path;
@@ -670,6 +669,7 @@ static void *fast_output_thread(void *arg)
                     { while (Add_Data_Block(dset,olen,line))
                         { if (action == SAMPLE)
                             { dset->ratio = (1.*parm->work) / (totread-(slen-b));
+                              close(fid);
                               return (NULL);
                             }
                           else
@@ -705,6 +705,7 @@ static void *fast_output_thread(void *arg)
                     { while (Add_Data_Block(dset,olen,line))
                         { if (action == SAMPLE)
                             { dset->ratio = (1.*parm->work) / (totread-(slen-b));
+                              close(fid);
                               return (NULL);
                             }
                           else
@@ -756,6 +757,7 @@ static void *fast_output_thread(void *arg)
         { while (Add_Data_Block(dset,olen,line))
             { if (action == SAMPLE)
                 { dset->ratio = (1.*parm->work) / totread;
+                  close(fid);
                   return (NULL);
                 }
               else
@@ -1645,10 +1647,12 @@ static void *bam_output_thread(void *arg)
                   { int unused = (bam->blen - (bam->bptr + bam->bsize))
                                - bam->loc.boff * ((1.*bam->bsize) / bam->ssize);
                     dset->ratio = (1.*parm->work) / ((totread+lseek(fid,0,SEEK_CUR)-unused)-fbeg);
+                    close(fid);
                     return (NULL);
                   }
                 else
                   { dset->ratio = (1.*parm->work) / (totread+bam->loc.fpos);
+                    close(fid);
                     return (NULL);
                   }
               else
@@ -1869,7 +1873,7 @@ static void *cram_output_thread(void *arg)
   int64 estbps, cumbps, nxtbps, pct1;
   int   CLOCK;
 
-  cumbps = 0;
+  cumbps = nxtbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
     { estbps = dset->ratio / NTHREADS;
       nxtbps = pct1 = estbps/100;
@@ -1913,6 +1917,7 @@ static void *cram_output_thread(void *arg)
           while (Add_Data_Block(dset,rec->len,(char *) rec->s->seqs_blk->data+rec->seq))
             { if (action == SAMPLE)
                 { dset->ratio = (1.*parm->work) / (totread+(htell(fid->fp)-bpos));
+                  cram_close(fid);
                   return (NULL);
                 }
               else
@@ -1931,6 +1936,7 @@ static void *cram_output_thread(void *arg)
         }
 
       totread += epos-bpos;
+      cram_close(fid);
     }
 
   if (action == SAMPLE)
@@ -2018,6 +2024,10 @@ static void read_DB_stub(char *path, int *cut, int *all)
   int64 size;
 
   dbfile = fopen(path,"r");
+  if (dbfile == NULL)
+    { fprintf(stderr,"%s: Cannot open stub file %s\n",Prog_Name,path);
+      exit (1);
+    }
 
   if (fscanf(dbfile,"files = %9d\n",&nfiles) != 1)
     goto stub_trash;
@@ -2032,10 +2042,12 @@ static void read_DB_stub(char *path, int *cut, int *all)
   if (fscanf(dbfile,"size = %11lld cutoff = %9d all = %1d\n",&size,cut,all) != 3)
     goto stub_trash;
 
+  fclose(dbfile);
   return;
 
 stub_trash:
   fprintf(stderr,"%s: Stub file %s is junk\n",Prog_Name,path);
+  fclose(dbfile);
   exit (1);
 }
 
@@ -2220,6 +2232,7 @@ static void *dazz_output_thread(void *arg)
             { dset->nreads = n;
               if (action == SAMPLE)
                 { dset->ratio = (1.*parm->work) / (totread+(ftello(fid)-bpos));
+                  fclose(fid);
                   return (NULL);
                 }
               else
@@ -2647,7 +2660,7 @@ void Free_Input_Partition(Input_Partition *parts)
     for (i = 0; i < NTHREADS; i++)
       libdeflate_free_decompressor(parm[i].decomp);
   free(parm[0].buf);
-  for (f = 0; f < parm[NTHREADS-1].eidx; f++)
+  for (f = 0; f <= parm[NTHREADS-1].eidx; f++)
     Free_File(parm[0].fobj+f);
   free(parm);
 }
