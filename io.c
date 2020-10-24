@@ -2678,5 +2678,6 @@ void Free_Input_Partition(Input_Partition *parts)
   free(parm[0].buf);
   for (f = 0; f <= parm[NTHREADS-1].eidx; f++)
     Free_File(parm[0].fobj+f);
+  free(parm[0].fobj);
   free(parm);
 }

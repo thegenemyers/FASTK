@@ -1016,6 +1016,7 @@ static void *profile_write_thread(void *arg)
       close(pfile);
     }
 
+  free(fname);
   return (NULL);
 }
 
@@ -1154,7 +1155,7 @@ void Sorting(char *dpwd, char *dbrt)
     s_sort = Malloc((NMAX+1)*SMER_WORD+1,"Allocating super-mer sort array");
     if (s_sort == NULL)
       exit (1);
-    s_sort += 1;
+    *s_sort++ = 0;
 #endif
 
     for (p = 0; p < NPARTS; p++)
@@ -1207,7 +1208,7 @@ void Sorting(char *dpwd, char *dbrt)
             s_sort = Malloc((NMAX+1)*SMER_WORD+1,"Allocating super-mer sort array");
             if (s_sort == NULL)
               exit (1);
-            s_sort += 1;
+            *s_sort++ = 0;
           }
 #endif
 

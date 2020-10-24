@@ -31,6 +31,7 @@ typedef struct
     int    tbyte;   //  Kmer+count entry in bytes
     int64  nels;    //  # of unique, sorted k-mers in the table
     uint8 *table;   //  The (huge) table in memory
+    int64 *index;   //  Search accelerator if needed
   } Kmer_Table;
 
 #define  KMER(i)  (table+(i)*tbyte)
@@ -190,6 +191,7 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_freq)
   T->kbyte = kbyte;
   T->nels  = nels;
   T->table = table;
+  T->index = NULL;
 
   return (T);
 }
@@ -269,6 +271,41 @@ void List_Table(Kmer_Table *T)
  *  Find k-mer in table
  *
  *****************************************************************************************/
+
+void set_up_accelerator(Kmer_Table *T)
+{ int    tbyte = T->tbyte;
+  int    kbyte = T->kbyte;
+  int64  nels  = T->nels;
+  uint8 *table = T->table;
+  int64 *index;
+
+  uint8 *iptr;
+  int    idx, v;
+
+  index = Malloc(sizeof(int64)*0x1000001,"Allocating acceleraator");
+  if (index == NULL)
+    exit (1);
+
+  if (kbyte > 3)
+    kbyte = 3;
+
+  iptr = KMER(nels);
+  index[0x1000000] = iptr-table; 
+  iptr -= tbyte;
+  for (idx = 0xffffff; idx >= 0; idx--)
+    { v = mycmp(iptr,(uint8 *) &idx,kbyte);
+      if (v > 0)
+        iptr -= tbyte;
+      else if (v == 0)
+        { index[idx] = iptr-table;
+          iptr -= tbyte;
+        }
+      else
+        index[idx] = index[idx+1];
+    }
+
+  T->index = index;
+}
 
 static uint8 code[128] =
   { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -371,6 +408,9 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
 
   uint8  cmp[kbyte];
   int64  l, r, m;
+
+  if (T->index == NULL)
+    set_up_accelerator(T);
 
   //  kseq must be at least kmer bp long
 

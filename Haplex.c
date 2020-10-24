@@ -256,7 +256,7 @@ void Find_Haplo_Pairs(Kmer_Table *T)
 
   uint8 *iptr, *nptr;
 
-  int    f;
+  int    f, i;
   uint8 *finger[5];
   uint8 *flimit[4];
 
@@ -291,7 +291,7 @@ void Find_Haplo_Pairs(Kmer_Table *T)
 
 #ifdef DEBUG_PARTITION
       printf("part %d",f);
-      for (int i = 0; i < f; i++)
+      for (i = 0; i < f; i++)
         printf(" %ld",(finger[i]-table)/tbyte);
       printf(" %ld\n",(iptr-table)/tbyte);
 #endif
@@ -299,13 +299,12 @@ void Find_Haplo_Pairs(Kmer_Table *T)
       if (f <= 1)
         continue;
       finger[f] = iptr;
-      for (int i = 0; i < f; i++)
+      for (i = 0; i < f; i++)
         flimit[i] = finger[i+1];
 
 #define ADD(i)					\
-{ int cn;					\
+{ int cn = COUNT_OF(finger[i]);			\
   advn[a++] = i;				\
-  cn = COUNT_OF(finger[i]);			\
   if (HAPLO_LOW <= cn && cn <= HAPLO_HGH)	\
     good[c++] = i;				\
 }
@@ -318,9 +317,13 @@ void Find_Haplo_Pairs(Kmer_Table *T)
 }
 
       while (1)
-        { mc = 0x100;
-          a  = 0;
-          for (int i = 0; i < f; i++)
+        { for (i = 0; i < f; i++)
+            if (finger[i] < flimit[i])
+              break;
+          if (i >= f)
+            break;
+          SET(i);
+          for (i++; i < f; i++)
             if (finger[i] < flimit[i])
               { hr = finger[i]+offs;
                 hc = hr[-1] & mask;
@@ -334,14 +337,12 @@ void Find_Haplo_Pairs(Kmer_Table *T)
                 else if (hc < mc)
                   SET(i)
               }
-          if (a == 0)
-            break;
 
 #ifdef DEBUG_PARTITION
           { int j;
 
             j = 0;
-            for (int i = 0; i < a; i++)
+            for (i = 0; i < a; i++)
               { printf(" %d",advn[i]);
                 if (j < c && advn[i] == good[j])
                   { printf("+");
@@ -353,18 +354,18 @@ void Find_Haplo_Pairs(Kmer_Table *T)
 #endif
 
           if (c > 1) 
-            { for (int i = 0; i < c; i++)
+            { for (i = 0; i < c; i++)
                 { uint8 *fp = finger[good[i]];
                   print_seq(fp,kmer);
                   printf(" %d\n",COUNT_OF(fp));
                 }
               printf("\n");
             }
-          for (int i = 0; i < a; i++)
+          for (i = 0; i < a; i++)
             finger[advn[i]] += tbyte;
 
 #ifdef DEBUG_PARTITION
-          for (int i = 0; i < f; i++)
+          for (i = 0; i < f; i++)
             printf(" %ld",(finger[i]-table)/tbyte);
           printf("\n");
 #endif

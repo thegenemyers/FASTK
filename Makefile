@@ -2,7 +2,7 @@ DEST_DIR = ~/bin
 
 CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
-ALL = FastK Histex Tabex Profex Haplex
+ALL = FastK Histex Tabex Profex Haplex Vennex
 
 all: deflate.lib libhts.a $(ALL)
 
@@ -23,11 +23,14 @@ Histex: Histex.c gene_core.c gene_core.h
 Tabex: Tabex.c gene_core.c gene_core.h
 	gcc $(CFLAGS) -o Tabex Tabex.c gene_core.c -lpthread -lm
 
+Profex: Profex.c gene_core.c gene_core.h
+	gcc $(CFLAGS) -o Profex Profex.c gene_core.c -lpthread -lm
+
 Haplex: Haplex.c gene_core.c gene_core.h
 	gcc $(CFLAGS) -o Haplex Haplex.c gene_core.c -lpthread -lm
 
-Profex: Profex.c gene_core.c gene_core.h
-	gcc $(CFLAGS) -o Profex Profex.c gene_core.c -lpthread -lm
+Vennex: Vennex.c gene_core.c gene_core.h
+	gcc $(CFLAGS) -o Vennex Vennex.c gene_core.c -lpthread -lm
 
 tidyup:
 	rm -f $(ALL)

@@ -88,7 +88,7 @@ static void *merge_profile_thread(void *arg)
   int          dfile = data->dfile;
   IO_block    *io    = data->io;
   Entry       *chord = data->chord;
-  int          maxS  = 2*MAX_SUPER;
+  int          maxS  = 2*MAX_SUPER + 2 + PLEN_BYTES + RUN_BYTES;
 
   uint8 *dbuf;
   int64 *abuf, *aptr, *atop;
@@ -555,7 +555,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
   io     = (IO_block *) Malloc(sizeof(IO_block)*(NPARTS+1)*NTHREADS,"Allocating IO buffers");
   blocks = (uint8 *) Malloc(BUFLEN_UINT8*(NPARTS+1)*NTHREADS,"Allocating IO buffers");
   chord  = (Entry *) Malloc(PAN_SIZE*sizeof(Entry)*NTHREADS,"Allocating IO buffers");
-  _chord = (uint8 *) Malloc(PAN_SIZE*2*MAX_SUPER*NTHREADS,"Allocating IO buffers");
+  _chord = (uint8 *) Malloc(PAN_SIZE*2*(MAX_SUPER+1)*NTHREADS,"Allocating IO buffers");
   if (io == NULL || blocks == NULL || chord == NULL || _chord == NULL)
     exit (1);
 
@@ -612,7 +612,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
     //  Setup the fragment buffers for each range chord
 
     for (n = 0; n < PAN_SIZE*NTHREADS; n++)
-      chord[n].frag = _chord + 2*MAX_SUPER*n;
+      chord[n].frag = _chord + 2*(MAX_SUPER+1)*n;
 
     //  In parallel process each of the NTHREADS partitions
 
