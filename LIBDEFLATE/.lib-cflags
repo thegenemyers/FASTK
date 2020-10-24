@@ -1,1 +1,0 @@
-cc:-O2 -fomit-frame-pointer  -std=c99 -I. -Icommon -Wall -Wundef -Wpedantic -Wdeclaration-after-statement -Wmissing-prototypes -Wstrict-prototypes -Wvla -Wimplicit-fallthrough -fvisibility=hidden -D_ANSI_SOURCE:
