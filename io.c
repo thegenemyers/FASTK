@@ -78,6 +78,7 @@ static char *Tstring[7] = { "cram", "bam", "sam", "fastq", "fasta", "db", "dam" 
 typedef struct
   { char      *path;   //  Full path name
     char      *root;   //  Ascii root name
+    char      *pwd;    //  Ascii path name
     int64      fsize;  //  Size of (uncompressed) file in bytes
     int        ftype;  //  Type of file
                        //  Fasta/q and Cram specific:
@@ -254,11 +255,11 @@ static void Fetch_File(char *arg, File_Object *input)
                  arg,suffix[i],ftype,zipd,fsize);
 #endif
 
-  free(pwd);
   close(fid);
 
   input->path  = path;
   input->root  = root;
+  input->pwd   = pwd;
   input->fsize = fsize;
   input->ftype = ftype;
   input->zipd  = zipd;
@@ -273,6 +274,7 @@ static void Free_File(File_Object *input)
   free(input->zoffs);
   free(input->path);
   free(input->root);
+  free(input->pwd);
 }
 
 
@@ -2448,6 +2450,9 @@ Input_Partition *Partition_Input(int argc, char *argv[])
         parm[i].beg.fpos = b;
         parm[i].bidx = f;
 
+        if (i+1 == NTHREADS)
+          break;
+
         work -= wper;
         while (work < .01*IO_BLOCK)
           { if (f == nfiles)
@@ -2603,11 +2608,22 @@ void Free_First_Block(DATA_BLOCK *block)
   free(block->boff);
 }
 
-  //  Return root of the name of the first file
+  //  Return root or pwd of the name of the first file
 
-char *First_Root_Name(Input_Partition *io)
+char *First_Root(Input_Partition *io)
 { Thread_Arg *parm = (Thread_Arg *) io;
-  return (parm[0].fobj[0].root);
+  char       *root;
+
+  root = Strdup(parm[0].fobj[0].root,"Allocating root name for FastK");
+  return (root);
+}
+
+char *First_Pwd(Input_Partition *io)
+{ Thread_Arg *parm = (Thread_Arg *) io;
+  char       *pwd;
+
+  pwd = Strdup(parm[0].fobj[0].pwd,"Allocating pwd for FastK");
+  return (pwd);
 }
 
    //  Distribute k-mers

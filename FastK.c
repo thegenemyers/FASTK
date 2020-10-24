@@ -85,7 +85,8 @@ int CMER_WORD;    //  bytes to hold a count/index entry
 int NUM_READS;    //  number of reads in dataset
 
 int main(int argc, char *argv[])
-{ char  *dbrt;
+{ char  *root;
+  char  *pwd;
 
   { int    i, j, k;
     int    flags[128];
@@ -248,10 +249,11 @@ int main(int argc, char *argv[])
 
     io = Partition_Input(argc,argv);
 
-    dbrt = First_Root_Name(io);
+    root = First_Root(io);
+    pwd  = First_Pwd (io);
 
     if (VERBOSE)
-      fprintf(stderr,"\nDetermining minimizer scheme & partition for %s\n",dbrt);
+      fprintf(stderr,"\nDetermining minimizer scheme & partition for %s\n",root);
 
     //  Determine number of buckets and padded minimzer scheme based on first
     //    block of the data set
@@ -319,7 +321,7 @@ int main(int argc, char *argv[])
 #ifdef DEVELOPER
     if (DO_STAGE == 1)
 #endif
-      Split_Kmers(io,dbrt);
+      Split_Kmers(io,root);
 
     Free_Input_Partition(io);
   }
@@ -327,24 +329,26 @@ int main(int argc, char *argv[])
 #ifdef DEVELOPER
   if (DO_STAGE == 2)
 #endif
-    Sorting(".",dbrt);
+    Sorting(pwd,root);
 
   if (DO_TABLE > 0)
 #ifdef DEVELOPER
     if (DO_STAGE == 3)
-      Merge_Tables(".",dbrt);
+      Merge_Tables(pwd,root);
 #else
-    Merge_Tables(".",dbrt);
+    Merge_Tables(pwd,root);
 #endif
 
   if (DO_PROFILE > 0)
 #ifdef DEVELOPER
     if (DO_STAGE == 4)
-      Merge_Profiles(".",dbrt);
+      Merge_Profiles(pwd,root);
 #else
-    Merge_Profiles(".",dbrt);
+    Merge_Profiles(pwd,root);
 #endif
 
+  free(pwd);
+  free(root);
   free(SORT_PATH);
 
   Catenate(NULL,NULL,NULL,NULL);  //  frees internal buffers of these routines

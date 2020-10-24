@@ -160,8 +160,11 @@ static inline void hist_kmers(uint8 *array, int64 asize, Range *rng)
     cnt += *((uint16 *) (array + k));
 
   if (cnt >= 0x8000)
-    cnt = 0x7fff;
-  rng->count[cnt] += cnt;
+    { rng->count[0x7fff] += cnt;
+      cnt = 0x7fff;
+    }
+  else
+    rng->count[cnt] += cnt;
 
   *((uint16 *) (array + KMER_BYTES)) = cnt;
 
@@ -177,8 +180,11 @@ static inline void invert_kmers(uint8 *array, int64 asize, Range *rng)
     cnt += *((uint16 *) (array + k));
 
   if (cnt >= 0x8000)
-    cnt = 0x7fff;
-  rng->count[cnt] += cnt;
+    { rng->count[0x7fff] += cnt;
+      cnt = 0x7fff;
+    }
+  else
+    rng->count[cnt] += cnt;
 
   for (k = KMER_BYTES; k < asize; k += RSIZE)
     *((uint16 *) (array + k)) = cnt;

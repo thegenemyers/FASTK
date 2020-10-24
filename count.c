@@ -327,6 +327,7 @@ typedef struct
     int64     off;
     uint8    *fours[256];
     int64     kidx;
+    int64     overflow;
   } Klist_Arg;
 
 static int kclip[4] = { 0xff, 0xc0, 0xf0, 0xfc };
@@ -337,6 +338,7 @@ static void *kmer_list_thread(void *arg)
   int          end    = data->end;
   int64       *part   = data->parts;
   uint8      **fours  = data->fours;
+  int64        overflow;
 
   int       KMp3   = KMER+3;
   int       KRS    = ((KMER-1)&0x3)<<1;
@@ -375,6 +377,8 @@ static void *kmer_list_thread(void *arg)
   uint8  *sb = ((uint8 *) &sln) + (sizeof(int)-SLEN_BYTES);
   uint8  *ib = ((uint8 *) &idx) + (sizeof(int64)-KMAX_BYTES);
 #endif
+
+  overflow = 0;
 
   idx  = data->kidx;
   sptr = data->sort + data->off;
@@ -443,6 +447,11 @@ static void *kmer_list_thread(void *arg)
         printf("\n");
         fflush(stdout);
 #endif
+
+        if (ct >= 0x8000)
+          { overflow += ((int64) (ct-0x7fff))*(sln+1);
+            ct = 0x7fff;
+          }
 
         f  = FPT;
         fs = 2;
@@ -523,6 +532,8 @@ static void *kmer_list_thread(void *arg)
         *sptr = 1;
       }
 
+  data->overflow = overflow;
+
   return (NULL);
 }
 
@@ -586,7 +597,6 @@ static void *table_write_thread(void *arg)
           }
       }
   write(kfile,bufr,fill-bufr);
-  close(kfile);
 
   return (NULL);
 }
@@ -1141,9 +1151,10 @@ void Sorting(char *dpwd, char *dbrt)
         SMER_WORD += RUN_BYTES;
         PROF_BYTES = RUN_BYTES + sizeof(uint64);
       }
-    s_sort = Malloc((NMAX+1)*SMER_WORD,"Allocating super-mer sort array");
+    s_sort = Malloc((NMAX+1)*SMER_WORD+1,"Allocating super-mer sort array");
     if (s_sort == NULL)
       exit (1);
+    s_sort += 1;
 #endif
 
     for (p = 0; p < NPARTS; p++)
@@ -1193,9 +1204,10 @@ void Sorting(char *dpwd, char *dbrt)
                 for (int i = 0; i < IO_UBITS; i++)
                   Runer_Reload[IO_UBITS-i] = (i + RUN_BITS - 1) / IO_UBITS;
               }
-            s_sort = Malloc((NMAX+1)*SMER_WORD,"Allocating super-mer sort array");
+            s_sort = Malloc((NMAX+1)*SMER_WORD+1,"Allocating super-mer sort array");
             if (s_sort == NULL)
               exit (1);
+            s_sort += 1;
           }
 #endif
 
@@ -1297,11 +1309,11 @@ void Sorting(char *dpwd, char *dbrt)
 
         if (DO_PROFILE)
           if (ODD_PASS)
-            { i_sort = Malloc(skmers*(CMER_WORD+KMER_WORD),"Weighted k-mer & inverse list");
+            { i_sort = Malloc(skmers*(CMER_WORD+KMER_WORD)+1,"Weighted k-mer & inverse list");
               k_sort = i_sort + skmers*CMER_WORD;
             }
           else
-            { k_sort = Malloc(skmers*(KMER_WORD+CMER_WORD),"Weighted k-mer & inverse list");
+            { k_sort = Malloc(skmers*(KMER_WORD+CMER_WORD)+1,"Weighted k-mer & inverse list");
               i_sort = k_sort + skmers*KMER_WORD;
             }
         else
@@ -1354,6 +1366,7 @@ void Sorting(char *dpwd, char *dbrt)
             { ncnt = Panels[t].count;
               for (x = 1; x < 0x8000; x++)
                 counts[x] += ncnt[x];
+              counts[0x7fff] += parmk[t].overflow;
             }
         }
 
@@ -1405,6 +1418,9 @@ void Sorting(char *dpwd, char *dbrt)
             for (t = 1; t < NTHREADS; t++)
               pthread_join(threads[t],NULL);
 #endif
+
+            for (t = 0; t < NTHREADS; t++)
+              close(parmt[t].kfile);
           }
 
         if (! DO_PROFILE)
@@ -1552,7 +1568,7 @@ void Sorting(char *dpwd, char *dbrt)
 	free(i_sort);
       }
 
-    free(s_sort);
+    free(s_sort-1);
 
     if (VERBOSE)
       { int64  wtot, utot;
@@ -1598,24 +1614,28 @@ void Sorting(char *dpwd, char *dbrt)
   //  Output histogram
 
   { int   i, f;
-    int64 oob; 
+    int64 stotal, ssum; 
 
     if (HIST_LOW > 0)
       { printf("\nHistogram of %d-mers:\n",KMER);
-        oob = 0;
-        for (i = 0x7fff; i > HIST_HGH; i--)
-          oob += counts[i];
-        if (i == 0x7fff)
-          { if (counts[i] == 0)
-              printf("    %5d: %12lld\n",i,counts[i]);
-            else
-              printf(" >= %5d: %12lld\n",i,counts[i]);
-            i -= 1;
-          }
-        else if (oob > 0)
-          printf(" >= %5d: %12lld\n",i+1,oob);
-        for ( ; i >= HIST_LOW; i--)
-          printf("    %5d: %12lld\n",i,counts[i]);
+
+        stotal = 0;
+        for (i = 0; i <= 0x7fff; i++)
+          stotal += counts[i];
+
+        ssum = 0;
+        for (i = 0x7fff; i > HIST_LOW; i--)
+          if (counts[i] > 0)
+            { ssum += counts[i];
+              if (i == HIST_HGH)
+                printf(" >= %5d: %12lld\n",i,ssum);
+              else if (i < HIST_HGH)
+                printf("    %5d: %12lld\n",i,counts[i]);
+            }
+        if (HIST_LOW > 1)
+          printf(" <= %5d: %12lld\n",i,stotal-ssum);
+        else
+          printf("    %5d: %12lld\n",i,stotal-ssum);
       }
 
     sprintf(fname,"%s/%s.K%d",dpwd,dbrt,KMER);
@@ -1625,7 +1645,7 @@ void Sorting(char *dpwd, char *dbrt)
     write(f,&i,sizeof(int));
     i = 0x7fff;
     write(f,&i,sizeof(int));
-    write(f,counts,0x8000*sizeof(int64));
+    write(f,counts+1,0x7fff*sizeof(int64));
     close(f);
   }
 

@@ -144,7 +144,7 @@ int main(int argc, char *argv[])
 
     printf("\n     Freq:        Count   Cum. %%\n");
     ssum = 0;
-    for (j = high, i = high-low; i > 0; j--, i--)
+    for (j = high, i = high-low; j > HIST_LOW; j--, i--)
       if (cgram[i] > 0)
         { ssum += cgram[i];
           if (j == HIST_HGH)
@@ -161,6 +161,8 @@ int main(int argc, char *argv[])
     else
       printf("    %5d: %12lld   100.0%%\n",j,stotal-ssum);
   }
+
+  free(cgram);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

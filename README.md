@@ -86,7 +86,7 @@ the histogram, k-mer count tables, and profiles produced by FastK.
 
 Given a histogram file \<data>.K# produced by FastK,
 one can view the histogram of k-mer counts with **Histex** where the -h specifies the 
-interval of frequencies do be displayed where 1 is assumed if the lower bound is not given.
+interval of frequencies to be displayed where 1 is assumed if the lower bound is not given.
 
 ```
 3. Tabex [-t<int>] <source_root>.K<k>  (LIST|CHECK|(<k-mer:string>) ...
@@ -135,7 +135,7 @@ Formally,
     ( < k-mer count for f=l, l+1, ... h : int64 > ) ^ (h-l)+1
 ```
 
-FastK always outputs a histogram with l=1 and h=32,637, and so the file is exactly 262,140
+FastK always outputs a histogram with l=1 and h=32,637, and so the file is exactly 262,148
 bytes in size.  Other auxiliary programs can produce histograms over a subrange of this range.
 Note carefully that the count for the entry h, is actually the count of all k-mers that occur
 h-or-more times, and when l>1, the entry l, is the count of all k-mers that occur l-or-fewer
@@ -160,7 +160,7 @@ k-mer,cnt pairs.  The k-mer is encoded in (k+3)/4 bytes where each base is compr
 bases a,c,g,t are assigned to the values 0,1,2,3, respectively.  As an example, 0xc6 encodes
 tacg.  The last byte is partially filled if k is not a multiple of 4, and the remainder is
 guaranteed to be zeroed.  The byte sequence for a k-mer is then followed by a 2-byte 
-unsigned integer count with a maximumb value of 32,767.
+unsigned integer count with a maximum value of 32,767.
 
 ### Sequence Profiles
 

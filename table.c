@@ -269,17 +269,14 @@ static void *merge_table_thread(void *arg)
           sptr = src->ptr;
         }
 
-      //  If input is now empty, close and reduce heap size
+      //  If input is now empty, reduce heap size
 
       if (sptr >= src->top)
-        { close(src->stream);
-
+        { heap[1] = heap[hsize];
+          hsize  -= 1;
 #ifdef DEBUG
           printf("EOF\n");
 #endif
-
-          heap[1] = heap[hsize];
-          hsize  -= 1;
         }
       else
         src->ptr = sptr;
@@ -299,8 +296,6 @@ static void *merge_table_thread(void *arg)
   anum /= TMER_WORD;
   lseek(afile,sizeof(int),SEEK_SET);
   write(afile,&anum,sizeof(int64));
-
-  close(afile);
 
   if (CLOCK)
     fprintf(stderr,"\r         \r");
@@ -406,6 +401,11 @@ void Merge_Tables(char *path, char *root)
   for (t = 1; t < NTHREADS; t++)
     pthread_join(threads[t],NULL);
 #endif
+
+  p = 0;
+  for (t = 0; t < NTHREADS; t++)
+    for (n = 0; n <= NPARTS; n++)
+      close(io[p++].stream);
 
   //  If user-mode the remove input files
 

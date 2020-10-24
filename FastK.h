@@ -100,7 +100,8 @@ typedef void *Input_Partition;
 
   void Free_First_Block(DATA_BLOCK *block);
 
-  char *First_Root_Name(Input_Partition *part);
+  char *First_Root(Input_Partition *part);
+  char *First_Pwd (Input_Partition *part);
 
   void Scan_All_Input(Input_Partition *part);
 
