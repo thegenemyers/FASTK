@@ -148,6 +148,9 @@ static void *padded_minimizer_thread(void *arg)
       s += BC_PREFIX;
       q = (t-s) - 1;
 
+      if (q < KMER)
+        continue;
+
       m  = 0;
       mc = PAD_TOT;
       c  = u = 0;
@@ -647,6 +650,12 @@ int Determine_Scheme(DATA_BLOCK *block)
       for (j = 0; j < NTHREADS; j++)
         mtot += parmt[j].nmin;
 
+      if (ktot < (block->totlen - (KMER-1)*block->nreads)/2)
+        { fprintf(stderr,"\n%s: Too much of the data is in reads less than the k-mer size\n",
+                         Prog_Name);
+          exit (1);
+        }
+
       kthresh = ktot/npieces;
      
       max_count = 0;
@@ -717,7 +726,7 @@ int Determine_Scheme(DATA_BLOCK *block)
     }
 
   if (KMER < PAD_LEN)
-    { fprintf(stderr,"%s: K-mer must be at least %d\n",Prog_Name,PAD_LEN);
+    { fprintf(stderr,"\n%s: K-mer must be at least %d\n",Prog_Name,PAD_LEN);
       exit (1);
     }
 
@@ -1254,7 +1263,7 @@ int64 nids;
           sprintf(fname,"%s/%s.%d.T%d",SORT_PATH,root,n,t);
           f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
           if (f == -1)
-            { fprintf(stderr,"%s: Cannot open external files in %s\n",
+            { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
                              Prog_Name,SORT_PATH);
               exit (1);
             }

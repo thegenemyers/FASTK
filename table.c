@@ -351,7 +351,7 @@ void Merge_Tables(char *path, char *root)
       { sprintf(fname,"%s/%s.%d.L%d",SORT_PATH,root,n,t);
         f = open(fname,O_RDONLY);
         if (f == -1)
-          { fprintf(stderr,"%s: Cannot open external file %s in %s\n",
+          { fprintf(stderr,"\n%s: Cannot open external file %s in %s\n",
                            Prog_Name,fname,SORT_PATH);
             exit (1);
           }
@@ -376,7 +376,7 @@ void Merge_Tables(char *path, char *root)
     { sprintf(fname,"%s/%s.K%d.T%d",path,root,KMER,t+1);
       f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
       if (f == -1)
-        { fprintf(stderr,"%s: Cannot open external file %s in %s\n",
+        { fprintf(stderr,"\n%s: Cannot open external file %s in %s\n",
                          Prog_Name,fname,SORT_PATH);
           exit (1);
         }

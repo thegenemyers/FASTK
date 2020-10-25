@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
             break;
           case 'b':
             if (argv[i][2] != 'c')
-              { fprintf(stderr,"%s: -%s is not a legal optional argument\n",Prog_Name,argv[i]);
+              { fprintf(stderr,"\n%s: -%s is not a legal optional argument\n",Prog_Name,argv[i]);
                 exit (1);
               }                
             argv[i] += 1;
@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
             HIST_LOW = strtol(argv[i]+2,&eptr,10);
             if (eptr > argv[i]+2)
               { if (HIST_LOW < 1 || HIST_LOW > 0x7fff)
-                  { fprintf(stderr,"%s: Histogram count %d is out of range\n",
+                  { fprintf(stderr,"\n%s: Histogram count %d is out of range\n",
                                    Prog_Name,HIST_LOW);
                     exit (1);
                   }
@@ -145,7 +145,7 @@ int main(int argc, char *argv[])
                   { HIST_HGH = strtol(eptr+1,&fptr,10);
                     if (fptr > eptr+1 && *fptr == '\0')
                       { if (HIST_LOW > HIST_HGH)
-                          { fprintf(stderr,"%s: Histogram range is invalid\n",Prog_Name);
+                          { fprintf(stderr,"\n%s: Histogram range is invalid\n",Prog_Name);
                             exit (1);
                           }
                         break;
@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
                     break;
                   }
               }
-            fprintf(stderr,"%s: Syntax of -h option invalid -h[<int(1)>:]<int>\n",Prog_Name);
+            fprintf(stderr,"\n%s: Syntax of -h option invalid -h[<int(1)>:]<int>\n",Prog_Name);
             exit (1);
           case 'M':
             ARG_POSITIVE(memory,"GB of memory for sorting step")
@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
     DO_PROFILE = flags['p'];
 
     if (argc != 2)
-      { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage[0]);
+      { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
         fprintf(stderr,"\n");
@@ -223,7 +223,7 @@ int main(int argc, char *argv[])
             else if (SORT_PATH[1] == '\0')
               spath = cpath;
             else
-              { fprintf(stderr,"%s: -P option: . not followed by /\n",Prog_Name);
+              { fprintf(stderr,"\n%s: -P option: . not followed by /\n",Prog_Name);
                 exit (1);
               }
           }
@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
       SORT_PATH = Strdup(SORT_PATH,"Allocating path");
 
     if ((dirp = opendir(SORT_PATH)) == NULL)
-      { fprintf(stderr,"%s: -P option: cannot open directory %s\n",Prog_Name,SORT_PATH);
+      { fprintf(stderr,"\n%s: -P option: cannot open directory %s\n",Prog_Name,SORT_PATH);
         exit (1);
       }
     closedir(dirp);
@@ -263,7 +263,12 @@ int main(int argc, char *argv[])
     KMER_BYTES = (KMER*2+7) >> 3;
 
     rsize  = KMER_BYTES + 2;
-    gsize  = (block->totlen - KMER*block->nreads)*block->ratio*rsize;
+    gsize  = block->totlen - KMER*block->nreads;
+    if (gsize < 0)
+      { fprintf(stderr,"\n%s: Reads are on aaverage smaller than k-mer size!\n",Prog_Name);
+        exit (1);
+      }
+    gsize  = gsize*block->ratio*rsize;
     NPARTS = (gsize-1)/SORT_MEMORY + 1;
 
     if (VERBOSE)
@@ -311,7 +316,7 @@ int main(int argc, char *argv[])
       nfiles = (2*NPARTS+2)*NTHREADS+3;
       getrlimit(RLIMIT_NOFILE,&rlp);
       if (nfiles > rlp.rlim_max)
-        { fprintf(stderr,"%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
+        { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
           exit (1);
         }
       rlp.rlim_cur = nfiles;

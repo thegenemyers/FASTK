@@ -186,7 +186,7 @@ static void *merge_profile_thread(void *arg)
           sprintf(fname,"%s.%d.P%d.%d",data->root,n,data->wch,src->panel);
           f = open(fname,O_RDONLY);
           if (f == -1)
-            { fprintf(stderr,"%s: Cannot open external file %s in %s\n",
+            { fprintf(stderr,"\n%s: Cannot open external file %s in %s\n",
                              Prog_Name,fname,SORT_PATH);
               exit (1);
             }
@@ -305,7 +305,7 @@ static void *merge_profile_thread(void *arg)
                   sprintf(fname,"%s.%d.P%d.%d",data->root,n,data->wch,src->panel);
                   f = open(fname,O_RDONLY);
                   if (f == -1)
-                    { fprintf(stderr,"%s: A Cannot open external file %s in %s\n",
+                    { fprintf(stderr,"\n%s: A Cannot open external file %s in %s\n",
                                      Prog_Name,fname,SORT_PATH);
                       exit (1);
                     }

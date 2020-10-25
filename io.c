@@ -137,11 +137,18 @@ static void   read_DB_stub(char *path, int *cut, int *all);
 static int64 *get_dazz_offsets(FILE *idx, int64 *zsize);
 
 static void Fetch_File(char *arg, File_Object *input)
-{ static char *suffix[13] = { ".cram", ".bam", ".sam",
-                              ".fastq.gz", ".fasta.gz", ".fastq", ".fasta",
-                              ".fq.gz",  ".fa.gz", ".fq", ".fa", ".db", ".dam" };
-  static char *sufidx[13] = { "", "", "", ".fastq.vzi", ".fasta.vzi",
-                              "", "", ".fq.vzi", ".fa.vzi", "", "", "", "" };
+{ static char *suffix[] = { ".cram", ".bam", ".sam", ".db", ".dam",
+                            ".fastq.gz", ".fasta.gz", ".fastq", ".fasta",
+                            ".fq.gz",  ".fa.gz", ".fq", ".fa",
+                            ".fastq", ".fasta", ".fq", ".fq" };
+  static char *extend[] = { ".cram", ".bam", ".sam", ".db", ".dam",
+                            ".fastq.gz", ".fasta.gz", ".fastq.gz", ".fasta.gz",
+                            ".fq.gz",  ".fa.gz", ".fq.gz", ".fa.gz",
+                            ".fastq", ".fasta", ".fq", ".fa" };
+  static char *sufidx[] = { "", "", "", "", "",
+                            ".fastq.vzi", ".fasta.vzi", ".fastq.vzi", ".fastq.vzi"
+                            ".fq.vzi", ".fa.vzi", ".fq.vzi", ".fa.vzi",
+                            "", "", "", "" };
 
   struct stat stats;
   char  *pwd, *root, *path;
@@ -150,31 +157,26 @@ static void Fetch_File(char *arg, File_Object *input)
   int    ftype, zipd, recon;
 
   pwd = PathTo(arg);
-  for (i = 0; i < 13; i++)
+  for (i = 0; i < 17; i++)
     { root  = Root(arg,suffix[i]);
-      fid   = open(Catenate(pwd,"/",root,suffix[i]),O_RDONLY);
+      fid   = open(Catenate(pwd,"/",root,extend[i]),O_RDONLY);
       if (fid >= 0) break;
       free(root);
     }
   if (fid < 0)
-    { fprintf(stderr,"%s: Cannot open %s as a .cram|[bs]am|f{ast}[aq][.gz]|db|dam file\n",
+    { fprintf(stderr,"\n%s: Cannot open %s as a .cram|[bs]am|f{ast}[aq][.gz]|db|dam file\n",
                      Prog_Name,arg);
       exit (1);
     }
 
-  if (i >= 11)
+  if (i == 3 || i == 4)
     { ftype = DAZZ;
       zipd  = 0;
     }
-  else if (i >= 3)
-    if (i >= 7)
-      { ftype = 4 - (i%2);
-        zipd  = (i < 9);
-      }
-    else
-      { ftype = 4 - (i%2);
-        zipd  = (i < 5);
-      }
+  else if (i >= 5)
+    { ftype = FASTA - (i%2);
+      zipd  = (i < 13);
+    }
   else
     { ftype = i;
       zipd  = 0;
@@ -195,7 +197,7 @@ static void Fetch_File(char *arg, File_Object *input)
           zipd  = 0;
           recon = 1;
           if (lstat(path,&stats) == -1)
-            { fprintf(stderr,"%s: Cannot get stats for %s\n",Prog_Name,path);
+            { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,path);
               exit (1);
             }
           fsize = stats.st_size;
@@ -221,17 +223,17 @@ static void Fetch_File(char *arg, File_Object *input)
       path = Strdup(Catenate(pwd,"/.",root,".bps"),"Allocating full path name");
       fid = open(path,O_RDONLY);
       if (fid < 0)
-        { fprintf(stderr,"%s: Dazzler DB %s does not have a .bps file ! ?\n",Prog_Name,root);
+        { fprintf(stderr,"\n%s: Dazzler DB %s does not have a .bps file ! ?\n",Prog_Name,root);
           exit (1);
         }
       if (fstat(fid, &stats) == -1)
-        { fprintf(stderr,"%s: Cannot get stats for %s\n",Prog_Name,arg);
+        { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,arg);
           exit (1);
         }
       fsize = stats.st_size;
       idx = fopen(Catenate(pwd,"/.",root,".idx"),"r");
       if (idx == NULL)
-        { fprintf(stderr,"%s: Dazzler DB %s does not have a .idx file ! ?\n",Prog_Name,root);
+        { fprintf(stderr,"\n%s: Dazzler DB %s does not have a .idx file ! ?\n",Prog_Name,root);
           exit (1);
         }
       zoffs = get_dazz_offsets(idx,&zsize);
@@ -240,7 +242,7 @@ static void Fetch_File(char *arg, File_Object *input)
     }
   else
     { if (fstat(fid, &stats) == -1)
-        { fprintf(stderr,"%s: Cannot get stats for %s\n",Prog_Name,arg);
+        { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,arg);
           exit (1);
         }
       fsize = stats.st_size;
@@ -295,9 +297,9 @@ static int Add_Data_Block(DATA_BLOCK *dset, int len, char *seq)
   if (o+len >= dset->maxbps)
     { if (o == 0)
         { if (dset->maxbps >= 1000000)
-            fprintf(stderr,"  Fatal: longest string >%.1fmbp\n",dset->maxbps/1000000.);
+            fprintf(stderr,"\n%s: longest string >%.1fmbp\n",Prog_Name,dset->maxbps/1000000.);
           else
-            fprintf(stderr,"  Fatal: longest string >%.1fkbp\n",dset->maxbps/1000.);
+            fprintf(stderr,"\n%s: longest string >%.1fkbp\n",Prog_Name,dset->maxbps/1000.);
           exit (1);
         }
       else
@@ -437,7 +439,7 @@ static void fast_nearest(Thread_Arg *data)
           tlen = IO_BLOCK;
           read(fid,zuf,dlen);
           if ((rez = libdeflate_gzip_decompress(decomp,zuf,dlen,buf,tlen,&x)) != 0)
-            { fprintf(stderr,"Decompression not OK!\n");
+            { fprintf(stderr,"\n%s: Decompression not OK!\n",Prog_Name);
               exit (1);
             }
           slen = (int) x;
@@ -619,7 +621,7 @@ static void *fast_output_thread(void *arg)
               tlen = IO_BLOCK;
               read(fid,zuf,dlen);
               if ((rez = libdeflate_gzip_decompress(decomp,zuf,dlen,buf,tlen,&x)) != 0)
-                { fprintf(stderr,"Decompression not OK!\n");
+                { fprintf(stderr,"\n%s: Decompression not OK!\n",Prog_Name);
                   exit (1);
                 }
               slen = (int) x;
@@ -933,7 +935,7 @@ static void bam_get(BAM_FILE *file, uint8 *data, int len)
       while (bptr + 18 > blen || bptr + (bsize = getint(block+16,2) + 1) > blen)
         { chk = blen-bptr;
           if (file->last)
-            { fprintf(stderr, "%s: Corrupted BAM file\n",Prog_Name);
+            { fprintf(stderr,"\n%s: Corrupted BAM file\n",Prog_Name);
               exit (1);
             }
           memmove(buf,block,chk);
@@ -951,7 +953,7 @@ static void bam_get(BAM_FILE *file, uint8 *data, int len)
       //  Fetch and uncompress next Bam block
 
       if (libdeflate_gzip_decompress(file->decomp,block,bsize,bam,BAM_BLOCK,&tsize) != 0)
-        { fprintf(stderr,"%s: Bad gzip block\n",Prog_Name);
+        { fprintf(stderr,"\n%s: Bad gzip block\n",Prog_Name);
           exit (1);
         }
       ssize = tsize;
@@ -1017,7 +1019,7 @@ static uint8 *sam_getline(BAM_FILE *file)
     d = memchr(b,'\n',rem);
   if (d == NULL)
     { if (file->last)
-        { fprintf(stderr,"%s: Corrupted SAM file",Prog_Name);
+        { fprintf(stderr,"\n%s: Corrupted SAM file",Prog_Name);
           exit (1);
         }
       memmove(buf,buf+bptr,rem);
@@ -1030,9 +1032,9 @@ static uint8 *sam_getline(BAM_FILE *file)
       d = memchr(b,'\n',blen);
       if (d == NULL)
         { if (blen < IO_BLOCK)
-            fprintf(stderr,"%s: Corrupted SAM file",Prog_Name);
+            fprintf(stderr,"\n%s: Corrupted SAM file",Prog_Name);
           else
-            fprintf(stderr,"%s: SAM-line is longer than max %lld\n",Prog_Name,IO_BLOCK);
+            fprintf(stderr,"\n%s: SAM-line is longer than max %lld\n",Prog_Name,IO_BLOCK);
           exit (1);
         }
     }
@@ -1086,7 +1088,7 @@ static void skip_bam_header(Thread_Arg *parm)
 
   bam_get(bam,data,4);
   if (memcmp(data,"BAM\1",4) != 0)
-    { fprintf(stderr, "%s: Corrupted BAM header %.4s\n",Prog_Name,data);
+    { fprintf(stderr,"\n%s: Corrupted BAM header %.4s\n",Prog_Name,data);
       exit (1);
     }
 
@@ -1147,7 +1149,7 @@ static void bam_nearest(Thread_Arg *parm)
 
       fpos += bptr;      //   Get more data at level of IO blocks
       if (last)
-        { fprintf(stderr,"%s: Could not find bam block structure!\n",Prog_Name);
+        { fprintf(stderr,"\n%s: Could not find bam block structure!\n",Prog_Name);
           exit (1);
         }
       else
@@ -1365,13 +1367,13 @@ static int bam_record_scan(BAM_FILE *sf, samRecord *theR)
     lseq   = getint(x+20,4);
 
     if (ldata < 0 || lseq < 0 || lname < 1)
-      { fprintf(stderr,"%s: Non-sensical BAM record, file corrupted?\n",Prog_Name);
+      { fprintf(stderr,"\n%s: Non-sensical BAM record, file corrupted?\n",Prog_Name);
         exit (1);
       }
 
     aux = lname + ((lseq + 1)>>1) + lseq + (lcigar<<2);
     if (aux > ldata)
-      { fprintf(stderr,"%s: Non-sensical BAM record, file corrupted?\n",Prog_Name);
+      { fprintf(stderr,"\n%s: Non-sensical BAM record, file corrupted?\n",Prog_Name);
         exit (1);
       }
 
@@ -1448,7 +1450,7 @@ static char  IUPAC_2_DNA[256] =
 
 #define CHECK(cond, msg)                                \
 { if ((cond))                                           \
-    { fprintf(stderr, "%s: %s\n", Prog_Name, msg);      \
+    { fprintf(stderr,"\n%s: %s\n",Prog_Name, msg);      \
        exit (1); 	                                \
     }                                                   \
 }
@@ -2027,7 +2029,7 @@ static void read_DB_stub(char *path, int *cut, int *all)
 
   dbfile = fopen(path,"r");
   if (dbfile == NULL)
-    { fprintf(stderr,"%s: Cannot open stub file %s\n",Prog_Name,path);
+    { fprintf(stderr,"\n%s: Cannot open stub file %s\n",Prog_Name,path);
       exit (1);
     }
 
@@ -2048,7 +2050,7 @@ static void read_DB_stub(char *path, int *cut, int *all)
   return;
 
 stub_trash:
-  fprintf(stderr,"%s: Stub file %s is junk\n",Prog_Name,path);
+  fprintf(stderr,"\n%s: Stub file %s is junk\n",Prog_Name,path);
   fclose(dbfile);
   exit (1);
 }
@@ -2221,9 +2223,10 @@ static void *dazz_output_thread(void *arg)
           else if (o+len >= dset->maxbps)
             { if (o == 0)
                 { if (dset->maxbps >= 1000000)
-                    fprintf(stderr,"  Fatal: longest string >%.1fmbp\n",dset->maxbps/1000000.);
+                    fprintf(stderr,"\n%s: longest string >%.1fmbp\n",
+                                   Prog_Name,dset->maxbps/1000000.);
                   else
-                    fprintf(stderr,"  Fatal: longest string >%.1fkbp\n",dset->maxbps/1000.);
+                    fprintf(stderr,"\n%s: longest string >%.1fkbp\n",Prog_Name,dset->maxbps/1000.);
 		  exit (1);
                 }
               else
@@ -2336,7 +2339,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
 
         if (f > 0)
           { if (fobj[f].ftype != ftype)
-              { fprintf(stderr,"%s: All files must be of the same type\n",Prog_Name);
+              { fprintf(stderr,"\n%s: All files must be of the same type\n",Prog_Name);
                 exit (1);
               }
           }

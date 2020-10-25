@@ -920,7 +920,7 @@ static void *profile_write_thread(void *arg)
       sprintf(fname,"%s%d.%d",data->root,data->wch,t-1);
       pfile = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
       if (pfile < 0)
-        { fprintf(stderr,"\n\n%s: Could not open %s for writing\n",Prog_Name,fname);
+        { fprintf(stderr,"\n%s: Could not open %s for writing\n",Prog_Name,fname);
           exit (1);
         }
 
@@ -1171,7 +1171,7 @@ void Sorting(char *dpwd, char *dbrt)
             sprintf(fname,"%s/%s.%d.T%d",SORT_PATH,dbrt,p,t);
             f = open(fname,O_RDONLY);
             if (f < 0)
-              { fprintf(stderr,"\n\n%s: File %s should exist but doesn't?\n",Prog_Name,fname); 
+              { fprintf(stderr,"\n%s: File %s should exist but doesn't?\n",Prog_Name,fname); 
                 exit (1);
               }
 
@@ -1228,10 +1228,6 @@ void Sorting(char *dpwd, char *dbrt)
               { parms[t].fours[j] = s_sort + o*SMER_WORD;
                 o += Panels[t].khist[j];
               }
-          if (o != nmers)
-            { fprintf(stderr,"o != nmers (%lld vs %lld)\n",o,nmers);
-              exit (1);
-            }
 
           o = 0;
           for (t = 0; t < NTHREADS; t++)
@@ -1442,10 +1438,6 @@ void Sorting(char *dpwd, char *dbrt)
                 Panels[t].khist[j] = o;
                 o += x;
               }
-          if (o != skmers)
-            { fprintf(stderr,"o != skmers (%lld vs %lld)\n",o,skmers);
-              exit (1);
-            }
         }
 
         if (VERBOSE)
