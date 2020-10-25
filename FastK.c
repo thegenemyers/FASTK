@@ -313,7 +313,7 @@ int main(int argc, char *argv[])
     { struct rlimit rlp;
       uint64        nfiles;
 
-      nfiles = (2*NPARTS+2)*NTHREADS+3;
+      nfiles = (NPARTS+2)*NTHREADS+4;
       getrlimit(RLIMIT_NOFILE,&rlp);
       if (nfiles > rlp.rlim_max)
         { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);

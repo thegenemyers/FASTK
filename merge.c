@@ -195,6 +195,7 @@ static void *merge_profile_thread(void *arg)
           if (src->panel == 0 && data->wch == 0)
             lseek(f,3*sizeof(int),SEEK_SET);
 #endif
+          src->stream = f;
           src->top    = sptr + read(f,sptr,BUFLEN_UINT8);
         }
 
