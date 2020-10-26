@@ -191,7 +191,7 @@ int main(int argc, char *argv[])
     VERBOSE    = flags['v'];   //  Globally declared in filter.h
     DO_PROFILE = flags['p'];
 
-    if (argc != 2)
+    if (argc < 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[2]);
