@@ -202,7 +202,8 @@ Kmer_Table *Open_Kmer_Table(char *name, int cut_freq)
 int More_Kmer_Table(Kmer_Table *T)
 { int    tbyte = T->tbyte;
   FILE  *copn  = T->copn;
-  int    nels, n;
+  int64  rels;
+  int    nels, kmer;
  
   nels = fread(T->table,1000*tbyte,1,copn) / tbyte;
   while (nels == 0)
@@ -210,8 +211,8 @@ int More_Kmer_Table(Kmer_Table *T)
       copn = fopen(Catenate(T->name,Numbered_Suffix(".T",T->part,""),"",""),"r");
       if (copn == NULL)
         break;
-      fread(&n,sizeof(int),1,copn);
-      fread(&n,sizeof(int64),1,copn);
+      fread(&kmer,sizeof(int),1,copn);
+      fread(&rels,sizeof(int64),1,copn);
       nels = fread(T->table,1000*tbyte,1,copn) / tbyte;
     }
   if (copn == NULL)

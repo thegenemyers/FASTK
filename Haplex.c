@@ -322,6 +322,8 @@ void Find_Haplo_Pairs(Kmer_Table *T)
               break;
           if (i >= f)
             break;
+          hr = finger[i]+offs;
+          hc = hr[-1] & mask;
           SET(i);
           for (i++; i < f; i++)
             if (finger[i] < flimit[i])
