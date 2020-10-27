@@ -307,13 +307,18 @@ int main(int argc, char *argv[])
     PLEN_BYTES = (SLEN_BITS+8) >> 3;
     TMER_WORD  = KMER_BYTES + 2;
 
-    //  Make sure you can open (2 * NPARTS + 2) * NTHREADS + 3 files and then set up data structures
-    //    for each such file
+    //  Make sure you can open (NPARTS + 2) * NTHREADS + tid files and then set up data structures
+    //    for each such file.  tid is typically 3 unless using valgrind or other instrumentation.
 
     { struct rlimit rlp;
+      int           tid;
       uint64        nfiles;
 
-      nfiles = (NPARTS+2)*NTHREADS+4;
+      tid = open(".xxx",O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+      close(tid);
+      unlink(".xxx");
+
+      nfiles = (NPARTS+2)*NTHREADS + tid;
       getrlimit(RLIMIT_NOFILE,&rlp);
       if (nfiles > rlp.rlim_max)
         { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);

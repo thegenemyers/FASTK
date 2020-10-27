@@ -23,6 +23,7 @@
 
 #define  USE_MAPPING
 #undef   HISTOGRAM_TEST
+#undef   MAXIMUM_TEST
 
 #undef   DEBUG_PADDED
 #define    PAD_LEVEL 0
@@ -49,7 +50,7 @@
  *
  ********************************************************************************************/
 
-#define MIN_LEN      5   // Seed minimizer length
+#define MIN_LEN     5   // Seed minimizer length
 #define MIN_TOT  0x400   // = 4^MIN_LEN
 
   //  Translation vectors
@@ -667,6 +668,18 @@ int Determine_Scheme(DATA_BLOCK *block)
             if (count[i] > max_count)
               max_count = count[i];
           }
+
+#ifdef MAXIMUM_TEST
+      { int64 biggest;
+
+        biggest = 0;
+        for (i = 0; i < MIN_TOT; i++)
+          if (count[i] > biggest)
+            biggest = count[i];
+        printf("max = %6.3f => %.2f pieces\n",(100.*biggest)/ktot,ktot/(1.*biggest));
+        exit(0);
+      }
+#endif
 
 #ifdef HISTOGRAM_TEST
       { int perm[MIN_TOT];

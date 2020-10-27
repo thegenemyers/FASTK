@@ -81,7 +81,7 @@ Profile_Index *Open_Profiles(char *name)
   //  Allocate in-memory table
 
   index = Malloc((nreads+1)*sizeof(int64),"Allocating profile index");
-  nbase = Malloc(nparts*sizeof(int),"Allocating profile index");
+  nbase = Malloc(nparts*sizeof(int64),"Allocating profile index");
   nfile = Malloc(nparts*sizeof(FILE *),"Allocating profile index");
   if (index == NULL || nbase == NULL || nfile == NULL)
     exit (1);

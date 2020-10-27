@@ -138,17 +138,17 @@ static int64 *get_dazz_offsets(FILE *idx, int64 *zsize);
 
 static void Fetch_File(char *arg, File_Object *input)
 { static char *suffix[] = { ".cram", ".bam", ".sam", ".db", ".dam",
+                            ".fastq", ".fasta", ".fq", ".fq",
                             ".fastq.gz", ".fasta.gz", ".fastq", ".fasta",
-                            ".fq.gz",  ".fa.gz", ".fq", ".fa",
-                            ".fastq", ".fasta", ".fq", ".fq" };
+                            ".fq.gz",  ".fa.gz", ".fq", ".fa" };
   static char *extend[] = { ".cram", ".bam", ".sam", ".db", ".dam",
+                            ".fastq", ".fasta", ".fq", ".fa",
                             ".fastq.gz", ".fasta.gz", ".fastq.gz", ".fasta.gz",
-                            ".fq.gz",  ".fa.gz", ".fq.gz", ".fa.gz",
-                            ".fastq", ".fasta", ".fq", ".fa" };
+                            ".fq.gz",  ".fa.gz", ".fq.gz", ".fa.gz" };
   static char *sufidx[] = { "", "", "", "", "",
+                            "", "", "", "",
                             ".fastq.vzi", ".fasta.vzi", ".fastq.vzi", ".fastq.vzi"
-                            ".fq.vzi", ".fa.vzi", ".fq.vzi", ".fa.vzi",
-                            "", "", "", "" };
+                            ".fq.vzi", ".fa.vzi", ".fq.vzi", ".fa.vzi"};
 
   struct stat stats;
   char  *pwd, *root, *path;
@@ -175,13 +175,13 @@ static void Fetch_File(char *arg, File_Object *input)
     }
   else if (i >= 5)
     { ftype = FASTA - (i%2);
-      zipd  = (i < 13);
+      zipd  = (i >= 9);
     }
   else
     { ftype = i;
       zipd  = 0;
     }
-  path = Strdup(Catenate(pwd,"/",root,suffix[i]),"Allocating full path name");
+  path = Strdup(Catenate(pwd,"/",root,extend[i]),"Allocating full path name");
 
   zoffs = NULL;
   recon = 0;
@@ -218,7 +218,9 @@ static void Fetch_File(char *arg, File_Object *input)
     { FILE *idx;
 
       read_DB_stub(path,&(input->DB_cut),&(input->DB_all));
+
       free(path);
+      close(fid);
 
       path = Strdup(Catenate(pwd,"/.",root,".bps"),"Allocating full path name");
       fid = open(path,O_RDONLY);
