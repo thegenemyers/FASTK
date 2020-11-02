@@ -3,7 +3,7 @@
  *  FastK: a rapid disk-based k-mer counter for high-fidelity shotgun data sets.
  *     Uses a novel minimizer-based distribution scheme that permits problems of
  *     arbitrary size, and a two-staged "super-mer then weighted k-mer" sort to acheive
- *     greater speed when error rates are low (1% or less).  Directly produces read
+ *     greater speed when error rates are low (1% or less).  Directly produces sequence
  *     profiles.
  *
  *  Author:  Gene Myers
@@ -29,7 +29,7 @@ int    DO_STAGE;   //  Which step to perform
 
 #endif
 
-static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t<int(3)>] [-p] [-bc<int(0)>]",
+static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t<int(3)>] [-cp] [-bc<int(0)>]",
                          "  [-v] [-T<int(4)>] [-P<dir(/tmp)>] [-M<int(12)>]",
                          "    <data::cram|[bs]am|f[ast][aq][.gz]|db|dam> ..."
                        };
@@ -46,7 +46,8 @@ int    HIST_LOW;     // Start count for histogram
 int       HIST_HGH;  // End count for histogram
 int    DO_TABLE;     // Zero or table cutoff
 int    DO_PROFILE;   // Do or not
-int    BC_PREFIX;    // Ignore prefix of each read of this length
+int    BC_PREFIX;    // Ignore prefix of each sequence of this length
+int    COMPRESS;     // Homopoloymer compress input
 
   //  Major parameters, sizes of things
 
@@ -82,7 +83,7 @@ int SMER_WORD;    //  bytes to hold a super-mer entry
 int TMER_WORD;    //  bytes to hold a k-mer table entry
 int CMER_WORD;    //  bytes to hold a count/index entry
 
-int NUM_READS;    //  number of reads in dataset
+int NUM_READS;    //  number of sequences in the dataset
 
 int main(int argc, char *argv[])
 { char  *root;
@@ -112,7 +113,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("vdp")
+            ARG_FLAGS("vcp")
             break;
           case 'b':
             if (argv[i][2] != 'c')
@@ -190,6 +191,7 @@ int main(int argc, char *argv[])
 
     VERBOSE    = flags['v'];   //  Globally declared in filter.h
     DO_PROFILE = flags['p'];
+    COMPRESS   = flags['c'];
 
     if (argc < 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
@@ -204,8 +206,9 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -k: k-mer size.\n");
         fprintf(stderr,"      -h: Output histogram of counts in range given\n");
         fprintf(stderr,"      -t: Produce table of sorted k-mer & counts >= level specified\n");
-        fprintf(stderr,"      -p: Produce read count profiles\n");
+        fprintf(stderr,"      -p: Produce sequence count profiles\n");
         fprintf(stderr,"     -bc: Ignore prefix of each read of given length (e.g. bar code)\n");
+        fprintf(stderr,"      -c: Homopolymer compress every sequence\n");
         exit (1);
       }
   }
@@ -265,7 +268,7 @@ int main(int argc, char *argv[])
     rsize  = KMER_BYTES + 2;
     gsize  = block->totlen - KMER*block->nreads;
     if (gsize < 0)
-      { fprintf(stderr,"\n%s: Reads are on aaverage smaller than k-mer size!\n",Prog_Name);
+      { fprintf(stderr,"\n%s: Sequences are on aaverage smaller than k-mer size!\n",Prog_Name);
         exit (1);
       }
     gsize  = gsize*block->ratio*rsize;

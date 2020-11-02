@@ -1,7 +1,6 @@
 /*********************************************************************************************\
  *
- *  Code for produce all potential haplotype k-mers with a single SNP in the center of
- *    the k-mers
+ *  Code to produce histograms of k-mers in Venn diagram of input k-mer tables
  *
  *  Author:  Gene Myers
  *  Date  :  October, 2020
@@ -13,6 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
+#include <ctype.h>
 #include <fcntl.h>
 
 #undef DEBUG_PARTITION
@@ -215,8 +215,6 @@ int More_Kmer_Table(Kmer_Table *T)
       fread(&rels,sizeof(int64),1,copn);
       nels = fread(T->table,1000*tbyte,1,copn) / tbyte;
     }
-  if (copn == NULL)
-    return (0);
   T->nels = nels;
   T->copn = copn;
   return (nels);
@@ -225,6 +223,8 @@ int More_Kmer_Table(Kmer_Table *T)
 void Free_Kmer_Table(Kmer_Table *T)
 { free(T->name);
   free(T->table);
+  if (T->copn != NULL)
+    fclose(T->copn);
   free(T);
 }
 
@@ -326,71 +326,59 @@ void Venn2(Kmer_Table **Tv, int64 **comb)
     }
 }
 
-/*
-
-void Venn(Kmer_Table **T, int nway)
-{ int    kmer  = T[0]->kmer;
-  int    tbyte = T[0]->tbyte;
+void Venn(Kmer_Table **T, int **comb, int nway)
+{ int    tbyte = T[0]->tbyte;
   int    kbyte = T[0]->kbyte;
 
-  int    khalf;
-  uint8  prefs[] = { 0x3f, 0x0f, 0x03, 0x00 };
-  int    mask, offs, rem;
-
-  uint8 *iptr, *nptr;
-
-  int    f;
-  uint8 *finger[5];
-  uint8 *flimit[4];
-
-  int    a, advn[4];
-  int    c, good[4];
-  int    mc, hc;
-  uint8 *mr, *hr;
+  uint8 *end[nway];
+  uint8 *ptr[nway];
+  int    itop, in[nway], imin;
+  int    c, v;
 
   setup_fmer_table();
 
   for (c = 0; c < nway; c++)
-    { idx[c] = 0;
-      ptr[c] = T[c]->table;
+    { ptr[c] = T[c]->table;
+      end[c] = ptr[c] + T[c]->nels*tbyte;
     }
   while (1)
     { for (c = 0; c < nway; c++)
-        if (idx[c] >= T[c]->nels)
+        if (ptr[c] >= end[c])
           { if (More_Kmer_Table(T[c]) == 0)
-              idx[c] = impossible
+              ptr[c] = NULL;
             else
-              { idx[c] = 0;
-                ptr[c] = T[c]->table;
+              { ptr[c] = T[c]->table;
+                end[c] = ptr[c] + T[c]->nels*tbyte;
               }
           }
-      v = mycmp(iptr,jptr,kbyte);
-      if (v == 0)
-        { if (op == U)
-            out iptr cnt1+cnt2
-          else if (op == X)
-            out iptr min(cnt1,cnt2)
-          Inter[COUNT_OF(iptr)] += 1;
-          iptr += tbyte;
-          jptr += tbyte;
+      for (c = 0; c < nway; c++)
+        if (ptr[c] != NULL)
+          break;
+      if (c >= nway)
+        break;
+      in[itop++] = imin = c;
+      for (c++; c < nway; c++)
+        { if (ptr[c] == NULL)
+            continue;
+          v = mycmp(ptr[c],ptr[imin],kbyte);
+          if (v == 0)
+            in[itop++] = c;
+          else if (v < 0)
+            { itop = 0;
+              in[itop++] = imin = c;
+	    }
         }
-      else if (v < 0)
-        { if (op == U || op == A-B)
-            out iptr cnt
-          AminB[COUNT_OF(iptr)] += 1;
-          iptr += tbyte;
-        }
-      else
-        { if (op == U || op == B-A)
-            out jptr cnt
-          BminA[COUNT_OF(jptr)] += 1;
-          jptr += tbyte;
-        }
+
+      v = 0;
+      for (c = 0; c < itop; c++)
+        v |= (1 << in[c]); 
+      comb[v-1] += 1;
+
+      for (c = 0; c < itop; c++)
+        ptr[c] += tbyte;
     }
 }
 
-*/
-          
 
 /****************************************************************************************
  *
@@ -497,7 +485,7 @@ int main(int argc, char *argv[])
 
     { int   nlen;
       char *p, *n;
-      int   c;
+      int   c, j;
 
       nlen = nway + 10;
       for (c = 0; c < nway; c++)
@@ -505,9 +493,16 @@ int main(int argc, char *argv[])
           p = index(n,'.');
           if (p != NULL)
             *p = '\0';
-          upp[c] = Strdup(n,"Allocating upper case name");
-          low[c] = Strdup(n,"Allocating lower case name");
-          nlen  += strlen(n);
+          nlen += strlen(n);
+
+          n = upp[c] = Strdup(n,"Allocating upper case name");
+          for (j = 0; n[j] != '\0'; j++)
+            n[j] = toupper(n[j]); 
+
+          n = low[c] = Strdup(n,"Allocating lower case name");
+          for (j = 0; n[j] != '\0'; j++)
+            n[j] = tolower(n[j]); 
+
           if (p != NULL)
             *p = '.';
         }

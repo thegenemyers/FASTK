@@ -429,7 +429,7 @@ int main(int argc, char *argv[])
                       }
                   }
               }
-            fprintf(stderr,"%s: Syntax of -h option invalid -h[<int(1)>:]<int>\n",Prog_Name);
+            fprintf(stderr,"%s: Syntax of -h option invalid -h<int>:<int>\n",Prog_Name);
             exit (1);
         }
       else
@@ -439,7 +439,6 @@ int main(int argc, char *argv[])
     if (argc != 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
-        fprintf(stderr,"      -v: Verbose mode, output statistics/progress.\n");
         fprintf(stderr,"      -h: Accept only haplotypes with count in given range (inclusive).\n");
         exit (1);
       }

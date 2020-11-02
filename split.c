@@ -40,6 +40,52 @@
 
 /*******************************************************************************************
  *
+ *  Optional homopolymer compressor
+ *
+ ********************************************************************************************/
+
+static void compress_block(DATA_BLOCK *block)
+{ int    nreads = block->nreads;
+  int64 *boff   = block->boff+1;
+  char  *bases  = block->bases;
+
+  char *s, *t;
+  int   q, p, i;
+  char *c, x;
+  int64 u;
+  int   mlen;
+
+  mlen = 0;
+
+  u = 0;
+  c = bases;
+  t = bases + boff[-1];
+  for (i = 0; i < nreads; i++)
+    { s = t;
+      t = bases + boff[i];
+
+      for (p = 0; p < BC_PREFIX; p++)
+        c[u++] = s[p];
+      s += BC_PREFIX;
+      q = (t-s) - 1;
+
+      c[u++] = x = s[0];
+      for (p = 1; p < q; p++)
+        if (s[p] != x)
+          c[u++] = x = s[p];
+
+      boff[i] = u;
+      q = u - boff[i-1];
+      if (q > mlen)
+        mlen = q;
+    }
+
+  block->totlen = u;
+  block->maxlen = mlen;
+}
+
+/*******************************************************************************************
+ *
  *  DETERMINE PARTITION FOR SUPER K-MER DISTRIBUTION USING FIRST BLOCK
  *     int Determine_Scheme(DATA_BLOCK *block)
  *        Determine base mapping and then the core prefix trie in a series of
@@ -50,7 +96,7 @@
  *
  ********************************************************************************************/
 
-#define MIN_LEN     5   // Seed minimizer length
+#define MIN_LEN      5   // Seed minimizer length
 #define MIN_TOT  0x400   // = 4^MIN_LEN
 
   //  Translation vectors
@@ -491,6 +537,9 @@ int Determine_Scheme(DATA_BLOCK *block)
 
   (void) DNA;
 
+  if (COMPRESS)
+    compress_block(block);
+
   nreads   = block->nreads;
   npieces  = 2*NPARTS;
 
@@ -775,9 +824,9 @@ int Determine_Scheme(DATA_BLOCK *block)
 /*******************************************************************************************
  *
  *  SUPER K-MER DISTRIBUTOR
-
+ *
  *    void Split_Kmers(Input_Partition *io, char *root)
-
+ *
  *       The input is scanned in parallel by threads working on each partition of it
  *       specified by io, and for each the data is partitioned into super-mers that
  *       are distibuted to blocks according to the core trie encoded in Min_Part.
@@ -1012,6 +1061,9 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   Min_File  *trg;
   IO_UTYPE  *ptr;
   int       *bit;
+
+  if (COMPRESS)
+    compress_block(block);
 
   totrds[tid] += nreads;
   totbps[tid] += block->totlen;

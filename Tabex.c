@@ -403,7 +403,6 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
   int64  nels  = T->nels;
   uint8 *table = T->table;
 
-  int64 *index;
   uint8  cmp[kbyte];
   int64  l, r, m;
 
@@ -414,8 +413,9 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
   else
     compress_comp(kseq,kmer,cmp);
 
+#ifdef UNTESTED
   if (kbyte >= 3)
-    { index = T->index;
+    { int64 *index = T->index;
       if (index == NULL)
         { set_up_accelerator(T);
           index = T->index;
@@ -425,6 +425,8 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
       r = index[m+1];
     }
   else
+#endif
+
     { l = 0;
       r = nels;
     }
