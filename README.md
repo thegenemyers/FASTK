@@ -59,15 +59,15 @@ One can optionally request, by specifying the -t option, that FastK produce a so
 all canonical k-mers that occur -t or more times along with their counts, where the default
 for the threshold is 3.
 The output is placed in a single *stub* file with the name <code>\<source>.ktab</code> and N
-roughly equal-sized *hidden* files with the names <code>.\<root>.ktab.#</code> assuming
-\<source> = \<path>/\<root> and
+roughly equal-sized *hidden* files with the names <code>.\<base>.ktab.#</code> assuming
+\<source> = \<dir>/\<base> and
 where # is a thread number between 1 and N where N is the number of threads used by FastK (4 by default).
 The exact format of the N-part table is described in the section on Data Encodings.
 
 One can also ask FastK to produce a k-mer count profile of each sequence in the input data set
 by specifying the -p option.  A single *stub* file with the name <code>\<source>.prof</code> is output
 along with 2N roughly equal-sized pairs of *hidden* files with the names
-<code>.\<root>.pidx.#</code> and <code>.\<root>.prof.#</code> in the order of the sequences in the input.  Here \<root> is the file name part of \<source> = \<path>/\<root>.
+<code>.\<base>.pidx.#</code> and <code>.\<base>.prof.#</code> in the order of the sequences in the input.  Here \<base> is the base name part of \<source> = \<dir>/\<base>.
 The profiles are individually compressed and the exact format of these
 files is described in the section on Data Encodings.
 
@@ -99,9 +99,10 @@ An issue with this approach is that it is inconvenient for the user to remove th
 and often a user will forget they are there, potentially wasting disk space.
 We therefore provide Fastrm, Fastmv, Fastcp that remove, rename, and copy FastK output files as a
 single unit.  That is, Fastrm, removes all histogram, table, and/or profile files with
-root name \<source>.  Similarly, Fastmv, renames all such files as if FastK had been
-called with the option -N\<dest>, and Fastcp, make a copy of all of the files in the
-path name given by <dest>.
+path name \<source>.  Similarly, Fastmv, renames all such files as if FastK had been
+called with the option -N\<dest>, and Fastcp makes a copy of all of the files with the
+path name given by \<dest>.  If \<dest> is a directory than the base name of source is used
+to form a complete destination path.
 
 As for UNIX rm, mv, and cp commands, the -i option asks the command to query with each file as to
 whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the
@@ -159,7 +160,8 @@ length.
 
 ### K-mer Histogram
 
-The histogram file has a name of the form <code>\<source>.hist</code> where \<source> is the root name used by FastK depending on whether it used the default or -N option.  It contains an initial integer
+The histogram file has a name of the form <code>\<source>.hist</code> where \<source> is the
+output path name used by FastK.  It contains an initial integer
 giving the k-mer size <k>, followed by two integers giving the range \[l,h] (inclusive) of frequencies in the histogram, followed by (h-l)+1 64-bit counts for frequencies l, l+1, ..., h.
 Formally,
 
@@ -179,12 +181,12 @@ times.
 ### K-mer Table
 
 A table of canonical k-mers and their counts is produced in N parts, where N is the number of threads FastK was run with.
-A single *stub* file <code>\<root>.ktab</code> appears in the same directory as the first input
-path name by default or in the directory specified by the path name of the -N option if given.
+A single *stub* file <code>\<source>.ktab</code> where <source> is the output path name used by
+FastK.
 This stub file contains just the k-mer length followed by the number of threads FastK was run
 with as two integers.
 The table file parts are in N hidden files in the same directory as the stub
-file with the names <code>.\<root>.ktab.[1,N]</code>.
+file with the names <code>.\<base>.ktab.[1,N]</code> assuming that \<source> = \<dir>/\<base>.
 The k-mers in each part are lexicographically ordered and the k-mers in Ti are all less than the k-mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
 
 The data in each table file is as follows:
@@ -206,14 +208,15 @@ unsigned integer count with a maximum value of 32,767.
 ### Sequence Profiles
 
 The read profiles are stored in N pairs of file, an index and a data pair, that are hidden
-and identified by a single *stub* file <code>\<root>.prof</code>.
+and identified by a single *stub* file <code>\<source>.prof</code>.
 This stub file contains just the k-mer length followed by the number of threads FastK was
 run with as two integers.
-The hidden data files, <code>.\<root>.prof.[1,N]</code>, contain the compressed profiles for
+The hidden data files, <code>.\<base>.prof.[1,N]</code>, contain the compressed profiles for
 each read
 in their order in the input data set, and the hidden index files,
-<code>.\<root>.pidx.[1,N]</code>, 
-contain arrays of offsets into the P-files giving the start of each compressed profile.
+<code>.\<base>.pidx.[1,N]</code>, 
+contain arrays of offsets into the P-files giving the start of each compressed profile,
+assuming the path name \<source> = \<dir>/\<base>.
 An A-file contains a brief header followed by an array of offsets.
 The number of offsets in the A-file is one more than the number of profiles.
 This last offset is to the end of the P-file so that the profile for
