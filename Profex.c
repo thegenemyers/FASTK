@@ -18,7 +18,7 @@
 
 #include "gene_core.h"
 
-static char *Usage = "<source_root>.K<k> <read:int> ...";
+static char *Usage = "<source_root>[.prof] <read:int> ...";
 
 
 /****************************************************************************************
@@ -36,7 +36,7 @@ typedef struct
     int64 *index;    //  Kmer+count entry in bytes
   } Profile_Index;
 
-Profile_Index *Open_Profiles(char *name);
+Profile_Index *Open_Profiles(char *name, int kmer, int nthreads);
 
 void Free_Profiles(Profile_Index *P);
 
@@ -50,7 +50,7 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile);
  *
  *****************************************************************************************/
 
-Profile_Index *Open_Profiles(char *name)
+Profile_Index *Open_Profiles(char *name, int smer, int nthreads)
 { Profile_Index *P;
   int            kmer, nparts;
   int64          nreads, *nbase, *index;
@@ -61,21 +61,23 @@ Profile_Index *Open_Profiles(char *name)
 
   //  Find all parts and accumulate total size
 
-  nparts = 0;
   nreads = 0;
-  for (nparts = 0; 1; nparts++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".A",nparts+1,""),"",""),"r");
+  for (nparts = 0; nparts < nthreads; nparts++)
+    { f = fopen(Catenate(name,Numbered_Suffix(".pidx.",nparts+1,""),"",""),"r");
       if (f == NULL)
-        break;
+        { fprintf(stderr,"%s: Profile part %s.pidx.%d is misssing ?\n",Prog_Name,name,nparts+1);
+          exit (1);
+        }
       fread(&kmer,sizeof(int),1,f);
       fread(&n,sizeof(int64),1,f);
       fread(&n,sizeof(int64),1,f);
       nreads += n;
+      if (kmer != smer)
+        { fprintf(stderr,"%s: Profile part %s.pidx.%d does not have k-mer length matching stub ?\n",
+                         Prog_Name,name,nparts+1);
+          exit (1);
+        }
       fclose(f);
-    }
-  if (nparts == 0)
-    { fprintf(stderr,"%s: Cannot find profile files for %s\n",Prog_Name,name);
-      exit (1);
     }
 
   //  Allocate in-memory table
@@ -86,13 +88,10 @@ Profile_Index *Open_Profiles(char *name)
   if (index == NULL || nbase == NULL || nfile == NULL)
     exit (1);
 
-  nparts = 0;
   nreads = 0;
   index[0] = 0;
-  for (nparts = 0; 1; nparts++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".A",nparts+1,""),"",""),"r");
-      if (f == NULL)
-        break;
+  for (nparts = 0; nparts < nthreads; nparts++)
+    { f = fopen(Catenate(name,Numbered_Suffix(".pidx.",nparts+1,""),"",""),"r");
       fread(&kmer,sizeof(int),1,f);
       fread(&n,sizeof(int64),1,f);
       fread(&n,sizeof(int64),1,f);
@@ -101,9 +100,9 @@ Profile_Index *Open_Profiles(char *name)
       nbase[nparts] = nreads;
       fclose(f);
 
-      f = fopen(Catenate(name,Numbered_Suffix(".P",nparts+1,""),"",""),"r");
+      f = fopen(Catenate(name,Numbered_Suffix(".prof.",nparts+1,""),"",""),"r");
       if (f == NULL)
-        { fprintf(stderr,"%s: Cannot find profile file %s.P%d\n",Prog_Name,name,nparts+1);
+        { fprintf(stderr,"%s: Profile part %s.prof.%d is misssing ?\n",Prog_Name,name,nparts+1);
           exit (1);
         }
       nfile[nparts] = f;
@@ -284,7 +283,9 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
  *****************************************************************************************/
 
 int main(int argc, char *argv[])
-{ Profile_Index *P;
+{ char          *name;
+  int            kmer, nthreads;
+  Profile_Index *P;
 
   { int    i, j, k;
     int    flags[128];
@@ -311,7 +312,25 @@ int main(int argc, char *argv[])
       }
   }
 
-  P = Open_Profiles(argv[1]);
+  { FILE *f;
+    char *dir, *root;
+
+    dir  = PathTo(argv[1]);
+    root = Root(argv[1],".prof");
+    name = Strdup(Catenate(dir,"/.",root,""),NULL);
+    f = fopen(Catenate(dir,"/",root,".prof"),"r");
+    if (f == NULL)
+      { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,Catenate(dir,"/",root,".prof"));
+        exit (1);
+      }
+    fread(&kmer,sizeof(int),1,f);
+    fread(&nthreads,sizeof(int),1,f);
+    fclose(f);
+    free(root);
+    free(dir);
+  }
+
+  P = Open_Profiles(name,kmer,nthreads);
 
   { int     c, id;
     char   *eptr;
@@ -345,6 +364,8 @@ int main(int argc, char *argv[])
   }
 
   Free_Profiles(P);
+
+  free(name);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

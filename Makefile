@@ -2,7 +2,7 @@ DEST_DIR = ~/bin
 
 CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
-ALL = FastK Histex Tabex Profex Haplex Vennex Homex
+ALL = FastK Fastrm Fastmv Fastcp Histex Tabex Profex Haplex Vennex
 
 all: deflate.lib libhts.a $(ALL)
 
@@ -16,6 +16,15 @@ libhts.a: HTSLIB
 
 FastK: FastK.c FastK.h io.c split.c count.c table.c merge.c io.c gene_core.c gene_core.h MSDsort.c LSDsort.c
 	gcc $(CFLAGS) -o FastK -I./HTSLIB $(HTSLIB_sstatic_LDFLAGS) FastK.c io.c split.c count.c table.c merge.c MSDsort.c LSDsort.c gene_core.c LIBDEFLATE/libdeflate.a HTSLIB/libhts.a -lpthread $(HTSLIB_static_LIBS)
+
+Fastrm: Fastrm.c gene_core.c gene_core.h
+	gcc $(CFLAGS) -o Fastrm Fastrm.c gene_core.c -lpthread -lm
+
+Fastmv: Fastxfer.c gene_core.c gene_core.h
+	gcc $(CFLAGS) -DMOVE -o Fastmv Fastxfer.c gene_core.c -lpthread -lm
+
+Fastcp: Fastxfer.c gene_core.c gene_core.h
+	gcc $(CFLAGS) -UMOVE -o Fastcp Fastxfer.c gene_core.c -lpthread -lm
 
 Histex: Histex.c gene_core.c gene_core.h
 	gcc $(CFLAGS) -o Histex Histex.c gene_core.c -lpthread -lm
@@ -31,9 +40,6 @@ Haplex: Haplex.c gene_core.c gene_core.h
 
 Vennex: Vennex.c gene_core.c gene_core.h
 	gcc $(CFLAGS) -o Vennex Vennex.c gene_core.c -lpthread -lm
-
-Homex: Homex.c gene_core.c gene_core.h
-	gcc $(CFLAGS) -o Homex Homex.c gene_core.c -lpthread -lm
 
 tidyup:
 	rm -f $(ALL)

@@ -516,8 +516,8 @@ void Merge_Profiles(char *dpwd, char *dbrt)
     sprintf(fname,"%s/%s.0.P0.0",SORT_PATH,dbrt);
     f = open(fname,O_RDONLY);
     if (f == -1)
-      { fprintf(stderr,"%s: A Cannot open external file %s in %s\n",
-                       Prog_Name,fname,SORT_PATH);
+      { fprintf(stderr,"%s: A Cannot find file %s.0.P0.0 in directory %s\n",
+                       Prog_Name,dbrt,SORT_PATH);
         exit (1);
       }
   
@@ -574,23 +574,34 @@ void Merge_Profiles(char *dpwd, char *dbrt)
       exit (1);
     sprintf(root,"%s/%s",SORT_PATH,dbrt);
 
+    { int f;
+
+      sprintf(fname,"%s/%s.prof",dpwd,dbrt);
+      f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
+      if (f == -1)
+        { fprintf(stderr,"%s: Cannot open external file %s for writing\n",Prog_Name,fname);
+          exit (1);
+        }
+      write(f,&KMER,sizeof(int));
+      write(f,&NTHREADS,sizeof(int));
+      close(f);
+    }
+
     p = 0;
     for (t = 0; t < NTHREADS; t++)
       { int   f, g;
         int64 zero = 0;
             
-        sprintf(fname,"%s/%s.K%d.A%d",dpwd,dbrt,KMER,t+1);
+        sprintf(fname,"%s/.%s.pidx.%d",dpwd,dbrt,t+1);
         f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
         if (f == -1)
-          { fprintf(stderr,"%s: Cannot open external file %s in %s\n",
-                           Prog_Name,fname,SORT_PATH);
+          { fprintf(stderr,"%s: Cannot open external file %s\n",Prog_Name,fname);
             exit (1);
           }
-        sprintf(fname,"%s/%s.K%d.P%d",dpwd,dbrt,KMER,t+1);
+        sprintf(fname,"%s/.%s.prof.%d",dpwd,dbrt,t+1);
         g = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
         if (g == -1)
-          { fprintf(stderr,"%s: Cannot open external file %s in %s\n",
-                           Prog_Name,fname,SORT_PATH);
+          { fprintf(stderr,"%s: Cannot open external file %s\n",Prog_Name,fname);
             exit (1);
           }
         

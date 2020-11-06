@@ -27,43 +27,54 @@ line options.  The table (2.) is over just the canonical k-mers present in the d
 about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 
 ```
-FastK [-k<int(40)] [-h[<int(1)>:]<int>] [-t<int(3)>] [-p] [-bc<int>]
-        [-v] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
-          <source:cram|[bs]am|f[ast][aq][.gz]|db|dam> ...
+1. FastK [-k<int(40)] [-h[<int(1)>:]<int>] [-t<int(3)>] [-cp] [-bc<int>]
+          [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
+            <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz]] ...
 ```
 
-FastK counts the number of k-mers in a corpus of DNA sequences, \<source> ,over the alphabet {a,c,g,t} for a specified k-mer size, 40 by default.  The input data can be in one or more CRAM, BAM, SAM,
-fasta, or fastq files, where the later two can be gzip'd, preferrably
+FastK counts the number of k-mers in a corpus of DNA sequences over the alphabet {a,c,g,t} for a specified k-mer size, 40 by default.
+The input data can be in one or more CRAM, BAM, SAM, fasta, or fastq files, where the later two can be gzip'd, preferrably
 by [VGPzip](https://github.com/VGP/vgp-tools/tree/master/VGP). The data can also be in [Dazzler databases](https://github.com/thegenemyers/DAZZ_DB).  The type of the
-file is determined by its extension on the command line (and not its
+file is determined by its extension (and not its
 contents).  The extension need not be given if the root name suffices
 to uniquely identify a file.  If more than one source file is given
 they must all be of the same type in the current implementation.
 
+FastK produces a number of outputs depending on the setting of its options.  By default, the
+outputs will be placed in the same directory as that of the first input and begin with the
+prefix \<source> which is the first path name absent any suffix extensions.  For example, if
+the input is <code>../BLUE/foo.fastq</code> then \<source> is <code>../BLUE/foo</code>, the
+outputs will be placed in directory <code>../BLUE</code>, and all result file names will begin with <code>foo</code>.  If the -N option is specified then the path name specified is used
+as \<source>.
+
 One can select any value of k &ge; 5 with the -k option.
-FastK always outputs a file \<source_root>.K\<k> that contains a histogram of the k-mer frequency
-distribution where the highest possible count is 2<sup>15</sup>-1 = 32,767 -- FastK clips all higher values to this upper limit.  The string \<source\_root> is the source file name of the
-first file given without any extensions.  The file is placed in the same directory as the input
-file and its exact format is described in the section on Data Encodings.
+FastK always outputs a file <code>\<source>.hist</code> that contains a histogram of the k-mer frequency
+distribution where the highest possible count is 2<sup>15</sup>-1 = 32,767 -- FastK clips all higher values to this upper limit.  Its exact format is described in the section on Data Encodings.
 If the -h option is specified then histogram is displayed by FastK on the standard output as 
 soon as it is computed.
-The option allows you to specify the interval of frequencies to display, where the lower end
+This option allows you to specify the interval of frequencies to display, where the lower end
 is 1 if ommitted.
 
 One can optionally request, by specifying the -t option, that FastK produce a sorted table of
 all canonical k-mers that occur -t or more times along with their counts, where the default
 for the threshold is 3.
-The output is placed in N equal sized files with the names \<source\_root>.K\<k>.T# where \<k> is the
-specified k-mer size and # is a thread
-number between 1 and N where N is the number of threads used by FastK (4 by default).
-The files are place in the same directory as the input.
+The output is placed in a single *stub* file with the name <code>\<source>.ktab</code> and N
+roughly equal-sized *hidden* files with the names <code>.\<root>.ktab.#</code> assuming
+\<source> = \<path>/\<root> and
+where # is a thread number between 1 and N where N is the number of threads used by FastK (4 by default).
 The exact format of the N-part table is described in the section on Data Encodings.
 
 One can also ask FastK to produce a k-mer count profile of each sequence in the input data set
-by specifying the -p option.  The profiles are individually compressed and placed in N roughly
-equal sized pairs of files with the names
-\<source\_root>.K\<k>.A# and \<source\_root>.K\<k>.P# in the order of the sequences in the input.  The files are placed in the same directory as the input.  The exact format of these
+by specifying the -p option.  A single *stub* file with the name <code>\<source>.prof</code> is output
+along with 2N roughly equal-sized pairs of *hidden* files with the names
+<code>.\<root>.pidx.#</code> and <code>.\<root>.prof.#</code> in the order of the sequences in the input.  Here \<root> is the file name part of \<source> = \<path>/\<root>.
+The profiles are individually compressed and the exact format of these
 files is described in the section on Data Encodings.
+
+The -c option asks FastK to first homopolymer compress the input sequences before analyzing
+the k-mer content.  In a homopolymer compressed sequence, every substring of 2 or more a's
+is replaced with a single a, and similarly for runs of c's, g's, and t's.  This is particularly useful for Pacbio data where homopolymer errors are five-fold more frequent than other
+errors.
 
 The -v option asks FastK to output information about its ongoing operation to standard error.
 The -bc option allows you to ignore the prefix of each read of the indicated length, e.g. the
@@ -75,34 +86,57 @@ FastK by design uses a modest amount of memory, the default 12GB should generall
 be more than enough.
 Lastly, the -T option allows the user to specify the number of threads to use.
 Generally, this is ideally set to the actual number of physical cores in one's machine.
+            
+```
+2a. Fastrm [-i] <source> ...
+2b. Fastmv [-in] <source> <dest>
+2c. Fastcp [-in] <source> <dest>
+```
+
+As described above FastK produces hidden files whose names begin with a . for the -t and -p
+options in order to avoid clutter when listing a directory's contents.
+An issue with this approach is that it is inconvenient for the user to remove these files
+and often a user will forget they are there, potentially wasting disk space.
+We therefore provide Fastrm, Fastmv, Fastcp that remove, rename, and copy FastK output files as a
+single unit.  That is, Fastrm, removes all histogram, table, and/or profile files with
+root name \<source>.  Similarly, Fastmv, renames all such files as if FastK had been
+called with the option -N\<dest>, and Fastcp, make a copy of all of the files in the
+path name given by <dest>.
+
+As for UNIX rm, mv, and cp commands, the -i option asks the command to query with each file as to
+whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the
+hidden files corresponding to the stub, which share the same fate as their stub file.
+The -n option asks Fastmv and Fastcp to not overwrite any files.
 
 ```
-2. Histex [-h[<int(1)>:]<int(100)>] <source_root>.K<k>
+3. Histex [-h[<int(1)>:]<int(100)>] <source>[.hist]
 ```
 
 This command and also Tabex and Profex are presented specifically to
 give a user an example and potentially code they can use to manipulate
 the histogram, k-mer count tables, and profiles produced by FastK.
 
-Given a histogram file \<data>.K# produced by FastK,
+Given a histogram file \<source>.hist produced by FastK,
 one can view the histogram of k-mer counts with **Histex** where the -h specifies the 
 interval of frequencies to be displayed where 1 is assumed if the lower bound is not given.
 
 ```
-3. Tabex [-t<int>] <source_root>.K<k>  (LIST|CHECK|(<k-mer:string>) ...
+4. Tabex [-t<int>] <source>[.ktab]  (LIST|CHECK|(<k-mer:string>) ...
 ```
 
-Given that a set of k-mer counter table files for k-mer size \<k> have been generated, ***Tabex*** opens the tables (one per thread) and then performs the sequence of actions specified by the
+Given that a set of k-mer counter table files have been generated represented by stub file
+\<source>.ktab, ***Tabex*** opens the corresponding hidden table files (one per thread) and then performs the sequence of actions specified by the
 remaining arguments on the command line.  The literal argument LIST lists the contents
 of the table in radix order.  CHECK checks that the table is indeed sorted.  Otherwise the
 argument is interpreted as a k-mer and it is looked up in the table and its count returned
 if found.  If the -t option is given than only those k-mers with counts greater or equal to the given value are operated upon.
 
 ```
-4. Profex <source_root>.K<k> <read:int> ...
+5. Profex <source>[.prof] <read:int> ...
 ```
-Given that a set of profile files for k = \<k> have been generated, ***Profex*** opens the profile filles (one per thread) and gives a
-display of each sequence profile whose ordinal id is given on
+Given that a set of profile files have been generated represented by stub file
+\<source>.prof, ***Profex*** opens the corresonding hiddent profile files (two per thread)
+and gives a display of each sequence profile whose ordinal id is given on
 the remainder of the command line.  The index of the first read is 1 (not 0).
 
 ## Current Limitations
@@ -112,7 +146,8 @@ or cram.  This restriction could be removed with some more code.
 
 Currently the maximum size of any read/sequence is 1Mbp.  This limit will be problematic
 if one is for example counting k-mers in a high-quality assembled genome where the contigs
-exceed this limit.  Again the restriction could be removed but is quite complex if only a limited amount of memory is to be consumed.
+exceed this limit.  Again the restriction could be removed but is quite complex to realize
+if only a fixed amount of memory is assumed to be available.
 
 Lastly, very small k-mer sizes may not work for large data sets.  The absolute minimum is 5,
 but the core prefix trie used for distributing k-mers may want to use a larger minimizer
@@ -124,8 +159,8 @@ length.
 
 ### K-mer Histogram
 
-The histogram file has a name of the form \<source\_root>.K\<k> where \<source\_root> is the root name of the input.  It contains an initial integer
-giving the k-mer size <k>, followed by two integers giving the range [l,h] (inclusive) of frequencies in the histogram, followed by (h-l)+1 64-bit counts for frequencies l, l+1, ..., h.
+The histogram file has a name of the form <code>\<source>.hist</code> where \<source> is the root name used by FastK depending on whether it used the default or -N option.  It contains an initial integer
+giving the k-mer size <k>, followed by two integers giving the range \[l,h] (inclusive) of frequencies in the histogram, followed by (h-l)+1 64-bit counts for frequencies l, l+1, ..., h.
 Formally,
 
 ```
@@ -143,8 +178,14 @@ times.
 
 ### K-mer Table
 
-A table of canonical k-mers and their counts is produced in N parts, where N is the number of threads FastK was run with.  The files are placed in the same directory as the input and named
-\<source\_root>.K\<k>.T[1,N] where \<source\_root> is the root name of the input.  The k-mers in each part are lexicographically ordered and the k-mers in Ti are all less than the k-mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
+A table of canonical k-mers and their counts is produced in N parts, where N is the number of threads FastK was run with.
+A single *stub* file <code>\<root>.ktab</code> appears in the same directory as the first input
+path name by default or in the directory specified by the path name of the -N option if given.
+This stub file contains just the k-mer length followed by the number of threads FastK was run
+with as two integers.
+The table file parts are in N hidden files in the same directory as the stub
+file with the names <code>.\<root>.ktab.[1,N]</code>.
+The k-mers in each part are lexicographically ordered and the k-mers in Ti are all less than the k-mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
 
 The data in each table file is as follows:
 
@@ -164,11 +205,18 @@ unsigned integer count with a maximum value of 32,767.
 
 ### Sequence Profiles
 
-The files with suffixes P# are compressed profiles for each sequence in the input data set,
-and the files with the suffixes A# are arrays of offsets into the P-files giving the start of
-each compressed profile.  The number of offsets in the A-file is one more than the number of
-profiles in the corresponding P-fille.  The A-file contains a brief header followed by an
-array of offsets.  The last offset is to the end of the P-file so that the profile for
+The read profiles are stored in N pairs of file, an index and a data pair, that are hidden
+and identified by a single *stub* file <code>\<root>.prof</code>.
+This stub file contains just the k-mer length followed by the number of threads FastK was
+run with as two integers.
+The hidden data files, <code>.\<root>.prof.[1,N]</code>, contain the compressed profiles for
+each read
+in their order in the input data set, and the hidden index files,
+<code>.\<root>.pidx.[1,N]</code>, 
+contain arrays of offsets into the P-files giving the start of each compressed profile.
+An A-file contains a brief header followed by an array of offsets.
+The number of offsets in the A-file is one more than the number of profiles.
+This last offset is to the end of the P-file so that the profile for
 sequence b+i is the bytes off[i] to off[i+1]-1 where off[i] is the i'th offset in the A-file.
 
 ```
@@ -178,8 +226,10 @@ sequence b+i is the bytes off[i] to off[i+1]-1 where off[i] is the i'th offset i
       ( < profile offset for sequence i in [b,b+n) : int64 > ) ^ n+1
 ```
 
-The P-file contains compressed profiles.  The sequence of a profile is given by the first count followed by the first forward difference to each successive count as these are expected to be
-small integers that will compress well.  The the first count is encoded in the first one or two bytes, depending on
+A P-file contains compressed profiles.
+The sequence of a profile is given by the first count followed by the first forward difference to
+each successive count as these are expected to be small integers that will compress well.
+The the first count is encoded in the first one or two bytes, depending on
 its value, as follows:
 
 ```

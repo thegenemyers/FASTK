@@ -1631,7 +1631,7 @@ void Sorting(char *dpwd, char *dbrt)
           printf("    %5d: %12lld\n",i,stotal-ssum);
       }
 
-    sprintf(fname,"%s/%s.K%d",dpwd,dbrt,KMER);
+    sprintf(fname,"%s/%s.hist",dpwd,dbrt);
     f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
     write(f,&KMER,sizeof(int));
     i = 1;

@@ -24,6 +24,7 @@
 #define  USE_MAPPING
 #undef   HISTOGRAM_TEST
 #undef   MAXIMUM_TEST
+#undef   FIND_MTHRESH
 
 #undef   DEBUG_PADDED
 #define    PAD_LEVEL 0
@@ -74,13 +75,15 @@ static void compress_block(DATA_BLOCK *block)
         if (s[p] != x)
           c[u++] = x = s[p];
 
-      boff[i] = u;
       q = u - boff[i-1];
       if (q > mlen)
         mlen = q;
+
+      c[u++] = '\0';
+      boff[i] = u;
     }
 
-  block->totlen = u;
+  block->totlen = u-nreads;
   block->maxlen = mlen;
 }
 
@@ -487,7 +490,11 @@ static void _refine_tree(int lev, int i, int64 kthresh, int64 *count)
           for (a = 0; a < 4; a++)
             count[Min_States++] = 0;
           if (lev > PAD)
+#ifdef FIND_MTHRESH
+            PAD += 1;
+#else
             PAD += 2;
+#endif
         }
       else
         count[i] = 0;
@@ -794,6 +801,10 @@ int Determine_Scheme(DATA_BLOCK *block)
 
   if (VERBOSE)
     fprintf(stderr,"  Using %dbp of padding\n",PAD);
+
+#ifdef FIND_MTHRESH
+  exit (1);
+#endif
 
 #ifdef DEBUG_SCHEME
   print_tree(ktot,count);

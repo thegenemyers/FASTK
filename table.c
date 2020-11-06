@@ -372,12 +372,21 @@ void Merge_Tables(char *path, char *root)
 
   //  Setup thread params and open output file
 
+  sprintf(fname,"%s/%s.ktab",path,root);
+  f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+  if (f == -1)
+    { fprintf(stderr,"\n%s: Cannot open external file %s for writing\n",Prog_Name,fname);
+      exit (1);
+    }
+  write(f,&KMER,sizeof(int));
+  write(f,&NTHREADS,sizeof(int));
+  close(f);
+
   for (t = 0; t < NTHREADS; t++)
-    { sprintf(fname,"%s/%s.K%d.T%d",path,root,KMER,t+1);
+    { sprintf(fname,"%s/.%s.ktab.%d",path,root,t+1);
       f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
       if (f == -1)
-        { fprintf(stderr,"\n%s: Cannot open external file %s in %s\n",
-                         Prog_Name,fname,SORT_PATH);
+        { fprintf(stderr,"\n%s: Cannot open external file %s for writing\n",Prog_Name,fname);
           exit (1);
         }
       io[t].block  = blocks + t*BUFLEN_UINT8;

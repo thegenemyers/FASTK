@@ -19,7 +19,7 @@
 
 #include "gene_core.h"
 
-static char *Usage = "[-h<int>:<int>] <source_root>.K<k>";
+static char *Usage = "[-h<int>:<int>] <source>[.ktab]";
 
 
 /****************************************************************************************
@@ -40,7 +40,7 @@ typedef struct
 #define  COUNT(i) (*((uint16 *) (table+(i)*tbyte+kbyte)))
 #define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
 
-Kmer_Table *Load_Kmer_Table(char *name, int cut_freq);
+Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads);
 void        Free_Kmer_Table(Kmer_Table *T);
 
 void        List_Kmer_Table(Kmer_Table *T);
@@ -118,7 +118,7 @@ static inline void mycpy(uint8 *a, uint8 *b, int n)
  *
  *****************************************************************************************/
 
-Kmer_Table *Load_Kmer_Table(char *name, int cut_freq)
+Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
 { Kmer_Table *T;
   int         kmer, tbyte, kbyte;
   int64       nels;
@@ -131,18 +131,21 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_freq)
   //  Find all parts and accumulate total size
 
   nels = 0;
-  for (p = 1; 1; p++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".T",p,""),"",""),"r");
+  for (p = 1; p <= nthreads; p++)
+    { f = fopen(Catenate(name,Numbered_Suffix(".ktab.",p,""),"",""),"r");
       if (f == NULL)
-        break;
+        { fprintf(stderr,"%s: Table part %s.ktab.%d is misssing ?\n",Prog_Name,name,p);
+          exit (1);
+        }
       fread(&kmer,sizeof(int),1,f);
       fread(&n,sizeof(int64),1,f);
       nels += n;
+      if (kmer != smer)
+        { fprintf(stderr,"%s: Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
+                         Prog_Name,name,p);
+          exit (1);
+        }
       fclose(f);
-    }
-  if (p == 1)
-    { fprintf(stderr,"%s: Cannot find table files for %s\n",Prog_Name,name);
-      exit (1);
     }
 
   //  Allocate in-memory table
@@ -161,10 +164,8 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_freq)
   fflush(stderr);
 
   nels = 0;
-  for (p = 1; 1; p++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".T",p,""),"",""),"r");
-      if (f == NULL)
-        break;
+  for (p = 1; p <= nthreads; p++)
+    { f = fopen(Catenate(name,Numbered_Suffix(".ktab.",p,""),"",""),"r");
       fread(&kmer,sizeof(int),1,f);
       fread(&n,sizeof(int64),1,f);
       fread(KMER(nels),n*tbyte,1,f);
@@ -383,7 +384,9 @@ void Find_Haplo_Pairs(Kmer_Table *T)
  *****************************************************************************************/
 
 int main(int argc, char *argv[])
-{ Kmer_Table *T;
+{ char       *name;
+  int         smer, nthreads;
+  Kmer_Table *T;
 
   (void) print_pack;
 
@@ -444,11 +447,31 @@ int main(int argc, char *argv[])
       }
   }
 
-  T = Load_Kmer_Table(argv[1],1);
+  { FILE *f;
+    char *dir, *root;
+
+    dir  = PathTo(argv[1]);
+    root = Root(argv[1],".ktab");
+    name = Strdup(Catenate(dir,"/.",root,""),NULL);
+    f = fopen(Catenate(dir,"/",root,".ktab"),"r");
+    if (f == NULL)
+      { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,Catenate(dir,"/",root,".ktab"));
+        exit (1);
+      }
+    fread(&smer,sizeof(int),1,f);
+    fread(&nthreads,sizeof(int),1,f);
+    fclose(f);
+    free(root);
+    free(dir);
+  }
+
+  T = Load_Kmer_Table(argv[1],1,smer,nthreads);
 
   Find_Haplo_Pairs(T);
 
   Free_Kmer_Table(T);
+
+  free(name);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

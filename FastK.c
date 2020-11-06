@@ -30,8 +30,8 @@ int    DO_STAGE;   //  Which step to perform
 #endif
 
 static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t<int(3)>] [-cp] [-bc<int(0)>]",
-                         "  [-v] [-T<int(4)>] [-P<dir(/tmp)>] [-M<int(12)>]",
-                         "    <data::cram|[bs]am|f[ast][aq][.gz]|db|dam> ..."
+                         "  [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]",
+                         "    <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz] ..."
                        };
 
   //  Option Settings
@@ -47,6 +47,7 @@ int       HIST_HGH;  // End count for histogram
 int    DO_TABLE;     // Zero or table cutoff
 int    DO_PROFILE;   // Do or not
 int    BC_PREFIX;    // Ignore prefix of each sequence of this length
+char  *OUT_NAME;     // Prefix root for all output file names
 int    COMPRESS;     // Homopoloymer compress input
 
   //  Major parameters, sizes of things
@@ -104,6 +105,7 @@ int main(int argc, char *argv[])
     HIST_HGH    = 0x7fff;
     DO_TABLE    = 0;
     BC_PREFIX   = 0;
+    OUT_NAME    = NULL;
 #ifdef DEVELOPER
     DO_STAGE    = 0;
 #endif
@@ -126,13 +128,6 @@ int main(int argc, char *argv[])
             break;
           case 'k':
             ARG_POSITIVE(KMER,"K-mer length")
-            break;
-          case 't':
-            if (argv[i][2] == '\0')
-              { DO_TABLE = 3;
-                break;
-              }
-            ARG_POSITIVE(DO_TABLE,"Cutoff for k-mer table")
             break;
           case 'h':
             HIST_LOW = strtol(argv[i]+2,&eptr,10);
@@ -160,6 +155,16 @@ int main(int argc, char *argv[])
               }
             fprintf(stderr,"\n%s: Syntax of -h option invalid -h[<int(1)>:]<int>\n",Prog_Name);
             exit (1);
+          case 'N':
+            OUT_NAME = argv[i]+2;
+            break;
+          case 't':
+            if (argv[i][2] == '\0')
+              { DO_TABLE = 3;
+                break;
+              }
+            ARG_POSITIVE(DO_TABLE,"Cutoff for k-mer table")
+            break;
           case 'M':
             ARG_POSITIVE(memory,"GB of memory for sorting step")
             SORT_MEMORY = memory * 1000000000ll;
@@ -200,6 +205,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"      -v: Verbose mode, output statistics as proceed.\n");
         fprintf(stderr,"      -T: Use -T threads.\n");
+        fprintf(stderr,"      -N: Use given path for output directory and root name prefix.\n");
         fprintf(stderr,"      -P: Place block level sorts in directory -P.\n");
         fprintf(stderr,"      -M: Use -M GB of memory in downstream sorting steps of KMcount.\n");
         fprintf(stderr,"\n");
@@ -252,8 +258,14 @@ int main(int argc, char *argv[])
 
     io = Partition_Input(argc,argv);
 
-    root = First_Root(io);
-    pwd  = First_Pwd (io);
+    if (OUT_NAME == NULL)
+      { root = First_Root(io);
+        pwd  = First_Pwd (io);
+      }
+    else
+      { root = Root(OUT_NAME,NULL);
+        pwd  = PathTo(OUT_NAME);
+      }
 
     if (VERBOSE)
       fprintf(stderr,"\nDetermining minimizer scheme & partition for %s\n",root);

@@ -19,7 +19,7 @@
 
 #include "gene_core.h"
 
-static char *Usage = "[-h[<int(1)>:]<int(100)>] <source_root1>.K<k> <source_root2>.K<k> ...";
+static char *Usage = "[-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...";
 
 
 /****************************************************************************************
@@ -31,6 +31,8 @@ static char *Usage = "[-h[<int(1)>:]<int(100)>] <source_root1>.K<k> <source_root
 typedef struct
   { FILE  *copn;    //  File currently open
     int    part;    //  Thread # of file currently open
+    int    nthr;    //  # of thread parts
+    int    cut;     //  cut frequency
     char  *name;    //  Root name for table
     int    kmer;    //  Kmer length
     int    kbyte;   //  Kmer encoding in bytes
@@ -43,7 +45,7 @@ typedef struct
 #define  COUNT(i) (*((uint16 *) (table+(i)*tbyte+kbyte)))
 #define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
 
-Kmer_Table *Open_Kmer_Table(char *name, int cut_freq);
+Kmer_Table *Open_Kmer_Table(char *name, int cut_freq, int smer, int nthreads);
 int         More_Kmer_Table(Kmer_Table *T);
 void        Free_Kmer_Table(Kmer_Table *T);
 
@@ -118,7 +120,7 @@ static inline void mycpy(uint8 *a, uint8 *b, int n)
  *
  *****************************************************************************************/
 
-Kmer_Table *Open_Kmer_Table(char *name, int cut_freq)
+Kmer_Table *Open_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
 { Kmer_Table *T;
   int         kmer, tbyte, kbyte;
   int64       nels;
@@ -130,18 +132,21 @@ Kmer_Table *Open_Kmer_Table(char *name, int cut_freq)
   //  Find all parts and accumulate total size
 
   nels = 0;
-  for (part = 1; 1; part++)
-    { copn = fopen(Catenate(name,Numbered_Suffix(".T",part,""),"",""),"r");
+  for (part = 1; part <= nthreads; part++)
+    { copn = fopen(Catenate(name,Numbered_Suffix(".ktab.",part,""),"",""),"r");
       if (copn == NULL)
-        break;
+        { fprintf(stderr,"%s: Table part %s.ktab.%d is misssing ?\n",Prog_Name,name,part);
+          exit (1);
+        }
       fread(&kmer,sizeof(int),1,copn);
       fread(&n,sizeof(int64),1,copn);
       nels += n;
+      if (kmer != smer)
+        { fprintf(stderr,"%s: Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
+                         Prog_Name,name,part);
+          exit (1);
+        }
       fclose(copn);
-    }
-  if (part == 1)
-    { fprintf(stderr,"%s: Cannot find table files for %s\n",Prog_Name,name);
-      exit (1);
     }
 
   //  Allocate in-memory table
@@ -154,18 +159,18 @@ Kmer_Table *Open_Kmer_Table(char *name, int cut_freq)
 
   //  Load the parts into memory
 
-  fprintf(stderr,"Loading %d-mer table with ",kmer);
+  fprintf(stderr,"Opening %d-mer table with ",kmer);
   Print_Number(nels,0,stderr);
   fprintf(stderr," entries in %d parts\n",part-1);
   fflush(stderr);
 
-  copn = fopen(Catenate(name,".T1","",""),"r");
+  copn = fopen(Catenate(name,".ktab.1","",""),"r");
   fread(&kmer,sizeof(int),1,copn);
   fread(&n,sizeof(int64),1,copn);
   nels = fread(KMER(0),1000*tbyte,1,copn) / tbyte;
 
   if (cut_freq > 1)
-    { int64 i, j;
+    { int64  i;
       uint8 *iptr, *jptr;
 
       jptr = table;
@@ -176,11 +181,7 @@ Kmer_Table *Open_Kmer_Table(char *name, int cut_freq)
               jptr += tbyte;
             }
         }
-      j = (jptr-table)/tbyte;
-      if (j < nels)
-        { nels = j;
-          table = Realloc(table,nels*tbyte,"Reallocating table");
-        }
+      nels = (jptr-table)/tbyte;
     }
 
   T = Malloc(sizeof(Kmer_Table),"Allocating table record");
@@ -190,6 +191,8 @@ Kmer_Table *Open_Kmer_Table(char *name, int cut_freq)
 
   T->copn  = copn;
   T->part  = 1;
+  T->nthr  = nthreads;
+  T->cut   = cut_freq;
   T->kmer  = kmer;
   T->tbyte = tbyte;
   T->kbyte = kbyte;
@@ -208,9 +211,9 @@ int More_Kmer_Table(Kmer_Table *T)
   nels = fread(T->table,1000*tbyte,1,copn) / tbyte;
   while (nels == 0)
     { T->part += 1;
+      if (T->part > T->nthr)
+        return (0);
       copn = fopen(Catenate(T->name,Numbered_Suffix(".T",T->part,""),"",""),"r");
-      if (copn == NULL)
-        break;
       fread(&kmer,sizeof(int),1,copn);
       fread(&rels,sizeof(int64),1,copn);
       nels = fread(T->table,1000*tbyte,1,copn) / tbyte;
@@ -470,16 +473,36 @@ int main(int argc, char *argv[])
     }
 
     { int c;
+      FILE *f;
+      char *dir, *root;
+      int   smer, nthreads;
 
       kmer = 0;
       for (c = 0; c < nway; c++)
-        { T[c] = Open_Kmer_Table(argv[c+1],1);
+        { dir  = PathTo(argv[c+1]);
+          root = Root(argv[c+1],".ktab");
+          name = Strdup(Catenate(dir,"/.",root,""),NULL);
+          f = fopen(Catenate(dir,"/",root,".ktab"),"r");
+          if (f == NULL)
+            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,
+                             Catenate(dir,"/",root,".ktab"));
+              exit (1);
+            }
+          fread(&smer,sizeof(int),1,f);
+          fread(&nthreads,sizeof(int),1,f);
+          fclose(f);
+          free(root);
+          free(dir);
+
+          T[c] = Open_Kmer_Table(name,1,smer,nthreads);
           if (kmer == 0)
             kmer = T[c]->kmer;
           else if (T[c]->kmer != kmer)
             { fprintf(stderr,"%s: K-mer tables do not involve the same K\n",Prog_Name);
               exit (1);
             }
+
+          free(name);
         }
     }
 
@@ -528,7 +551,7 @@ int main(int argc, char *argv[])
               else
                 a = stpcpy(a,low[c]);
             }
-          sprintf(a,".K%d",kmer);
+          sprintf(a,".hist");
 
           f = open(name,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
           write(f,&kmer,sizeof(int));

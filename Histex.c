@@ -17,7 +17,7 @@
 
 #define HSIZE  0x8000
 
-static char *Usage = " [-h[<int(1)>:]<int(100)>] <source_root>.K<k>";
+static char *Usage = " [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
 
 int main(int argc, char *argv[])
 { int64 *cgram;
@@ -93,12 +93,17 @@ int main(int argc, char *argv[])
 
   { FILE *f;
     int   problem;
+    char *dir, *root;
 
-    f = fopen(argv[1],"r");
+    dir  = PathTo(argv[1]);
+    root = Root(argv[1],".hist");
+    f = fopen(Catenate(dir,"/",root,".hist"),"r");
     if (f == NULL)
-      { fprintf(stderr,"%s: Cannot open %s\n",Prog_Name,argv[1]);
+      { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,Catenate(dir,"/",root,".hist"));
         exit (1);
       }
+    free(root);
+    free(dir);
 
     fread(&kmer,sizeof(int),1,f);
     fread(&low,sizeof(int),1,f);
