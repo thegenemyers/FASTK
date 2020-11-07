@@ -22,8 +22,9 @@ FastK can produce the following outputs:
 Note carefully, that in order to accommodate the unknown orientation of a sequencing read,
 a k-mer and its Watson Crick complement are considered to be the same k-mer by FastK, where the
 lexicograpahically smaller of the two alternatives is termed **canonical**.
-The histogram is always produced whereas the production of 2. and 3. are controlled by command
-line options.  The table (2.) is over just the canonical k-mers present in the data set.  Producing profiles (3.) as part of the underlying sort is much more efficient than producing them after the fact using a table or hash of all k-mers such as is necessitated when using other k-mer counter programs.  The profiles are recorded in a space-efficient compressed form, e.g.
+The histogram is always produced whereas the production of a k-mer table (2.) and profiles (3.)
+are controlled by command
+line options.  The table (2.) is over just the *canonical* k-mers present in the data set.  Producing profiles (3.) as part of the underlying sort is much more efficient than producing them after the fact using a table or hash of all k-mers such as is necessitated when using other k-mer counter programs.  The profiles are recorded in a space-efficient compressed form, e.g.
 about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 
 ```
@@ -50,9 +51,9 @@ as \<source>.
 One can select any value of k &ge; 5 with the -k option.
 FastK always outputs a file <code>\<source>.hist</code> that contains a histogram of the k-mer frequency
 distribution where the highest possible count is 2<sup>15</sup>-1 = 32,767 -- FastK clips all higher values to this upper limit.  Its exact format is described in the section on Data Encodings.
-If the -h option is specified then histogram is displayed by FastK on the standard output as 
+If the -h option is specified then the histogram is displayed by FastK on the standard output as 
 soon as it is computed.
-This option allows you to specify the interval of frequencies to display, where the lower end
+This option allows you to specify the interval of frequencies to display, where the lower limit
 is 1 if ommitted.
 
 One can optionally request, by specifying the -t option, that FastK produce a sorted table of
@@ -74,13 +75,13 @@ files is described in the section on Data Encodings.
 The -c option asks FastK to first homopolymer compress the input sequences before analyzing
 the k-mer content.  In a homopolymer compressed sequence, every substring of 2 or more a's
 is replaced with a single a, and similarly for runs of c's, g's, and t's.  This is particularly useful for Pacbio data where homopolymer errors are five-fold more frequent than other
-errors.
+errors and thus the error rate of these "hoco" k-mers is five-fold less.
 
 The -v option asks FastK to output information about its ongoing operation to standard error.
-The -bc option allows you to ignore the prefix of each read of the indicated length, e.g. the
-reads have a bar code at the start of each read.
+The -bc option allows you to ignore the prefix of each read of the indicated length, e.g. when
+the reads have a bar code at the start of each read.
 The -P option specifies where FastK should place all the numerous temporary files it creates, if not `/tmp` by default.
-The -M options specifies the maximum amount of memory, in GB, FastK should use at any given
+The -M option specifies the maximum amount of memory, in GB, FastK should use at any given
 moment.
 FastK by design uses a modest amount of memory, the default 12GB should generally
 be more than enough.
@@ -97,14 +98,12 @@ As described above FastK produces hidden files whose names begin with a . for th
 options in order to avoid clutter when listing a directory's contents.
 An issue with this approach is that it is inconvenient for the user to remove these files
 and often a user will forget they are there, potentially wasting disk space.
-We therefore provide Fastrm, Fastmv, Fastcp that remove, rename, and copy FastK output files as a
-single unit.  That is, Fastrm, removes all histogram, table, and/or profile files with
-path name \<source>.  Similarly, Fastmv, renames all such files as if FastK had been
-called with the option -N\<dest>, and Fastcp makes a copy of all of the files with the
-path name given by \<dest>.  If \<dest> is a directory than the base name of source is used
-to form a complete destination path.
+We therefore provide Fastrm, Fastmv, and Fastcp that remove, rename, and copy FastK output files as a single unit.  That is, Fastrm, removes all histogram, table, and/or profile files including
+the hidden one associated with path name \<source>, excluding extensions.  Similarly, Fastmv, renames all such files as if FastK had been called with the option -N\<dest>, and Fastcp makes a copy of all associated files with the path name \<dest>.  If \<dest> is a directory than
+the base name of source is used to form a complete destination path for both Fastmv and
+Fastcp.
 
-As for UNIX rm, mv, and cp commands, the -i option asks the command to query with each file as to
+As for UNIX rm, mv, and cp commands, the -i option asks the command to query each file as to
 whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the
 hidden files corresponding to the stub, which share the same fate as their stub file.
 The -n option asks Fastmv and Fastcp to not overwrite any files.

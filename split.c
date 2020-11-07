@@ -800,7 +800,7 @@ int Determine_Scheme(DATA_BLOCK *block)
     }
 
   if (VERBOSE)
-    fprintf(stderr,"  Using %dbp of padding\n",PAD);
+    fprintf(stderr,"  Using %d-minimizers and %d core prefixes\n",PAD_LEN,Min_States);
 
 #ifdef FIND_MTHRESH
   exit (1);

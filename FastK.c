@@ -19,6 +19,7 @@
 #include <dirent.h>
 #include <sys/resource.h>
 #include <math.h>
+#include <time.h>
 
 #include "gene_core.h"
 #include "FastK.h"
@@ -86,9 +87,79 @@ int CMER_WORD;    //  bytes to hold a count/index entry
 
 int NUM_READS;    //  number of sequences in the dataset
 
+static struct rusage   Itime;
+static struct timespec Iwall;
+
+void startTime()
+{ struct timespec zero;
+
+  zero.tv_sec  = 0;
+  zero.tv_nsec = 0;
+
+  getrusage(RUSAGE_SELF,&Itime);
+  clock_gettime(CLOCK_MONOTONIC,&Iwall);
+}
+
+void timeTo(FILE *f)
+{ struct rusage   now;
+  struct timespec today;
+  int usecs, umics;
+  int ssecs, smics;
+  int tsecs, tmics;
+  int64 mem;
+
+  getrusage(RUSAGE_SELF, &now);
+  clock_gettime(CLOCK_MONOTONIC,&today);
+
+  usecs = now.ru_utime.tv_sec  - Itime.ru_utime.tv_sec;
+  umics = now.ru_utime.tv_usec - Itime.ru_utime.tv_usec;
+  if (umics < 0)
+    { umics += 1000000;
+      usecs -= 1;
+    }
+  
+  fprintf (f,"Resources:");
+  if (usecs >= 60)
+    fprintf (f,"  %d:%02d.%03du",usecs/60,usecs%60,umics/1000);
+  else
+    fprintf (f,"  %d.%03du",usecs,umics/1000);
+
+  ssecs = now.ru_stime.tv_sec  - Itime.ru_stime.tv_sec;
+  smics = now.ru_stime.tv_usec - Itime.ru_stime.tv_usec;
+  if (smics < 0)
+    { smics += 1000000;
+      ssecs -= 1;
+    }
+  if (ssecs >= 60)
+    fprintf (f,"  %d:%02d.%03ds",ssecs/60,ssecs%60,smics/1000);
+  else
+    fprintf (f,"  %d.%03ds",ssecs,smics/1000);
+
+  tsecs = today.tv_sec  - Iwall.tv_sec;
+  tmics = today.tv_nsec/1000 - Iwall.tv_nsec/1000;
+  if (tmics < 0)
+    { tmics += 1000000;
+      tsecs -= 1;
+    }
+  if (tsecs >= 60)
+    fprintf (f,"  %d:%02d.%03dw",tsecs/60,tsecs%60,tmics/1000);
+  else
+    fprintf (f,"  %d.%03dw",tsecs,tmics/1000);
+
+  fprintf(f,"  %.1f%%  ",(100.*(usecs+ssecs) + (umics+smics)/10000.)/(tsecs+tmics/1000000.));
+
+  mem = (now.ru_maxrss - Itime.ru_maxrss)/1000000;
+
+  Print_Number(mem,0,f);
+  fprintf(f,"MB\n");
+}
+
+
 int main(int argc, char *argv[])
 { char  *root;
   char  *pwd;
+
+  startTime();
 
   { int    i, j, k;
     int    flags[128];
@@ -295,7 +366,9 @@ int main(int argc, char *argv[])
         else
           fprintf(stderr,"  Estimate %.3fK %d-mers\n",est/1.e3,KMER);
         if (NPARTS > 1)
-          fprintf(stderr,"  Dividing data into %d parts\n",NPARTS);
+          fprintf(stderr,"  Dividing data into %d buckets\n",NPARTS);
+        else
+          fprintf(stderr,"  Handling data in a single bucket\n");
       }
 
     MOD_LEN = 1;
@@ -379,6 +452,9 @@ int main(int argc, char *argv[])
   Catenate(NULL,NULL,NULL,NULL);  //  frees internal buffers of these routines
   Numbered_Suffix(NULL,0,NULL);
   free(Prog_Name);
+
+  if (VERBOSE)
+    timeTo(stderr);
 
   exit (0);
 }
