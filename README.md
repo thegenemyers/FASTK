@@ -112,8 +112,8 @@ The -n option tells Fastmv and Fastcp to not overwrite any files.
 ```
 
 This command and also Tabex and Profex are presented specifically to
-give a user an example and potentially code they can use to manipulate
-the histogram, k-mer count tables, and profiles produced by FastK.
+give a user an example of how to use the C-interface, <code>libfastk.c</code>, module
+to manipulate the histogram, k-mer count tables, and profiles produced by FastK.
 
 Given a histogram file \<source>.hist produced by FastK,
 one can view the histogram of k-mer counts with **Histex** where the -h specifies the 
@@ -142,6 +142,70 @@ the remainder of the command line.  The index of the first read is 1 (not 0).
 
 Currently if multiple input files are given they must all be of the same type, e.g. fasta
 or cram.  This restrictionis is not fundamental and could be removed with some coding effort.
+
+## The FastK C-interface to K-mer Histograms, Tables, and Profiles
+
+For each of the 3 distinct outputs of FastK, we have suppled a simple C library
+that gives a user access to the data therein.  The library is simply embodied in
+the C-file, <code>libfastk.c</code>, and associdated include file <code>libfastk.h</code>.
+The makefile commands for building Histex, Tabex, and Profex illustrate how to
+easily incorporate the library into your C or C++ code.
+
+### K-mer Histogram
+
+```
+typedef struct
+  { int    kmer;  //  Histogram is for k-mers of this length
+    int    low;   //  Histogram is for range [low,hgh]
+    int    high;
+    int64 *hist;  //  hist[i] for i in [low,high] = # of k-mers occuring i times
+  } Histogram;
+
+Histogram *Load_Histogram(char *name, int low, int high);
+void       Free_Histogram(Histogram *H);
+```
+
+### K-mer Table
+
+```
+typedef struct
+  { int     kmer;    //  Kmer length
+    int     kbyte;   //  Kmer encoding in bytes
+    int     tbyte;   //  Kmer+count entry in bytes
+    int64   nels;    //  # of unique, sorted k-mers in the table
+    uint8  *table;   //  The (huge) table in memory
+    int64  *index;   //  Search accelerator if needed
+  } Kmer_Table;
+
+Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads);
+void        Free_Kmer_Table(Kmer_Table *T);
+
+char       *Fetch_Kmer(Kmer_Table *T, int i);
+int         Fetch_Count(Kmer_Table *T, int i);
+
+void        List_Kmer_Table(Kmer_Table *T);
+void        Check_Kmer_Table(Kmer_Table *T);
+int         Find_Kmer(Kmer_Table *T, char *kseq);
+```
+
+### Sequence Profiles
+
+```
+typedef struct
+  { int    kmer;     //  Kmer length
+    int    nparts;   //  # of threads/parts for the profiles
+    int    nreads;   //  # of threads/parts for the profiles
+    int64 *nbase;    //  nbase[i] = id of last read in part i
+    FILE **nfile;    //  nfile[i] = stream for "P" file of part i
+    int64 *index;    //  Kmer+count entry in bytes
+  } Profile_Index;
+
+Profile_Index *Open_Profiles(char *name, int kmer, int nthreads);
+
+void Free_Profiles(Profile_Index *P);
+
+int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile);
+```
 
 ## Data Encodings
 
