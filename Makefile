@@ -14,6 +14,9 @@ deflate.lib: LIBDEFLATE
 libhts.a: HTSLIB
 	cd HTSLIB; make; cd ..
 
+libfastk.c : gene_core.c
+libfastk.h : gene_core.h
+
 FastK: FastK.c FastK.h io.c split.c count.c table.c merge.c io.c gene_core.c gene_core.h MSDsort.c LSDsort.c
 	gcc $(CFLAGS) -o FastK -I./HTSLIB $(HTSLIB_sstatic_LDFLAGS) FastK.c io.c split.c count.c table.c merge.c MSDsort.c LSDsort.c gene_core.c LIBDEFLATE/libdeflate.a HTSLIB/libhts.a -lpthread $(HTSLIB_static_LIBS)
 
@@ -26,14 +29,14 @@ Fastmv: Fastxfer.c gene_core.c gene_core.h
 Fastcp: Fastxfer.c gene_core.c gene_core.h
 	gcc $(CFLAGS) -UMOVE -o Fastcp Fastxfer.c gene_core.c -lpthread -lm
 
-Histex: Histex.c gene_core.c gene_core.h
-	gcc $(CFLAGS) -o Histex Histex.c gene_core.c -lpthread -lm
+Histex: Histex.c libfastk.c libfastk.h
+	gcc $(CFLAGS) -o Histex Histex.c libfastk.c -lpthread -lm
 
-Tabex: Tabex.c gene_core.c gene_core.h
-	gcc $(CFLAGS) -o Tabex Tabex.c gene_core.c -lpthread -lm
+Tabex: Tabex.c libfastk.c libfastk.h
+	gcc $(CFLAGS) -o Tabex Tabex.c libfastk.c -lpthread -lm
 
-Profex: Profex.c gene_core.c gene_core.h
-	gcc $(CFLAGS) -o Profex Profex.c gene_core.c -lpthread -lm
+Profex: Profex.c libfastk.c libfastk.h
+	gcc $(CFLAGS) -o Profex Profex.c libfastk.c -lpthread -lm
 
 Haplex: Haplex.c gene_core.c gene_core.h
 	gcc $(CFLAGS) -o Haplex Haplex.c gene_core.c -lpthread -lm

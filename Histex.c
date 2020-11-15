@@ -13,17 +13,12 @@
 #include <stdint.h>
 #include <math.h>
 
-#include "gene_core.h"
-
-#define HSIZE  0x8000
+#include "libfastk.h"
 
 static char *Usage = " [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
 
 int main(int argc, char *argv[])
-{ int64 *cgram;
-  int    kmer;
-  int    low, high;
-
+{ Histogram *H;
   int    HIST_LOW;
   int    HIST_HGH;
 
@@ -91,72 +86,39 @@ int main(int argc, char *argv[])
 
   //  Load histogram into "cgram"
 
-  { FILE *f;
-    int   problem;
-    char *dir, *root;
-
-    dir  = PathTo(argv[1]);
-    root = Root(argv[1],".hist");
-    f = fopen(Catenate(dir,"/",root,".hist"),"r");
-    if (f == NULL)
-      { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,Catenate(dir,"/",root,".hist"));
-        exit (1);
-      }
-    free(root);
-    free(dir);
-
-    fread(&kmer,sizeof(int),1,f);
-    fread(&low,sizeof(int),1,f);
-    fread(&high,sizeof(int),1,f);
-
-    problem = 0;
-    if (low > HIST_LOW)
-      { HIST_LOW = low;
-        problem  = 1;
-      }
-    if (high < HIST_HGH)
-      { HIST_HGH = high;
-        problem  = 1;
-      }
-    if (problem)
-      printf("\nWarning: histogram range [%d,%d] is not a superset of requested display range\n",
-             low,high);
-
-    cgram = Malloc(sizeof(int64)*((high-low)+1),"Allocating histogram");
-  
-    fread(cgram,sizeof(int64),(high-low)+1,f);
-    
-    fclose(f);
-  }
+  H = Load_Histogram(argv[1],HIST_LOW,HIST_HGH);
 
   //  Generate display
 
   { char       *root;
-    int         i, j;
+    int         j;
     int64       ssum, stotal;
+    int64      *cgram;
 
     root = Root(argv[1],NULL);
-    printf("\nHistogram of %d-mers of %s\n",kmer,root);
+    printf("\nHistogram of %d-mers of %s\n",H->kmer,root);
     free(root);
 
+    cgram = H->hist;
+
     stotal = 0;
-    for (i = high-low; i >= 0; i--)
-      stotal += cgram[i];
+    for (j = HIST_LOW; j <= HIST_HGH; j++)
+      stotal += cgram[j];
 
     printf("\n  Input: ");
     Print_Number(stotal,0,stdout);
-    printf(" %d-mers\n",kmer);
+    printf(" %d-mers\n",H->kmer);
 
     printf("\n     Freq:        Count   Cum. %%\n");
     ssum = 0;
-    for (j = high, i = high-low; j > HIST_LOW; j--, i--)
-      { ssum += cgram[i];
+    for (j = HIST_HGH; j > HIST_LOW; j--)
+      { ssum += cgram[j];
         if (j == HIST_HGH)
           { printf(" >= %5d: %12lld",j,ssum);
             printf("   %5.1f%%\n",(100.*ssum)/stotal);
           }
-        else if (j < HIST_HGH && j > HIST_LOW && cgram[i] > 0)
-          { printf("    %5d: %12lld",j,cgram[i]);
+        else if (j < HIST_HGH && j > HIST_LOW && cgram[j] > 0)
+          { printf("    %5d: %12lld",j,cgram[j]);
             printf("   %5.1f%%\n",(100.*ssum)/stotal);
           }
       }
@@ -166,7 +128,7 @@ int main(int argc, char *argv[])
       printf("    %5d: %12lld   100.0%%\n",j,stotal-ssum);
   }
 
-  free(cgram);
+  Free_Histogram(H);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);
