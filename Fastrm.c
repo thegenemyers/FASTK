@@ -54,6 +54,8 @@ int main(int argc, char **argv)
   }
 
   { int   c, len, yes, a;
+    int   alen, rlen;
+    int   doh, dot, dop;
     char *dir, *root;
     char *command;
     struct stat B;
@@ -66,9 +68,34 @@ int main(int argc, char **argv)
     command = Malloc(3*len+50,"Allocating command buffer");
 
     for (c = 1; c < argc; c++)
+      { root = Root(argv[c],"");
+        alen = strlen(argv[c]);
+        rlen = strlen(root);
+        if (alen != rlen)
+          { doh = (strcmp(argv[c] + rlen,".hist") == 0);
+            dot = (strcmp(argv[c] + rlen,".ktab") == 0);
+            dop = (strcmp(argv[c] + rlen,".prof") == 0);
+            if (doh + dot + dop == 0)
+              { fprintf(stderr,"%s: Do not recognize extension .%s\n",Prog_Name,argv[c]+rlen);
+                exit (1);
+              }
+          }
+        free(root);
+       }
+
+    for (c = 1; c < argc; c++)
       { dir  = PathTo(argv[c]);
         root = Root(argv[c],"");
-        if (stat(Catenate(dir,"/",root,".hist"),&B) == 0)
+        alen = strlen(argv[c]);
+        rlen = strlen(root);
+        if (alen == rlen)
+          doh = dot = dop = 1;
+        else
+          { doh = (strcmp(argv[c] + rlen,".hist") == 0);
+            dot = (strcmp(argv[c] + rlen,".ktab") == 0);
+            dop = (strcmp(argv[c] + rlen,".prof") == 0);
+          }
+        if (doh && stat(Catenate(dir,"/",root,".hist"),&B) == 0)
           { yes = 1;
             if (QUERY)
               { printf("remove %s/%s.hist? ",dir,root);
@@ -82,7 +109,7 @@ int main(int argc, char **argv)
             if (yes)
               unlink(Catenate(dir,"/",root,".hist"));
           }
-        if (stat(Catenate(dir,"/",root,".ktab"),&B) == 0)
+        if (dot && stat(Catenate(dir,"/",root,".ktab"),&B) == 0)
           { yes = 1;
             if (QUERY)
               { printf("remove %s/%s.ktab & hidden parts? ",dir,root);
@@ -98,7 +125,7 @@ int main(int argc, char **argv)
                 system(command);
               }
           }
-        if (stat(Catenate(dir,"/",root,".prof"),&B) == 0)
+        if (dop && stat(Catenate(dir,"/",root,".prof"),&B) == 0)
           { yes = 1;
             if (QUERY)
               { printf("remove %s/%s.prof & hidden parts? ",dir,root);

@@ -89,24 +89,23 @@ Lastly, the -T option allows the user to specify the number of threads to use.
 Generally, this is ideally set to the actual number of physical cores in one's machine.
             
 ```
-2a. Fastrm [-i] <source> ...
-2b. Fastmv [-in] <source> <dest>
-2c. Fastcp [-in] <source> <dest>
+2a. Fastrm [-i] <source>[.hist|.ktab|.prof] ...
+2b. Fastmv [-in] <source>[.hist|.ktab|.prof] <dest>
+2c. Fastcp [-in] <source>[.hist|.ktab|.prof] <dest>
 ```
 
 As described above FastK produces hidden files whose names begin with a . for the -t and -p
 options in order to avoid clutter when listing a directory's contents.
-An issue with this approach is that it is inconvenient for the user to remove these files
+An issue with this approach is that it is inconvenient for the user to remove, rename, or copy these files
 and often a user will forget they are there, potentially wasting disk space.
-We therefore provide Fastrm, Fastmv, and Fastcp that remove, rename, and copy FastK output files as a single unit.  That is, Fastrm, removes all histogram, table, and/or profile files including
-the hidden one associated with path name \<source>, excluding extensions.  Similarly, Fastmv, renames all such files as if FastK had been called with the option -N\<dest>, and Fastcp makes a copy of all associated files with the path name \<dest>.  If \<dest> is a directory than
-the base name of source is used to form a complete destination path for both Fastmv and
-Fastcp.
+We therefore provide Fastrm, Fastmv, and Fastcp that remove, rename, and copy FastK .hist, .ktab, and .prof output files as a single unit.
 
-As for UNIX rm, mv, and cp commands, the -i option asks the command to query each file as to
-whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the
-hidden files corresponding to the stub, which share the same fate as their stub file.
-The -n option asks Fastmv and Fastcp to not overwrite any files.
+If \<source> does not end with a FastK extenion then the command operates on any histogram, k-mer table, and profile files with \<source> as its prefix.  Otherwise the command operates on the file with the given extension and its hidden files.  Fastrm removes the relevant stub and
+hidden files, Fastmv renames all the relevant files as if FastK had been called with option -N\<dest>, and Fastcp makes a copy of all associated files with the path name \<dest>.  If \<dest> is a directory than
+the base name of source is used to form a complete destination path for both Fastmv and Fastcp.
+
+As for the UNIX rm, mv, and cp commands, the -i option asks the command to query each file as to whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the hidden files corresponding to each stub, which share the same fate as their stub file.
+The -n option tells Fastmv and Fastcp to not overwrite any files.
 
 ```
 3. Histex [-h[<int(1)>:]<int(100)>] <source>[.hist]
@@ -142,18 +141,7 @@ the remainder of the command line.  The index of the first read is 1 (not 0).
 ## Current Limitations
 
 Currently if multiple input files are given they must all be of the same type, e.g. fasta
-or cram.  This restriction could be removed with some more code.
-
-Currently the maximum size of any read/sequence is 1Mbp.  This limit will be problematic
-if one is for example counting k-mers in a high-quality assembled genome where the contigs
-exceed this limit.  Again the restriction could be removed but is quite complex to realize
-if only a fixed amount of memory is assumed to be available.
-
-Lastly, very small k-mer sizes may not work for large data sets.  The absolute minimum is 5,
-but the core prefix trie used for distributing k-mers may want to use a larger minimizer
-length than 5, and the minimizer length must be less than the k-mer length.  The logic
-here needs to be investigated so that one has at least a dependable lower bound on k-mer
-length.
+or cram.  This restrictionis is not fundamental and could be removed with some coding effort.
 
 ## Data Encodings
 

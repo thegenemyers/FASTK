@@ -150,17 +150,16 @@ int main(int argc, char *argv[])
     printf("\n     Freq:        Count   Cum. %%\n");
     ssum = 0;
     for (j = high, i = high-low; j > HIST_LOW; j--, i--)
-      if (cgram[i] > 0)
-        { ssum += cgram[i];
-          if (j == HIST_HGH)
-            { printf(" >= %5d: %12lld",j,ssum);
-              printf("   %5.1f%%\n",(100.*ssum)/stotal);
-            }
-          else if (j < HIST_HGH && j > HIST_LOW)
-            { printf("    %5d: %12lld",j,cgram[i]);
-              printf("   %5.1f%%\n",(100.*ssum)/stotal);
-            }
-        }
+      { ssum += cgram[i];
+        if (j == HIST_HGH)
+          { printf(" >= %5d: %12lld",j,ssum);
+            printf("   %5.1f%%\n",(100.*ssum)/stotal);
+          }
+        else if (j < HIST_HGH && j > HIST_LOW && cgram[i] > 0)
+          { printf("    %5d: %12lld",j,cgram[i]);
+            printf("   %5.1f%%\n",(100.*ssum)/stotal);
+          }
+      }
     if (HIST_LOW > 1)
       printf(" <= %5d: %12lld   100.0%%\n",j,stotal-ssum);
     else

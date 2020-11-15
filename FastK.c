@@ -39,6 +39,7 @@ static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t<int(3)>] [-cp] 
 
 int    VERBOSE;      //  show progress
 int    NTHREADS;     //  # of threads to run with
+int      ITHREADS;     //  # of threads possible for input
 int64  SORT_MEMORY;  //  GB of memory for downstream KMcount sorts
 char  *SORT_PATH;    //  where to put external files
 
@@ -111,14 +112,14 @@ void timeTo(FILE *f)
   getrusage(RUSAGE_SELF, &now);
   clock_gettime(CLOCK_MONOTONIC,&today);
 
+  fprintf (f,"\nResources:");
+
   usecs = now.ru_utime.tv_sec  - Itime.ru_utime.tv_sec;
   umics = now.ru_utime.tv_usec - Itime.ru_utime.tv_usec;
   if (umics < 0)
     { umics += 1000000;
       usecs -= 1;
     }
-  
-  fprintf (f,"Resources:");
   if (usecs >= 60)
     fprintf (f,"  %d:%02d.%03du",usecs/60,usecs%60,umics/1000);
   else
@@ -149,9 +150,10 @@ void timeTo(FILE *f)
   fprintf(f,"  %.1f%%  ",(100.*(usecs+ssecs) + (umics+smics)/10000.)/(tsecs+tmics/1000000.));
 
   mem = (now.ru_maxrss - Itime.ru_maxrss)/1000000;
-
   Print_Number(mem,0,f);
-  fprintf(f,"MB\n");
+  fprintf(f,"MB");
+
+  fprintf(f,"\n");
 }
 
 

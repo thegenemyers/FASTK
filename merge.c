@@ -1,6 +1,6 @@
 /*******************************************************************************************
  *
- *  Phase 4 of FastK: Given NPARTS sorted super-mer profiles for NTHREADS in NPANELS
+ *  Phase 4 of FastK: Given NPARTS sorted super-mer profiles for ITHREADS in NPANELS
  *    parts per thread, merge the super-mer NPARTS x NPANELS files for each thread
  *    (in subdirectory SORT_PATH) into single compressed read-profile files (in
  *    subdirectory "path").
@@ -543,7 +543,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
        close(f);
    }
 
-  BUFLEN_UINT8 = SORT_MEMORY/((NPARTS+1)*NTHREADS);
+  BUFLEN_UINT8 = SORT_MEMORY/((NPARTS+1)*ITHREADS);
   if (BUFLEN_UINT8 > 0x7fffffffll)
     BUFLEN_UINT8 = 0x7ffffff8ll;
   if (BUFLEN_UINT8 < 2*MAX_SUPER)
@@ -553,18 +553,18 @@ void Merge_Profiles(char *dpwd, char *dbrt)
   BUFLEN_IBYTE = BUFLEN_INT64 * sizeof(int64);
   PAN_SIZE     = 1024*NPARTS;
 
-  io     = (IO_block *) Malloc(sizeof(IO_block)*(NPARTS+1)*NTHREADS,"Allocating IO buffers");
-  blocks = (uint8 *) Malloc(BUFLEN_UINT8*(NPARTS+1)*NTHREADS,"Allocating IO buffers");
-  chord  = (Entry *) Malloc(PAN_SIZE*sizeof(Entry)*NTHREADS,"Allocating IO buffers");
-  _chord = (uint8 *) Malloc(PAN_SIZE*2*(MAX_SUPER+1)*NTHREADS,"Allocating IO buffers");
+  io     = (IO_block *) Malloc(sizeof(IO_block)*(NPARTS+1)*ITHREADS,"Allocating IO buffers");
+  blocks = (uint8 *) Malloc(BUFLEN_UINT8*(NPARTS+1)*ITHREADS,"Allocating IO buffers");
+  chord  = (Entry *) Malloc(PAN_SIZE*sizeof(Entry)*ITHREADS,"Allocating IO buffers");
+  _chord = (uint8 *) Malloc(PAN_SIZE*2*(MAX_SUPER+1)*ITHREADS,"Allocating IO buffers");
   if (io == NULL || blocks == NULL || chord == NULL || _chord == NULL)
     exit (1);
 
   //  Open up A- and D-files, assign blocks for the inputs, and setup thread params 
 
-  { Track_Arg   parmk[NTHREADS];
+  { Track_Arg   parmk[ITHREADS];
 #ifndef DEBUG
-    THREAD      threads[NTHREADS];
+    THREAD      threads[ITHREADS];
 #endif
     char *root;
     int   t, n, p;
@@ -583,12 +583,12 @@ void Merge_Profiles(char *dpwd, char *dbrt)
           exit (1);
         }
       write(f,&KMER,sizeof(int));
-      write(f,&NTHREADS,sizeof(int));
+      write(f,&ITHREADS,sizeof(int));
       close(f);
     }
 
     p = 0;
-    for (t = 0; t < NTHREADS; t++)
+    for (t = 0; t < ITHREADS; t++)
       { int   f, g;
         int64 zero = 0;
             
@@ -623,19 +623,19 @@ void Merge_Profiles(char *dpwd, char *dbrt)
 
     //  Setup the fragment buffers for each range chord
 
-    for (n = 0; n < PAN_SIZE*NTHREADS; n++)
+    for (n = 0; n < PAN_SIZE*ITHREADS; n++)
       chord[n].frag = _chord + 2*(MAX_SUPER+1)*n;
 
-    //  In parallel process each of the NTHREADS partitions
+    //  In parallel process each of the ITHREADS partitions
 
 #ifdef DEBUG
-    for (t = 0; t < NTHREADS; t++)
+    for (t = 0; t < ITHREADS; t++)
       merge_profile_thread(parmk+t);
 #else
-    for (t = 1; t < NTHREADS; t++)
+    for (t = 1; t < ITHREADS; t++)
       pthread_create(threads+t,NULL,merge_profile_thread,parmk+t);
     merge_profile_thread(parmk);
-    for (t = 1; t < NTHREADS; t++)
+    for (t = 1; t < ITHREADS; t++)
       pthread_join(threads[t],NULL);
 #endif
 
@@ -645,7 +645,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
       int   f;
 
       nreads = 0;
-      for (t = 0; t < NTHREADS; t++)
+      for (t = 0; t < ITHREADS; t++)
         { f = parmk[t].afile;
 
           lseek(f,sizeof(int),SEEK_SET);

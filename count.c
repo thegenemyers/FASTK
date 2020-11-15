@@ -908,7 +908,7 @@ static void *profile_write_thread(void *arg)
 #endif
 
   fname = Malloc(strlen(data->root) + 100,"File Name");
-  bend  = bufr + (0x10000 - (RUN_BYTES+PLEN_BYTES+2*MAX_SUPER));
+  bend  = bufr + (0x10000 - (RUN_BYTES+PLEN_BYTES+2*MAX_SUPER+2));
 
   psort = data->sort + beg*PROF_BYTES;
   for (t = 1; t <= NPANELS; t++)
@@ -1109,12 +1109,12 @@ void Sorting(char *dpwd, char *dbrt)
   // For each partition, make k-mer list, sort on k-mer and count, resort on position,
   //    and finally output super-counts
 
-  { Slist_Arg   parms[NTHREADS];
+  { Slist_Arg   parms[ITHREADS];
     Klist_Arg   parmk[NTHREADS];
     Clist_Arg   parmc[NTHREADS];
     Twrite_Arg  parmt[NTHREADS];
     Plist_Arg   parmp[NTHREADS];
-    Pwrite_Arg  parmw[NTHREADS];
+    Pwrite_Arg  parmw[ITHREADS];
 
     int         Table_Split[NTHREADS];
     int64       Sparts[256];
@@ -1164,7 +1164,7 @@ void Sorting(char *dpwd, char *dbrt)
 
         kmers = 0;
         nmers = 0;
-        for (t = 0; t < NTHREADS; t++)
+        for (t = 0; t < ITHREADS; t++)
           { int64 k, n;
             int   f;
 
@@ -1224,13 +1224,13 @@ void Sorting(char *dpwd, char *dbrt)
 
           o = 0;
           for (j = 0; j < 256; j++)
-            for (t = 0; t < NTHREADS; t++)
+            for (t = 0; t < ITHREADS; t++)
               { parms[t].fours[j] = s_sort + o*SMER_WORD;
                 o += Panels[t].khist[j];
               }
 
           o = 0;
-          for (t = 0; t < NTHREADS; t++)
+          for (t = 0; t < ITHREADS; t++)
             { x = parms[t].nbase;
               parms[t].nbase = o;
               o += x;
@@ -1238,21 +1238,21 @@ void Sorting(char *dpwd, char *dbrt)
         }
 
 #ifdef DEBUG_SLIST
-        for (t = 0; t < NTHREADS; t++)
+        for (t = 0; t < ITHREADS; t++)
           supermer_list_thread(parms+t);
 #else
-        for (t = 1; t < NTHREADS; t++)
+        for (t = 1; t < ITHREADS; t++)
           pthread_create(threads+t,NULL,supermer_list_thread,parms+t);
 	supermer_list_thread(parms);
-        for (t = 1; t < NTHREADS; t++)
+        for (t = 1; t < ITHREADS; t++)
           pthread_join(threads[t],NULL);
 #endif
 
-        for (t = 0; t < NTHREADS; t++)
+        for (t = 0; t < ITHREADS; t++)
           close(parms[t].tfile);
 
 #ifndef DEVELOPER
-        for (t = 0; t < NTHREADS; t++)
+        for (t = 0; t < ITHREADS; t++)
           { sprintf(fname,"%s/%s.%d.T%d",SORT_PATH,dbrt,p,t);
             unlink(fname);
           }
@@ -1265,7 +1265,7 @@ void Sorting(char *dpwd, char *dbrt)
 
           o = s_sort;
           for (j = 0; j < 256; j++)
-            { x = parms[NTHREADS-1].fours[j];
+            { x = parms[ITHREADS-1].fours[j];
               Sparts[j] = x-o;
               o = x;
             }
@@ -1306,15 +1306,15 @@ void Sorting(char *dpwd, char *dbrt)
 
         if (DO_PROFILE)
           if (ODD_PASS)
-            { i_sort = Malloc(skmers*(CMER_WORD+KMER_WORD)+1,"Weighted k-mer & inverse list");
-              k_sort = i_sort + skmers*CMER_WORD;
+            { i_sort = Malloc(skmers*(CMER_WORD+KMER_WORD)+2,"Weighted k-mer & inverse list");
+              k_sort = i_sort + skmers*CMER_WORD + 1;
             }
           else
-            { k_sort = Malloc(skmers*(KMER_WORD+CMER_WORD)+1,"Weighted k-mer & inverse list");
-              i_sort = k_sort + skmers*KMER_WORD;
+            { k_sort = Malloc(skmers*(KMER_WORD+CMER_WORD)+2,"Weighted k-mer & inverse list");
+              i_sort = k_sort + skmers*KMER_WORD + 1;
             }
         else
-          k_sort = Malloc(skmers*KMER_WORD,"Weighted k-mer list");
+          k_sort = Malloc(skmers*KMER_WORD+1,"Weighted k-mer list");
 
         for (t = 0; t < NTHREADS; t++)
           { int j;
@@ -1532,7 +1532,7 @@ void Sorting(char *dpwd, char *dbrt)
 
           sprintf(fname,"%s/%s.%d.P",SORT_PATH,dbrt,p);
           o = 0;
-          for (t = 0; t < NTHREADS; t++)
+          for (t = 0; t < ITHREADS; t++)
             { parmw[t].sort  = a_sort;
               parmw[t].beg   = o;
               o += parms[t].nmers;
@@ -1547,13 +1547,13 @@ void Sorting(char *dpwd, char *dbrt)
         }
 
 #ifdef DEBUG_PWRITE
-        for (t = 0; t < NTHREADS; t++)
+        for (t = 0; t < ITHREADS; t++)
           profile_write_thread(parmw+t);
 #else
-        for (t = 1; t < NTHREADS; t++)
+        for (t = 1; t < ITHREADS; t++)
           pthread_create(threads+t,NULL,profile_write_thread,parmw+t);
         profile_write_thread(parmw);
-        for (t = 1; t < NTHREADS; t++)
+        for (t = 1; t < ITHREADS; t++)
           pthread_join(threads[t],NULL);
 #endif
 
@@ -1618,13 +1618,12 @@ void Sorting(char *dpwd, char *dbrt)
 
         ssum = 0;
         for (i = 0x7fff; i > HIST_LOW; i--)
-          if (counts[i] > 0)
-            { ssum += counts[i];
-              if (i == HIST_HGH)
-                printf(" >= %5d: %12lld\n",i,ssum);
-              else if (i < HIST_HGH)
-                printf("    %5d: %12lld\n",i,counts[i]);
-            }
+          { ssum += counts[i];
+            if (i == HIST_HGH)
+              printf(" >= %5d: %12lld\n",i,ssum);
+            else if (i < HIST_HGH && counts[i] > 0)
+              printf("    %5d: %12lld\n",i,counts[i]);
+          }
         if (HIST_LOW > 1)
           printf(" <= %5d: %12lld\n",i,stotal-ssum);
         else

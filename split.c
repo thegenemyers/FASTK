@@ -54,9 +54,6 @@ static void compress_block(DATA_BLOCK *block)
   int   q, p, i;
   char *c, x;
   int64 u;
-  int   mlen;
-
-  mlen = 0;
 
   u = 0;
   c = bases;
@@ -75,16 +72,10 @@ static void compress_block(DATA_BLOCK *block)
         if (s[p] != x)
           c[u++] = x = s[p];
 
-      q = u - boff[i-1];
-      if (q > mlen)
-        mlen = q;
-
       c[u++] = '\0';
       boff[i] = u;
     }
-
   block->totlen = u-nreads;
-  block->maxlen = mlen;
 }
 
 /*******************************************************************************************
@@ -777,6 +768,8 @@ int Determine_Scheme(DATA_BLOCK *block)
                          NPARTS,(1.*max_count)/kthresh); 
           break;
         }
+      if (PAD_LEN >= KMER-1)
+        break;
 
       //  Else adjust trie size and actually do the refinement
 
@@ -800,7 +793,7 @@ int Determine_Scheme(DATA_BLOCK *block)
     }
 
   if (VERBOSE)
-    fprintf(stderr,"  Using %d-minimizers and %d core prefixes\n",PAD_LEN,Min_States);
+    fprintf(stderr,"  Using %d-minimizers with %d core prefixes\n",PAD_LEN,Min_States);
 
 #ifdef FIND_MTHRESH
   exit (1);
@@ -1076,8 +1069,14 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   if (COMPRESS)
     compress_block(block);
 
-  totrds[tid] += nreads;
-  totbps[tid] += block->totlen;
+  if (block->rem > 0)
+    { totrds[tid] += nreads-1;
+      totbps[tid] += block->totlen - (KMER-1);
+    }
+  else
+    { totrds[tid] += nreads;
+      totbps[tid] += block->totlen;
+    }
 
 #if defined(SHOW_PACKETS)
   if (DO_PROFILE)
@@ -1265,11 +1264,13 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
         }
 
       if (DO_PROFILE)
-        { trg->bptrs = Stuff_Int(MAX_SUPER,SLEN_BITS,ptr,bit);
+        { if (i < nreads-1 || block->rem == 0)
+            { trg->bptrs = Stuff_Int(MAX_SUPER,SLEN_BITS,ptr,bit);
 #ifdef SHOW_PACKETS
-          if (PACKET < 0 || b == PACKET)
-            printf("   EOF\n");
+              if (PACKET < 0 || b == PACKET)
+                printf("   EOF\n");
 #endif
+            }
         }
     }
 
@@ -1292,14 +1293,14 @@ void Split_Kmers(Input_Partition *io, char *root)
   uint64        nfiles;
   int           nreads;
   int64         totlen;
-int64 nids;
+  int64         nids;
 
   Min_File     *out;
   IO_UTYPE     *buffers;
 
   //  Allocate output data structures
 
-  nfiles = NPARTS*NTHREADS;
+  nfiles = NPARTS*ITHREADS;
 
   overflow = IO_BUF_LEN
            + ((64 + 2*SLEN_BITS + 2*(MAX_SUPER+KMER-1)) - 1)/IO_UBITS
@@ -1332,7 +1333,7 @@ int64 nids;
     system(fname);
 
     p = 0;
-    for (t = 0; t < NTHREADS; t++)
+    for (t = 0; t < ITHREADS; t++)
       for (n = 0; n < NPARTS; n++)
         { int f, i;
 
@@ -1376,15 +1377,15 @@ int64 nids;
   { int   i;
     int64 val;
 
-    nfirst = Malloc(sizeof(int64)*2*NTHREADS,"Allocating distribution globals");
-    nmbits = Malloc(sizeof(int)*2*NTHREADS,"Allocating distribution globals");
-    ogroup = Malloc(sizeof(Min_File *)*NTHREADS,"Allocating distribution globals");
-    totrds = nmbits + NTHREADS;
-    totbps = nfirst + NTHREADS;
+    nfirst = Malloc(sizeof(int64)*2*ITHREADS,"Allocating distribution globals");
+    nmbits = Malloc(sizeof(int)*2*ITHREADS,"Allocating distribution globals");
+    ogroup = Malloc(sizeof(Min_File *)*ITHREADS,"Allocating distribution globals");
+    totrds = nmbits + ITHREADS;
+    totbps = nfirst + ITHREADS;
     if (nfirst == NULL || nmbits == NULL || ogroup == NULL)
       exit (1);
 
-    for (i = 0; i < NTHREADS; i++)
+    for (i = 0; i < ITHREADS; i++)
       { nfirst[i] = 0;
         nmbits[i] = 17;
         ogroup[i] = out + i*NPARTS;
@@ -1397,7 +1398,7 @@ int64 nids;
     nids     = 0;
     nreads   = 0;
     totlen   = 0;
-    for (i = 0; i < NTHREADS; i++)
+    for (i = 0; i < ITHREADS; i++)
       { nids   += nfirst[i];
         nreads += totrds[i];
         totlen += totbps[i];
@@ -1426,7 +1427,7 @@ int64 nids;
     for (n = 0; n < NPARTS; n++)
       { p = n;
         s = m = 0;
-        for (t = 0; t < NTHREADS; t++)
+        for (t = 0; t < ITHREADS; t++)
           { s += out[p].kmers;
             m += out[p].nmers;
             p += NPARTS;
@@ -1465,7 +1466,7 @@ int64 nids;
     for (n = 0; n < NPARTS; n++)
       { p = n;
         s = m = 0;
-        for (t = 0; t < NTHREADS; t++)
+        for (t = 0; t < ITHREADS; t++)
           { s += out[p].kmers;
             m += out[p].nmers;
             p += NPARTS;
@@ -1505,7 +1506,7 @@ int64 nids;
       KMAX_BYTES = 2;
 
     p = 0;
-    for (t = 0; t < NTHREADS; t++)
+    for (t = 0; t < ITHREADS; t++)
       for (n = 0; n < NPARTS; n++)
         { int       f     = out[p].stream;
           IO_UTYPE *start = out[p].data - IO_BUF_LEN;

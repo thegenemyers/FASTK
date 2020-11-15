@@ -2,7 +2,7 @@
  *
  *  A module adapted from the VGPseq library (written by me).  This input module can
  *  read fasta, fastq, sam, bam, and cram files along with Dazzler db's and dam's.
- *  Given a target # of threads NTHREADS, it first finds partition points in the input file
+ *  Given a target # of threads ITHREADS, it first finds partition points in the input file
  *  that split the file into the required # of parts:
  *
  *         Input_Partition *Partition_Input(int argc, char *argv[])
@@ -60,6 +60,7 @@
 #define IO_BLOCK 10000000ll
 
 #define DT_BLOCK  1000000ll
+#define DT_MINIM   100000ll
 #define DT_READS    10000
 
 typedef struct libdeflate_decompressor DEPRESS;
@@ -289,33 +290,40 @@ static void Free_File(File_Object *input)
  ********************************************************************************************/
 
 static int Add_Data_Block(DATA_BLOCK *dset, int len, char *seq)
-{ int   n;
+{ int   n, r;
   int64 o;
 
+  r = 0;
   n = dset->nreads;
   o = dset->boff[n];
+
+  if (dset->rem > 0)
+    { len = dset->rem;
+      seq = dset->next;
+    }
+
   if (n >= dset->maxrds)
     return (1);
   if (o+len >= dset->maxbps)
-    { if (o == 0)
-        { if (dset->maxbps >= 1000000)
-            fprintf(stderr,"\n%s: longest string >%.1fmbp\n",Prog_Name,dset->maxbps/1000000.);
-          else
-            fprintf(stderr,"\n%s: longest string >%.1fkbp\n",Prog_Name,dset->maxbps/1000.);
-          exit (1);
+    { if (dset->maxbps-o > DT_MINIM)
+        { r = 1;
+          dset->rem  = len;
+          len = (dset->maxbps-o);
+          dset->rem -= (len - (KMER-1));
+          dset->next = seq + (len - (KMER-1)); 
         }
       else
         return (1);
     }
+  else
+    dset->rem = 0;
   dset->nreads = ++n;
   memcpy(dset->bases+o,seq,len);
   o += len;
   dset->bases[o] = '\0';
   dset->boff[n] = o+1;
   dset->totlen += len;
-  if (len > dset->maxlen)
-    dset->maxlen = len;
-  return (0);
+  return (r);
 }
 
 #if defined(DEBUG_OUT) || defined(DEBUG_TRAIN)
@@ -352,7 +360,6 @@ static void Print_Block(DATA_BLOCK *dset, int tid)
 
 static void Reset_Data_Block(DATA_BLOCK *dset)
 { dset->nreads = 0;
-  dset->maxlen = 0;
   dset->totlen = 0;
   dset->boff[0] = 0;
 }
@@ -452,7 +459,7 @@ static void fast_nearest(Thread_Arg *data)
       else
         slen = read(fid,buf,IO_BLOCK);
 #ifdef DEBUG_FIND
-      fprintf(stderr," %d\n",slen);
+      fprintf(stderr," %d %d\n",slen,errno);
 #endif
 
       for (b = off; b < slen; b++)
@@ -558,7 +565,7 @@ static void *fast_output_thread(void *arg)
 
   estbps = nxtbps = pct1 = cumbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
-    { estbps = dset->ratio / NTHREADS;
+    { estbps = dset->ratio / ITHREADS;
       nxtbps = pct1 = estbps/100;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
@@ -710,7 +717,7 @@ static void *fast_output_thread(void *arg)
                   if (c == '>')
                     { while (Add_Data_Block(dset,olen,line))
                         { if (action == SAMPLE)
-                            { dset->ratio = (1.*parm->work) / (totread-(slen-b));
+                            { dset->ratio = (1.*parm->work) / (totread-((slen-b)+dset->rem));
                               close(fid);
                               return (NULL);
                             }
@@ -762,7 +769,7 @@ static void *fast_output_thread(void *arg)
       if (state == AEOL)
         { while (Add_Data_Block(dset,olen,line))
             { if (action == SAMPLE)
-                { dset->ratio = (1.*parm->work) / totread;
+                { dset->ratio = (1.*parm->work) / (totread - dset->rem);
                   close(fid);
                   return (NULL);
                 }
@@ -1567,7 +1574,7 @@ static void *bam_output_thread(void *arg)
 
   estbps = nxtbps = pct1 = cumbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
-    { estbps = dset->ratio / NTHREADS;
+    { estbps = dset->ratio / ITHREADS;
       nxtbps = pct1 = estbps/100;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
@@ -1652,12 +1659,13 @@ static void *bam_output_thread(void *arg)
                 if (isbam)
                   { int unused = (bam->blen - (bam->bptr + bam->bsize))
                                - bam->loc.boff * ((1.*bam->bsize) / bam->ssize);
-                    dset->ratio = (1.*parm->work) / ((totread+lseek(fid,0,SEEK_CUR)-unused)-fbeg);
+                    dset->ratio = (1.*parm->work)
+                                / ((totread+lseek(fid,0,SEEK_CUR))-(unused+fbeg+dset->rem));
                     close(fid);
                     return (NULL);
                   }
                 else
-                  { dset->ratio = (1.*parm->work) / (totread+bam->loc.fpos);
+                  { dset->ratio = (1.*parm->work) / (totread+bam->loc.fpos-dset->rem);
                     close(fid);
                     return (NULL);
                   }
@@ -1881,7 +1889,7 @@ static void *cram_output_thread(void *arg)
 
   cumbps = nxtbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
-    { estbps = dset->ratio / NTHREADS;
+    { estbps = dset->ratio / ITHREADS;
       nxtbps = pct1 = estbps/100;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
@@ -1922,7 +1930,7 @@ static void *cram_output_thread(void *arg)
 
           while (Add_Data_Block(dset,rec->len,(char *) rec->s->seqs_blk->data+rec->seq))
             { if (action == SAMPLE)
-                { dset->ratio = (1.*parm->work) / (totread+(htell(fid->fp)-bpos));
+                { dset->ratio = (1.*parm->work) / ((totread+htell(fid->fp))-(bpos+dset->rem));
                   cram_close(fid);
                   return (NULL);
                 }
@@ -2168,7 +2176,7 @@ static void *dazz_output_thread(void *arg)
   int64        totread;
 
   int  *zoffs;
-  int   r, n, len, purge;
+  int   r, n, len;
   int64 o;
 
   int64 estbps, cumbps, nxtbps, pct1;
@@ -2176,7 +2184,7 @@ static void *dazz_output_thread(void *arg)
 
   nxtbps = pct1 = estbps = cumbps = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
-    { estbps = dset->ratio / NTHREADS;
+    { estbps = dset->ratio / ITHREADS;
       nxtbps = pct1 = estbps/100;
       fprintf(stderr,"\n    0%%");
       fflush(stderr);
@@ -2187,8 +2195,8 @@ static void *dazz_output_thread(void *arg)
 
   totread = 0;
 
-  n = dset->nreads;
-  o = dset->boff[n];
+  n = 0;
+  o = 0;
   for (f = parm->bidx; f <= parm->eidx; f++)
     { inp = fobj+f;
       fid = fopen(inp->path,"r");
@@ -2219,50 +2227,64 @@ static void *dazz_output_thread(void *arg)
               continue;
             }
 
-          purge = 0;
-          if (n >= dset->maxrds)
-            purge = 1;
-          else if (o+len >= dset->maxbps)
-            { if (o == 0)
-                { if (dset->maxbps >= 1000000)
-                    fprintf(stderr,"\n%s: longest string >%.1fmbp\n",
-                                   Prog_Name,dset->maxbps/1000000.);
-                  else
-                    fprintf(stderr,"\n%s: longest string >%.1fkbp\n",Prog_Name,dset->maxbps/1000.);
-		  exit (1);
+          while (1)
+            { if (n >= dset->maxrds)
+                ;
+              else if (o+len >= dset->maxbps)
+                { if (dset->maxbps - o > DT_MINIM)
+                    { dset->rem = len;
+                      len = ((dset->maxbps-o) >> 2) << 2;
+    
+                      fread(dset->bases+o,len>>2,1,fid);
+                      uncompress_read(len,dset->bases+o);
+                      dset->totlen += len;
+                      n += 1;
+                      o += len+1;
+                      dset->boff[n] = o;
+    
+                      dset->rem -= len;
+                    }
                 }
               else
-                purge = 1;
-            }
-
-          if (purge)
-            { dset->nreads = n;
+                { dset->rem = 0;
+                  break;
+                }
+    
+              dset->nreads = n;
               if (action == SAMPLE)
-                { dset->ratio = (1.*parm->work) / (totread+(ftello(fid)-bpos));
+                { dset->ratio = (1.*parm->work) / ((totread+ftello(fid))-(bpos+dset->rem));
                   fclose(fid);
                   return (NULL);
                 }
-              else
-                { CALL_BACK(dset,tid);
-                  if (CLOCK)
-                    { cumbps += dset->totlen;
-                      if (cumbps >= nxtbps)
-                        { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
-                          fflush(stderr);
-                          nxtbps = cumbps+pct1;
-                        }
+
+              CALL_BACK(dset,tid);
+              if (CLOCK)
+                { cumbps += dset->totlen;
+                  if (cumbps >= nxtbps)
+                    { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
+                      fflush(stderr);
+                      nxtbps = cumbps+pct1;
                     }
-                  Reset_Data_Block(dset);
+                }
+
+              if (dset->rem == 0)
+                { o = 0;
                   n = 0;
-                  o = 0;
+                  dset->totlen = 0;
+                }
+              else
+	        { o = KMER-1;
+                  memmove(dset->bases,dset->bases+(dset->boff[n]-KMER),o); 
+                  n = 0;
+                  dset->totlen = o;
+                  len = dset->rem;
+                  dset->rem = 0;
                 }
             }
 
           fread(dset->bases+o,(len+3)>>2,1,fid);
           uncompress_read(len,dset->bases+o);
           dset->totlen += len;
-          if (len > dset->maxlen)
-            dset->maxlen = len;
 
           n += 1;
           o += len+1;
@@ -2295,7 +2317,7 @@ static void *dazz_output_thread(void *arg)
  *
  ****************************************************************************************/
 
-  //  Find the NTHREADS partition points in files in argv[0..argc) and return in an
+  //  Find the ITHREADS partition points in files in argv[0..argc) and return in an
   //    Input_Partition data structure
 
 Input_Partition *Partition_Input(int argc, char *argv[])
@@ -2321,9 +2343,10 @@ Input_Partition *Partition_Input(int argc, char *argv[])
   //  Find partition points dividing data in all files into NTHREADS roughly equal parts
   //    and then in parallel threads produce the output for each part.
 
-  { uint8        *bf;
-    int           f, i;
-    int64         b, work, wper;
+  { int    f, i, t;
+    int64  b, w;
+    int64  work;
+    uint8 *bf;
 
     //  Get name and size of each file in 'fobj[]', determine type, etc.
 
@@ -2386,19 +2409,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
 
         work += fobj[f].fsize;
       }
-
-    //  Allocate threads & IO buffer space for threads
-
-    if (need_buf)
-      { if (need_zuf)
-          bf = Malloc(2*NTHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
-        else
-          bf = Malloc(NTHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
-        if (bf == NULL)
-          exit (1);
-      }
-    else
-      bf = NULL;
+    parm[0].work = work;
 
     if (VERBOSE)
       { if (nfiles > 1)
@@ -2414,125 +2425,135 @@ Input_Partition *Partition_Input(int argc, char *argv[])
     //    point for each thread.  Also find the beginning of data in
     //    each file that a thread will start in (place in end.fpos)
 
-    wper = work / NTHREADS;
+    if (work/NTHREADS < .02*IO_BLOCK)
+      { ITHREADS = work/(.02*IO_BLOCK);
+        if (ITHREADS <= 0)
+          ITHREADS = 1;
+      }
+    else
+      ITHREADS = NTHREADS;
+
+    //  Allocate IO buffer space and assign to threads
+
+    if (need_buf)
+      { if (need_zuf)
+          bf = Malloc(2*ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
+        else
+          bf = Malloc(ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
+        if (bf == NULL)
+          exit (1);
+      }
+    else
+      bf = NULL;
 
     f = 0;
-    b = 0;
-    work = fobj[f].fsize;
-    for (i = 0; i < NTHREADS; i++)
-      { parm[i].fobj          = fobj;
-        parm[i].output_thread = output_thread;
-        parm[i].work          = work;
-        parm[i].thread_id     = i;
-        parm[i].action        = SPLIT;
+    t = -1;
+    w = fobj[f].fsize;
+    for (i = 0; i < ITHREADS; i++)
+      { while (w < (i*work)/ITHREADS - .01*IO_BLOCK)
+          { f += 1;
+            w += fobj[f].fsize;
+          }
+        b = (i*work)/ITHREADS - (w-fobj[f].fsize); 
+        if (b < 0)
+          b = 0;
+
+        if (t >= 0 && (f < parm[t].bidx || (f == parm[t].bidx && b <= parm[t].beg.fpos)))
+          continue;
+        t += 1;
+
+        parm[t].fobj          = fobj;
+        parm[t].output_thread = output_thread;
+        parm[t].thread_id     = t;
+        parm[t].action        = SPLIT;
         if (need_buf)
-          parm[i].buf = bf + i*IO_BLOCK;
+          if (need_zuf)
+            { parm[t].buf = bf + 2*t*IO_BLOCK;
+              parm[t].zuf = bf + (2*t+1)*IO_BLOCK;
+            }
+          else
+            parm[t].buf = bf + t*IO_BLOCK;
         else
-          parm[i].buf = NULL;
+          parm[t].buf = NULL;
         if (need_decon)
-          parm[i].decomp = libdeflate_alloc_decompressor();
+          parm[t].decomp = libdeflate_alloc_decompressor();
         else
-          parm[i].decomp = NULL;
-        if (need_zuf)
-          parm[i].zuf = bf + (NTHREADS+i)*IO_BLOCK;
+          parm[t].decomp = NULL;
 
         if (b != 0)
-          { parm[i].fid = open(fobj[f].path,O_RDONLY);
-            parm[i].beg.fpos = 0;
-            parm[i].beg.boff = 0;
-            scan_header(parm+i);
-            parm[i].end = parm[i].beg;
+          { parm[t].fid = open(fobj[f].path,O_RDONLY);
+
+            parm[t].beg.fpos = 0;
+            parm[t].beg.boff = 0;
+            scan_header(parm+t);
+            parm[t].end = parm[t].beg;
+
+            parm[t].beg.fpos = b;
+            parm[t].bidx = f;
+
+            find_nearest(parm+t);
+            close(parm[t].fid);
+
+            if (parm[t].beg.fpos < 0)
+              { parm[t].beg.fpos = 0;
+                parm[t].bidx += 1;
+                if (parm[t].bidx >= nfiles)
+                  { t -= 1;
+                    break;
+                  }
+              }
+            else if (parm[t].beg.fpos <= parm[t].end.fpos)
+              parm[t].beg.fpos = 0;
           }
         else
-          parm[i].end.fpos = parm[i].end.boff = 0;
+          { parm[t].bidx = f;
+            parm[t].beg.fpos = b;
+            parm[t].beg.boff = 0;
+          }
 
 #ifdef DEBUG_FIND
-        fprintf(stderr," %2d: %1d %10lld (%10lld / %5d)\n",
-                       i,f,b,parm[i].end.fpos,parm[i].end.boff);
+        fprintf(stderr," %2d: %1d %10lld (%10lld/%d) -> %d %10lld (%d)\n",
+                       t,f,b,parm[t].end.fpos,parm[t].end.boff,
+                             parm[t].bidx,parm[t].beg.fpos,parm[t].beg.boff);
         fflush(stderr);
 #endif
+      }
+    if (t+1 < ITHREADS && need_buf)
+      { if (need_zuf)
+          bf = Realloc(bf,2*(t+1)*IO_BLOCK,"Allocating IO_Buffer\n");
+        else
+          bf = Realloc(bf,(t+1)*IO_BLOCK,"Allocating IO_Buffer\n");
+        if (bf == NULL)
+          exit (1);
+        for (i = 0; i <= t; i++)
+          if (need_buf)
+            { if (need_zuf)
+                { parm[i].buf = bf + 2*i*IO_BLOCK;
+                  parm[i].zuf = bf + (2*i+1)*IO_BLOCK;
+                }
+              else
+                parm[i].buf = bf + i*IO_BLOCK;
+            }
+      }
+    ITHREADS = t+1;
 
-        parm[i].beg.fpos = b;
-        parm[i].bidx = f;
+    //  If cannot use all threads report it
 
-        if (i+1 == NTHREADS)
-          break;
-
-        work -= wper;
-        while (work < .01*IO_BLOCK)
-          { if (f == nfiles)
-              { if (VERBOSE && NTHREADS != i+1)
-                  { if (i > 0)
-                      fprintf(stderr,"  File is so small will use only %d threads\n",i+1);
-                    else
-                      fprintf(stderr,"  File is so small will use only 1 thread\n");
-                  }
-                NTHREADS = i+1;
-                break;
-              }
-            work += fobj[++f].fsize;
-          }
-        b = fobj[f].fsize - work;
-        if (b < 0)
-          { work += b;
-            b = 0;
-            if (f == nfiles)
-              { if (VERBOSE && NTHREADS != i+1)
-                  { if (i > 0)
-                      fprintf(stderr,"  File is so small will use only %d threads\n",i+1);
-                    else
-                      fprintf(stderr,"  File is so small will use only 1 thread\n");
-                  }
-                NTHREADS = i+1;
-                break;
-              }
-          }
+    if (VERBOSE && NTHREADS != ITHREADS)
+      { if (work/NTHREADS < .02*IO_BLOCK)
+          fprintf(stderr,"  File%s so small will use only %d thread%s\n",
+                         nfiles>1?"s are":" is",ITHREADS,ITHREADS>1?"s ":" ");
+        else
+          fprintf(stderr,"  File%scould only be divided to use %d thread%s\n",
+                         nfiles>1?"s ":" ",ITHREADS,ITHREADS>1?"s ":" ");
       }
   }
 
-  { int i, f;
-
-    //  For each non-zero start point find synchronization point in
-    //    sequence file.  If can't find it then start at beginning of
-    //    next file, and if at or before first data line then signal
-    //    start at beginning by zero'ing the synch point.
-
-    for (i = 0; i < NTHREADS; i++)
-      { if (parm[i].beg.fpos != 0)
-         { find_nearest(parm+i);
-            if (parm[i].beg.fpos < 0)
-              { parm[i].beg.fpos = 0;
-                parm[i].bidx += 1;
-              }
-            else if (parm[i].beg.fpos <= parm[i].end.fpos)
-              parm[i].beg.fpos = 0;
-            close(parm[i].fid);
-          }
-      }
-
-    //  Paranoid: if one thread's synch point overtakes the next one (will almost
-    //    certainly never happen unless files very small and threads very large),
-    //    remove the redundant threads.
-
-    f = 0;
-    for (i = 1; i < NTHREADS; i++)
-      if (parm[i].bidx > parm[f].bidx || parm[i].beg.fpos > parm[f].beg.fpos)
-        parm[++f] = parm[i];
-      else
-        { if (need_decon)
-            libdeflate_free_decompressor(parm[i].decomp);
-        }
-    if (VERBOSE && NTHREADS != f+1)
-      { if (f > 0)
-          fprintf(stderr,"  File is so small will use only %d threads\n",f+1);
-        else
-          fprintf(stderr,"  File is so small will use on 1 thread\n");
-      }
-    NTHREADS = f+1;
+  { int i;
 
     //  Develop end points of each threads work using the start point of the next thread
 
-    for (i = 1; i < NTHREADS; i++)
+    for (i = 1; i < ITHREADS; i++)
       if (parm[i].beg.fpos == 0)
         { parm[i-1].end.fpos = fobj[parm[i].bidx-1].fsize;
           parm[i-1].end.boff = 0;
@@ -2543,13 +2564,13 @@ Input_Partition *Partition_Input(int argc, char *argv[])
           parm[i-1].end.boff = parm[i].beg.boff;
           parm[i-1].eidx     = parm[i].bidx;
         }
-    parm[NTHREADS-1].end.fpos = fobj[nfiles-1].fsize;
-    parm[NTHREADS-1].end.boff = 0;
-    parm[NTHREADS-1].eidx = nfiles-1;
+    parm[ITHREADS-1].end.fpos = fobj[nfiles-1].fsize;
+    parm[ITHREADS-1].end.boff = 0;
+    parm[ITHREADS-1].eidx = nfiles-1;
 
 #if defined(DEBUG_FIND) || defined(DEBUG_IO)
     fprintf(stderr,"\nPartition:\n");
-    for (i = 0; i < NTHREADS; i++)
+    for (i = 0; i < ITHREADS; i++)
       { fprintf(stderr," %2d: %2d / %12lld / %5d",
                        i,parm[i].bidx,parm[i].beg.fpos,parm[i].beg.boff);
         fprintf(stderr,"  -  %2d / %12lld / %5d\n",
@@ -2570,7 +2591,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
           fclose(idx);
           strcpy(fobj[f].path+(strlen(fobj[f].path)-3),"bps");
         }
-      parm[NTHREADS-1].end.boff = fobj[nfiles-1].zsize;
+      parm[ITHREADS-1].end.boff = fobj[nfiles-1].zsize;
       parm[0].beg.boff = 0;
     }
 
@@ -2592,10 +2613,11 @@ DATA_BLOCK *Get_First_Block(Input_Partition *parts, int64 numbp)
   cust.block.bases  = Malloc(sizeof(char)*(cust.block.maxbps+1),"Allocating first data block");
   cust.block.boff   = Malloc(sizeof(int64)*(cust.block.maxrds+1),"Allocating first data block");
 
-  cust.eidx   = parm[NTHREADS-1].eidx;
-  cust.end    = parm[NTHREADS-1].end;
+  cust.eidx   = parm[ITHREADS-1].eidx;
+  cust.end    = parm[ITHREADS-1].end;
 
   Reset_Data_Block(&cust.block);
+  cust.block.rem = 0;
   cust.output_thread(&cust);
 
 #ifdef DEBUG_TRAIN
@@ -2636,7 +2658,7 @@ char *First_Pwd(Input_Partition *io)
 void Scan_All_Input(Input_Partition *parts)
 { Thread_Arg *parm = (Thread_Arg *) parts;
 #if !defined(DEBUG_IO) && !defined(DEBUG_OUT)
-  pthread_t   threads[NTHREADS];
+  pthread_t   threads[ITHREADS];
 #endif
   char  *bases;
   int64 *boff;
@@ -2644,26 +2666,27 @@ void Scan_All_Input(Input_Partition *parts)
 
   parm[0].block.ratio = cust.block.ratio * cust.block.totlen;
 
-  bases = Malloc(sizeof(char)*1000001*NTHREADS,"Allocating data blocks");
-  boff  = Malloc(sizeof(int64)*10001*NTHREADS,"Allocating data blocks");
-  for (i = 0; i < NTHREADS; i++)
+  bases = Malloc(sizeof(char)*(DT_BLOCK+1)*ITHREADS,"Allocating data blocks");
+  boff  = Malloc(sizeof(int64)*(DT_READS+1)*ITHREADS,"Allocating data blocks");
+  for (i = 0; i < ITHREADS; i++)
     { parm[i].block.bases  = bases + (DT_BLOCK+1)*i;
       parm[i].block.boff   = boff  + (DT_READS+1)*i;
       parm[i].block.maxbps = DT_BLOCK;
       parm[i].block.maxrds = DT_READS;
       Reset_Data_Block(&parm[i].block);
+      parm[i].block.rem    = 0;
     }
 
 #if defined(DEBUG_IO) || defined(DEBUG_OUT)
-  for (i = 0; i < NTHREADS; i++)
+  for (i = 0; i < ITHREADS; i++)
     { fprintf(stderr,"Thread %d\n",i);
       parm[0].output_thread(parm+i);
     }
 #else
-  for (i = 0; i < NTHREADS; i++)
+  for (i = 0; i < ITHREADS; i++)
     pthread_create(threads+i,NULL,parm[0].output_thread,parm+i);
 
-  for (i = 0; i < NTHREADS; i++)
+  for (i = 0; i < ITHREADS; i++)
     pthread_join(threads[i],NULL);
 #endif
 
@@ -2678,10 +2701,10 @@ void Free_Input_Partition(Input_Partition *parts)
   int i, f;
 
   if (parm[0].decomp != NULL)
-    for (i = 0; i < NTHREADS; i++)
+    for (i = 0; i < ITHREADS; i++)
       libdeflate_free_decompressor(parm[i].decomp);
   free(parm[0].buf);
-  for (f = 0; f <= parm[NTHREADS-1].eidx; f++)
+  for (f = 0; f <= parm[ITHREADS-1].eidx; f++)
     Free_File(parm[0].fobj+f);
   free(parm[0].fobj);
   free(parm);

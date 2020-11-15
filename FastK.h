@@ -35,6 +35,7 @@ extern int    VERBOSE;     //  show progress
 extern int64  SORT_MEMORY; // Memory available for each k-mer sort 
 extern int    KMER;        //  desired K-mer length
 extern int    NTHREADS;    //  # of threads to run with
+extern int      ITHREADS;    //  # of threads possible for input
 extern char  *SORT_PATH;   //  where to put external files
 
 extern int    HIST_LOW;    // Zero or start count for histogram
@@ -83,14 +84,16 @@ extern uint8 Comp[256];  //  complement of 4bp byte code
   //  IO Module Interface
 
 typedef struct
-  { int         maxlen;   //  length of maximum read in dataset
-    int64       totlen;   //  total # of bases in data set
+  { int64       totlen;   //  total # of bases in data set
     int         nreads;   //  # of reads in data set
     double      ratio;    //  ratio of file size to portion read (first block only)
     int64       maxbps;   //  size of bases array
     int         maxrds;   //  size of boff array
     char       *bases;    //  concatenation of 0-terminated read strings
     int64      *boff;     //  read i is at bases+boff[i], boff[n] = total bytes
+    int         rem;      //  Length of remainder of current sequence to process
+    char       *next;     //  Remainder of current input sequence (overlaps by KMER-1) with last
+                          //     sequence in this block buffer now.
   } DATA_BLOCK;
 
 typedef void *Input_Partition;

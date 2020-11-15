@@ -81,7 +81,7 @@ char *Root(char *name, char *suffix)
   else
     find += 1;
   if (suffix == NULL)
-    { dot = strchr(find,'.');
+    { dot = strrchr(find,'.');
       if (dot != NULL)
         *dot = '\0';
       path = Strdup(find,"Extracting root from");

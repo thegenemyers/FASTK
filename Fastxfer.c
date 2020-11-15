@@ -66,6 +66,8 @@ int main(int argc, char **argv)
   }
 
   { int   p, len, a, yes, nthreads;
+    int   alen, rlen;
+    int   doh, dot, dop;
     char *dir, *root;
     char *DIR, *ROOT;
     char *command;
@@ -78,6 +80,20 @@ int main(int argc, char **argv)
     dir  = PathTo(argv[1]);
     root = Root(argv[1],"");
 
+    alen = strlen(argv[1]);
+    rlen = strlen(root);
+    if (alen == rlen)
+      doh = dot = dop = 1;
+    else
+      { doh = (strcmp(argv[1] + rlen,".hist") == 0);
+        dot = (strcmp(argv[1] + rlen,".ktab") == 0);
+        dop = (strcmp(argv[1] + rlen,".prof") == 0);
+        if (doh + dot + dop == 0)
+          { fprintf(stderr,"%s: Do not recognize extension .%s\n",Prog_Name,argv[1]+rlen);
+            exit (1);
+          }
+      }
+
     if (stat(argv[2],&B) == 0 && (B.st_mode & S_IFMT) == S_IFDIR)
       { DIR  = Strdup(argv[2],NULL);
         ROOT = Strdup(root,NULL);
@@ -87,8 +103,8 @@ int main(int argc, char **argv)
         ROOT = Root(argv[2],"");
       }
 
-    yes = 1;
-    if (stat(Catenate(DIR,"/",ROOT,".hist"),&B) == 0)
+    yes = doh;
+    if (doh && stat(Catenate(DIR,"/",ROOT,".hist"),&B) == 0)
       { if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
@@ -106,8 +122,8 @@ int main(int argc, char **argv)
         system(command);
       }
 
-    yes = 1;
-    if (stat(Catenate(DIR,"/",ROOT,".ktab"),&B) == 0)
+    yes = dot;
+    if (dot && stat(Catenate(DIR,"/",ROOT,".ktab"),&B) == 0)
       { if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
@@ -135,8 +151,8 @@ int main(int argc, char **argv)
           }
       }
 
-    yes = 1;
-    if (stat(Catenate(DIR,"/",ROOT,".prof"),&B) == 0)
+    yes = dop;
+    if (dop && stat(Catenate(DIR,"/",ROOT,".prof"),&B) == 0)
       { if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
