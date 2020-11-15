@@ -169,10 +169,8 @@ typedef struct
 
 The frequencies are stored in the array pointed at by the field <code>hist</code>
 where indexing said with any value between <code>low</code> and <code>high</code>,
-inclusive will deliver a valid frequency.  But caution: indexing with any frequency outside this range results may result in an out-of-bounds memory access and possible segfault.
-By convention, the lowest and highest frequencies always contain the number of k-mers with the given frequency **plus** the number of k-mers with lower or higher frequencies, respectively.  This is so that the total sum of k-mers in a histogram is equal to the
-number in the source sequence data set.
-
+inclusive will deliver a valid frequency.  But caution: indexing with any frequency outside this range may result in an out-of-bounds memory access and possible segfault.
+By convention, the lowest and highest frequencies always contain the number of k-mers with the given frequency **plus** the number of k-mers with lower or higher frequencies, respectively.  This is to ensure the convention that the total sum of the k-mers in a histogram is equal to the number in the source sequence data set.
 
 ```
 Histogram *Load_Histogram(char *name);
@@ -182,13 +180,13 @@ void       Free_Histogram(Histogram *H);
 <code>Load\_Histogram</code> opens the FastK histogram at path name <code>name</code>
 adding the <code>.hist</code> extension if it is not present.  It returns a pointer to a
 newly allocated <code>Histogram</code> object for the data encoded in the specified
-file.  The routine returns NULL if it cannot open the routine, and if there is
-insufficient memory available (very unlikely given its size), it prints a messate
+file.  The routine returns NULL if it cannot open the file, and if there is
+insufficient memory available (very unlikely given its size), it prints a message
 to standard error and exits.
 
 <code>Subrange\_Histogram</code> modifies a given histogram so it is over the given
 range.  The routine does nothing if the supplied subrange is not a subset of the range
-of the histogram on input.  The lowerst and highest frequencies have the cumulative
+of the supplied histogram.  The lowest and highest frequencies have the cumulative
 counts of the frequencies below and above them, per our convention.
 
 <code>Free\_Histogram</code> removes all memory encoding the input histogram.
