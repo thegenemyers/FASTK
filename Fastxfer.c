@@ -78,7 +78,7 @@ int main(int argc, char **argv)
     command = Malloc(len+50,"Allocating command buffer");
 
     dir  = PathTo(argv[1]);
-    root = Root(argv[1],"");
+    root = Root(argv[1],NULL);
 
     alen = strlen(argv[1]);
     rlen = strlen(root);

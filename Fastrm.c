@@ -68,7 +68,7 @@ int main(int argc, char **argv)
     command = Malloc(3*len+50,"Allocating command buffer");
 
     for (c = 1; c < argc; c++)
-      { root = Root(argv[c],"");
+      { root = Root(argv[c],NULL);
         alen = strlen(argv[c]);
         rlen = strlen(root);
         if (alen != rlen)
@@ -81,11 +81,11 @@ int main(int argc, char **argv)
               }
           }
         free(root);
-       }
+      }
 
     for (c = 1; c < argc; c++)
       { dir  = PathTo(argv[c]);
-        root = Root(argv[c],"");
+        root = Root(argv[c],NULL);
         alen = strlen(argv[c]);
         rlen = strlen(root);
         if (alen == rlen)

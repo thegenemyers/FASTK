@@ -14,8 +14,6 @@
 #include <dirent.h>
 #include <math.h>
 
-#undef UNTESTED
-
 #include "gene_core.h"
 
 static char *Usage = "[-t<int>] <source_root>[.ktab] (LIST|CHECK|(k-mer:string>) ...";
@@ -277,7 +275,6 @@ void List_Table(Kmer_Table *T)
 
 void set_up_accelerator(Kmer_Table *T)
 { int     tbyte = T->tbyte;
-  int     kbyte = T->kbyte;
   int64   nels  = T->nels;
   uint8  *table = T->table;
   int64  *index;
@@ -293,16 +290,16 @@ void set_up_accelerator(Kmer_Table *T)
   idx  = 1;
   iptr = table;
   nptr = KMER(nels);
+  index[0] = 0;
   for (i = 1, iptr += tbyte; iptr < nptr; i++, iptr += tbyte)
-    { if (mycmp(iptr,iptr-tbyte,kbyte) == 0)
+    { if (mycmp(iptr,iptr-tbyte,3) == 0)
         continue;
-      val = (iptr[0] << 16) | (iptr[1] << 8) | iptr[0];
+      val = (iptr[0] << 16) | (iptr[1] << 8) | iptr[2];
       while (idx <= val)
         index[idx++] = i;
     }
-
-  index[0] = 0;
-  index[0x1000000] = nels;
+  while (idx <= 0x1000000)
+    index[idx++] = nels;
 
   T->index = index;
 }
@@ -416,7 +413,6 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
   else
     compress_comp(kseq,kmer,cmp);
 
-#ifdef UNTESTED
   if (kbyte >= 3)
     { int64 *index = T->index;
       if (index == NULL)
@@ -428,8 +424,6 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
       r = index[m+1];
     }
   else
-#endif
-
     { l = 0;
       r = nels;
     }
