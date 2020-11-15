@@ -258,7 +258,7 @@ times.
 ### K-mer Table
 
 A table of canonical k-mers and their counts is produced in N parts, where N is the number of threads FastK was run with.
-A single *stub* file <code>\<source>.ktab</code> where <source> is the output path name used by
+A single *stub* file <code>\<source>.ktab</code> where \<source> is the output path name used by
 FastK.
 This stub file contains just the k-mer length followed by the number of threads FastK was run
 with as two integers.
