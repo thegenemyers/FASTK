@@ -141,17 +141,22 @@ the remainder of the command line.  The index of the first read is 1 (not 0).
 ## Current Limitations
 
 Currently if multiple input files are given they must all be of the same type, e.g. fasta
-or cram.  This restrictionis is not fundamental and could be removed with some coding effort.
+or cram.  This restriction is not fundamental and could be removed with some coding effort.
 
 ## The FastK C-interface to K-mer Histograms, Tables, and Profiles
 
 For each of the 3 distinct outputs of FastK, we have suppled a simple C library
 that gives a user access to the data therein.  The library is simply embodied in
-the C-file, <code>libfastk.c</code>, and associdated include file <code>libfastk.h</code>.
+the C-file, <code>libfastk.c</code>, and associated include file <code>libfastk.h</code>.
 The makefile commands for building Histex, Tabex, and Profex illustrate how to
 easily incorporate the library into your C or C++ code.
 
 ### K-mer Histogram
+
+The interface allows one to simply load a FastK histogram into an easily understood
+Histogram data type with <code>Load\_Histogram</code> and to free the object later
+with <code>Free\_Histogram</code>.  A Histogram object is a record with 4 fields
+as described in the comments below 
 
 ```
 typedef struct
@@ -160,10 +165,33 @@ typedef struct
     int    high;
     int64 *hist;  //  hist[i] for i in [low,high] = # of k-mers occuring i times
   } Histogram;
+```
 
-Histogram *Load_Histogram(char *name, int low, int high);
+The frequencies are stored in the array pointed at by the field <code>hist</code>
+where indexing said with any value between <code>low</code> and <code>high</code>,
+inclusive will deliver a valid frequency.  But caution: indexing with any frequency outside this range results may result in an out-of-bounds memory access and possible segfault.
+By convention, the lowest and highest frequencies always contain the number of k-mers with the given frequency **plus** the number of k-mers with lower or higher frequencies, respectively.  This is so that the total sum of k-mers in a histogram is equal to the
+number in the source sequence data set.
+
+
+```
+Histogram *Load_Histogram(char *name);
+void       Subrange_Histogram(Histogram *H, int low, int high);
 void       Free_Histogram(Histogram *H);
 ```
+<code>Load\_Histogram</code> opens the FastK histogram at path name <code>name</code>
+adding the <code>.hist</code> extension if it is not present.  It returns a pointer to a
+newly allocated <code>Histogram</code> object for the data encoded in the specified
+file.  The routine returns NULL if it cannot open the routine, and if there is
+insufficient memory available (very unlikely given its size), it prints a messate
+to standard error and exits.
+
+<code>Subrange\_Histogram</code> modifies a given histogram so it is over the given
+range.  The routine does nothing if the supplied subrange is not a subset of the range
+of the histogram on input.  The lowerst and highest frequencies have the cumulative
+counts of the frequencies below and above them, per our convention.
+
+<code>Free\_Histogram</code> removes all memory encoding the input histogram.
 
 ### K-mer Table
 

@@ -86,7 +86,19 @@ int main(int argc, char *argv[])
 
   //  Load histogram into "cgram"
 
-  H = Load_Histogram(argv[1],HIST_LOW,HIST_HGH);
+  H = Load_Histogram(argv[1]);
+  if (H == NULL)
+    { fprintf(stderr,"%s: Cannot open %s\n",Prog_Name,argv[1]);
+      exit (1);
+    }
+
+  if (HIST_LOW > H->low || HIST_HGH < H->high)
+    { fprintf(stderr,"%s: Range of histogram, [%d,%d], does not superset requested range\n",
+                     Prog_Name,H->low,H->high); 
+      exit (1);
+    }
+
+  Subrange_Histogram(H,HIST_LOW,HIST_HGH);
 
   //  Generate display
 

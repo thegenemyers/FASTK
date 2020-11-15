@@ -29,7 +29,8 @@ typedef struct
     int64 *hist;  //  hist[i] for i in [low,high] = # of k-mers occuring i times
   } Histogram;
 
-Histogram *Load_Histogram(char *name, int low, int high);
+Histogram *Load_Histogram(char *name);
+void       Subrange_Histogram(Histogram *H, int low, int high);
 void       Free_Histogram(Histogram *H);
 
 

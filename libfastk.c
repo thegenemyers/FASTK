@@ -17,61 +17,67 @@
  *
  *********************************************************************************************/
 
-Histogram *Load_Histogram(char *name, int low, int high)
+Histogram *Load_Histogram(char *name)
 { Histogram *H;
-  int        kmer, flow, fhigh;
-  int64     *hist, under, over, count;
+  int        kmer, low, high;
+  int64     *hist;
   char      *dir, *root;
   FILE      *f;
-  int        i;
 
   dir  = PathTo(name);
   root = Root(name,".hist");
   f = fopen(Catenate(dir,"/",root,".hist"),"r");
   if (f == NULL)
-    { fprintf(stderr,"Cannot open %s for reading\n",Catenate(dir,"/",root,".hist"));
-      exit (1);
-    }
+    return (NULL);
   free(root);
   free(dir);
 
   fread(&kmer,sizeof(int),1,f);
-  fread(&flow,sizeof(int),1,f);
-  fread(&fhigh,sizeof(int),1,f);
-
-  if (flow > low || fhigh < high)
-    { fprintf(stderr,"Histogram range [%d,%d] is not a superset of requested range [%d,%d]\n",
-                     flow,fhigh,low,high);
-      fclose(f);
-      exit (1);
-    }
+  fread(&low,sizeof(int),1,f);
+  fread(&high,sizeof(int),1,f);
 
   hist = Malloc(sizeof(int64)*((high-low)+1),"Allocating histogram");
-  
-  under = 0;
-  for (i = flow; i < low; i++)
-    { fread(&count,sizeof(int64),1,f);
-      under += count;
-    }
+  H    = Malloc(sizeof(Histogram),"Allocating histogram");
+  if (hist == NULL || H == NULL)
+    exit (1);
+
   fread(hist,sizeof(int64),(high-low)+1,f);
-  over = 0;
-  for (i = high+1; i < fhigh; i++)
-    { fread(&count,sizeof(int64),1,f);
-      over += count;
-    }
     
   fclose(f);
 
-  H = Malloc(sizeof(Histogram),"Allocating histogram");
   H->kmer = kmer;
   H->low  = low;
   H->high = high;
   H->hist = hist-low;
 
-  hist[0]  += under;
-  hist[high-low] += over;
-
   return (H);
+}
+
+void Subrange_Histogram(Histogram *H, int low, int high)
+{ int64  under, over;
+  int    i;
+ 
+  if (H->low > low || H->high < high)
+    return;
+
+  under = 0;
+  for (i = H->low; i < low; i++)
+    under += H->hist[i];
+  over = 0;
+  for (i = high+1; i < H->high; i++)
+    over += H->hist[i];
+
+  if (low != H->low)
+    memmove(H->hist+H->low,H->hist+low,((high-low)+1)*sizeof(int64));
+
+  H->hist += H->low;
+  H->hist  = Realloc(H->hist,((high-low)+1)*sizeof(int64),"Reallocating histogram");
+  H->hist -= low;
+
+  H->hist[low]  += under;
+  H->hist[high] += over;
+  H->low  = low;
+  H->high = high;
 }
 
 void Free_Histogram(Histogram *H)
