@@ -36,9 +36,9 @@ Histogram *Load_Histogram(char *name)
   fread(&low,sizeof(int),1,f);
   fread(&high,sizeof(int),1,f);
 
-  hist = Malloc(sizeof(int64)*((high-low)+1),"Allocating histogram");
   H    = Malloc(sizeof(Histogram),"Allocating histogram");
-  if (hist == NULL || H == NULL)
+  hist = Malloc(sizeof(int64)*((high-low)+1),"Allocating histogram");
+  if (H == NULL || hist == NULL)
     exit (1);
 
   fread(hist,sizeof(int64),(high-low)+1,f);
@@ -124,24 +124,24 @@ static void setup_fmer_table()
        }
 }
 
-static void print_seq(uint8 *seq, int len)
+static void print_seq(FILE *out, uint8 *seq, int len)
 { int i, b, k;
 
   b = len >> 2;
   for (i = 0; i < b; i++)
-    printf("%s",fmer[seq[i]]);
+    fprintf(out,"%s",fmer[seq[i]]);
   k = 6;
   for (i = b << 2; i < len; i++)
-    { printf("%c",dna[seq[b] >> k]);
+    { fprintf(out,"%c",dna[seq[b] >> k]);
       k -= 2;
     }
 }
 
-static void print_pack(uint8 *seq, int len)
+static void print_pack(FILE *out, uint8 *seq, int len)
 { int i;
 
   for (i = 0; i < (len+3)/4; i++)
-    printf(" %02x",seq[i]);
+    fprintf(out," %02x",seq[i]);
 }
   
 static inline int mycmp(uint8 *a, uint8 *b, int n)
@@ -164,25 +164,41 @@ static inline void mycpy(uint8 *a, uint8 *b, int n)
  *
  *****************************************************************************************/
 
-Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
+Kmer_Table *Load_Kmer_Table(char *name)
 { Kmer_Table *T;
   int         kmer, tbyte, kbyte;
   int64       nels;
   uint8      *table;
 
   FILE  *f;
+  char  *dir, *root, *hidden;
+  int    smer, nthreads;
   int    p;
   int64  n;
 
   setup_fmer_table();
 
+  //  Open stub file and get # of parts
+
+  dir    = PathTo(name);
+  root   = Root(name,".ktab");
+  hidden = Strdup(Catenate(dir,"/.",root,""),NULL);
+  f = fopen(Catenate(dir,"/",root,".ktab"),"r");
+  free(root);
+  free(dir);
+  if (f == NULL)
+    return (NULL);
+  fread(&smer,sizeof(int),1,f);
+  fread(&nthreads,sizeof(int),1,f);
+  fclose(f);
+
   //  Find all parts and accumulate total size
 
   nels = 0;
   for (p = 1; p <= nthreads; p++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".ktab.",p,""),"",""),"r");
+    { f = fopen(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),"r");
       if (f == NULL)
-        { fprintf(stderr,"Table part %s.ktab.%d is misssing ?\n",name,p);
+        { fprintf(stderr,"Table part %s.ktab.%d is misssing ?\n",hidden,p);
           exit (1);
         }
       fread(&kmer,sizeof(int),1,f);
@@ -190,7 +206,7 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
       nels += n;
       if (kmer != smer)
         { fprintf(stderr,"Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
-                         name,p);
+                         hidden,p);
           exit (1);
         }
       fclose(f);
@@ -200,20 +216,16 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
 
   kbyte = (kmer+3)>>2;
   tbyte = kbyte+2;
+  T     = Malloc(sizeof(Kmer_Table),"Allocating table record");
   table = Malloc(nels*tbyte,"Allocating k-mer table\n");
-  if (table == NULL)
+  if ( T == NULL || table == NULL)
     exit (1);
 
   //  Load the parts into memory
 
-  fprintf(stderr,"Loading %d-mer table with ",kmer);
-  Print_Number(nels,0,stderr);
-  fprintf(stderr," entries in %d parts\n",p-1);
-  fflush(stderr);
-
   nels = 0;
   for (p = 1; p <= nthreads; p++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".ktab.",p,""),"",""),"r");
+    { f = fopen(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),"r");
       fread(&kmer,sizeof(int),1,f);
       fread(&n,sizeof(int64),1,f);
       fread(KMER(nels),n*tbyte,1,f);
@@ -221,22 +233,7 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
       fclose(f);
     }
 
-  if (cut_freq > 1)
-    { int64 i, j;
-
-      j = 0;
-      for (i = 0; i < nels; i++)
-        if (COUNT(i) >= cut_freq)
-          mycpy(KMER(j++),KMER(i),tbyte);
-      if (j < nels)
-        { nels = j;
-          table = Realloc(table,nels*tbyte,"Reallocating table");
-        }
-    }
-
-  T = Malloc(sizeof(Kmer_Table),"Allocating table record");
-  if (T == NULL)
-    exit (1);
+  free(hidden);
 
   T->kmer  = kmer;
   T->tbyte = tbyte;
@@ -246,6 +243,27 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
   T->index = NULL;
 
   return (T);
+}
+
+void Cut_Kmer_Table(Kmer_Table *T, int cut)
+{ int    kbyte = T->kbyte;
+  int    tbyte = T->tbyte;
+  int    nels  = T->nels;
+  uint8 *table = T->table;
+
+  int64 i, j;
+
+  if (cut > 1)
+    { j = 0;
+      for (i = 0; i < nels; i++)
+        if (COUNT(i) >= cut)
+          mycpy(KMER(j++),KMER(i),tbyte);
+
+      if (j < nels)
+        { T->nels = j;
+          T->table = Realloc(table,nels*tbyte,"Reallocating table");
+        }
+    }
 }
 
 
@@ -302,10 +320,11 @@ int Fetch_Count(Kmer_Table *T, int i)
 
 void Free_Kmer_Table(Kmer_Table *T)
 { free(T->table);
+  free(T->index);
   free(T);
 }
 
-void Check_Kmer_Table(Kmer_Table *T)
+int Check_Kmer_Table(Kmer_Table *T)
 { int    kmer  = T->kmer;
   int    tbyte = T->tbyte;
   int    kbyte = T->kbyte;
@@ -314,30 +333,26 @@ void Check_Kmer_Table(Kmer_Table *T)
   
   int i;
 
-  setup_fmer_table();
-
-  printf("\n");
   for (i = 1; i < nels; i++)
     { if (mycmp(KMER(i-1),KMER(i),kbyte) >= 0)
-        { printf("Out of Order\n");
-          printf(" %9d:",i-1);
-          print_pack(KMER(i-1),kmer);
-          printf("  ");
-          print_seq(KMER(i-1),kmer);
-          printf(" = %4d\n",COUNT(i-1));
-          printf(" %9d:",i);
-          print_pack(KMER(i),kmer);
-          printf("  ");
-          print_seq(KMER(i),kmer);
-          printf(" = %4d\n",COUNT(i));
-          break;
+        { fprintf(stderr,"\nOut of Order\n");
+          fprintf(stderr," %9d:",i-1);
+          print_pack(stderr,KMER(i-1),kmer);
+          fprintf(stderr,"  ");
+          print_seq(stderr,KMER(i-1),kmer);
+          fprintf(stderr," = %4d\n",COUNT(i-1));
+          fprintf(stderr," %9d:",i);
+          print_pack(stderr,KMER(i),kmer);
+          fprintf(stderr,"  ");
+          print_seq(stderr,KMER(i),kmer);
+          fprintf(stderr," = %4d\n",COUNT(i));
+          return (0);
         }
     }
-  if (i >= nels)
-    printf("Table is OK\n");
+  return (1);
 }
 
-void List_Kmer_Table(Kmer_Table *T)
+void List_Kmer_Table(Kmer_Table *T, FILE *out)
 { int    kmer  = T->kmer;
   int    tbyte = T->tbyte;
   int    kbyte = T->kbyte;
@@ -346,19 +361,17 @@ void List_Kmer_Table(Kmer_Table *T)
 
   int i;
 
-  setup_fmer_table();
+  fprintf(out,"\nElement Bytes = %d  Kmer Bytes = %d\n",tbyte,kbyte);
 
-  printf("\nElement Bytes = %d  Kmer Bytes = %d\n",tbyte,kbyte);
-
-  printf(" %9d: ",0);
-  print_seq(KMER(0),kmer);
-  printf(" = %4d\n",COUNT(0));
+  fprintf(out," %9d: ",0);
+  print_seq(out,KMER(0),kmer);
+  fprintf(out," = %4d\n",COUNT(0));
   for (i = 1; i < nels; i++)
     { if (mycmp(KMER(i-1),KMER(i),kbyte) >= 0)
-        printf("Out of Order\n");
-      printf(" %9d: ",i);
-      print_seq(KMER(i),kmer);
-      printf(" = %4d\n",COUNT(i));
+        fprintf(out,"Out of Order\n");
+      fprintf(out," %9d: ",i);
+      print_seq(out,KMER(i),kmer);
+      fprintf(out," = %4d\n",COUNT(i));
     }
 }
 
@@ -554,22 +567,38 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
  *
  *****************************************************************************************/
 
-Profile_Index *Open_Profiles(char *name, int smer, int nthreads)
+Profile_Index *Open_Profiles(char *name)
 { Profile_Index *P;
   int            kmer, nparts;
   int64          nreads, *nbase, *index;
   FILE         **nfile;
 
   FILE  *f;
+  char  *dir, *root, *hidden;
+  int    smer, nthreads;
   int64  n;
+
+  //  Open stub file and get # of parts
+
+  dir    = PathTo(name);
+  root   = Root(name,".prof");
+  hidden = Strdup(Catenate(dir,"/.",root,""),NULL);
+  f = fopen(Catenate(dir,"/",root,".prof"),"r");
+  free(root);
+  free(dir);
+  if (f == NULL)
+    return (NULL);
+  fread(&smer,sizeof(int),1,f);
+  fread(&nthreads,sizeof(int),1,f);
+  fclose(f);
 
   //  Find all parts and accumulate total size
 
   nreads = 0;
   for (nparts = 0; nparts < nthreads; nparts++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".pidx.",nparts+1,""),"",""),"r");
+    { f = fopen(Catenate(hidden,Numbered_Suffix(".pidx.",nparts+1,""),"",""),"r");
       if (f == NULL)
-        { fprintf(stderr,"Profile part %s.pidx.%d is misssing ?\n",name,nparts+1);
+        { fprintf(stderr,"Profile part %s.pidx.%d is misssing ?\n",hidden,nparts+1);
           exit (1);
         }
       fread(&kmer,sizeof(int),1,f);
@@ -578,7 +607,7 @@ Profile_Index *Open_Profiles(char *name, int smer, int nthreads)
       nreads += n;
       if (kmer != smer)
         { fprintf(stderr,"Profile part %s.pidx.%d does not have k-mer length matching stub ?\n",
-                         name,nparts+1);
+                         hidden,nparts+1);
           exit (1);
         }
       fclose(f);
@@ -586,16 +615,17 @@ Profile_Index *Open_Profiles(char *name, int smer, int nthreads)
 
   //  Allocate in-memory table
 
+  P     = Malloc(sizeof(Profile_Index),"Allocating profile record");
   index = Malloc((nreads+1)*sizeof(int64),"Allocating profile index");
   nbase = Malloc(nparts*sizeof(int64),"Allocating profile index");
   nfile = Malloc(nparts*sizeof(FILE *),"Allocating profile index");
-  if (index == NULL || nbase == NULL || nfile == NULL)
+  if (P == NULL || index == NULL || nbase == NULL || nfile == NULL)
     exit (1);
 
   nreads = 0;
   index[0] = 0;
   for (nparts = 0; nparts < nthreads; nparts++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".pidx.",nparts+1,""),"",""),"r");
+    { f = fopen(Catenate(hidden,Numbered_Suffix(".pidx.",nparts+1,""),"",""),"r");
       fread(&kmer,sizeof(int),1,f);
       fread(&n,sizeof(int64),1,f);
       fread(&n,sizeof(int64),1,f);
@@ -604,17 +634,15 @@ Profile_Index *Open_Profiles(char *name, int smer, int nthreads)
       nbase[nparts] = nreads;
       fclose(f);
 
-      f = fopen(Catenate(name,Numbered_Suffix(".prof.",nparts+1,""),"",""),"r");
+      f = fopen(Catenate(hidden,Numbered_Suffix(".prof.",nparts+1,""),"",""),"r");
       if (f == NULL)
-        { fprintf(stderr,"Profile part %s.prof.%d is misssing ?\n",name,nparts+1);
+        { fprintf(stderr,"Profile part %s.prof.%d is misssing ?\n",hidden,nparts+1);
           exit (1);
         }
       nfile[nparts] = f;
     }
 
-  P = Malloc(sizeof(Profile_Index),"Allocating profile record");
-  if (P == NULL)
-    exit (1);
+  free(hidden);
 
   P->kmer   = kmer;
   P->nparts = nparts;

@@ -25,9 +25,7 @@ static char *Usage = "[-t<int>] <source_root>[.ktab] (LIST|CHECK|(k-mer:string>)
  *****************************************************************************************/
 
 int main(int argc, char *argv[])
-{ char       *name;
-  int         smer, nthreads;
-  Kmer_Table *T;
+{ Kmer_Table *T;
   int         CUT;
 
   { int    i, j, k;
@@ -61,33 +59,29 @@ int main(int argc, char *argv[])
       }
   }
 
-  { FILE *f;
-    char *dir, *root;
+  T = Load_Kmer_Table(argv[1]);
+  if (T == NULL)
+    { fprintf(stderr,"%s: Cannot open %s\n",Prog_Name,argv[1]);
+      exit (1);
+    } 
 
-    dir  = PathTo(argv[1]);
-    root = Root(argv[1],".ktab");
-    name = Strdup(Catenate(dir,"/.",root,""),NULL);
-    f = fopen(Catenate(dir,"/",root,".ktab"),"r");
-    if (f == NULL)
-      { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,Catenate(dir,"/",root,".ktab"));
-        exit (1);
-      }
-    fread(&smer,sizeof(int),1,f);
-    fread(&nthreads,sizeof(int),1,f);
-    fclose(f);
-    free(root);
-    free(dir);
-  }
+  fprintf(stderr,"Loaded %d-mer table with ",T->kmer);
+  Print_Number(T->nels,0,stderr);
+  fprintf(stderr," entries\n");
+  fflush(stderr);
 
-  T = Load_Kmer_Table(name,CUT,smer,nthreads);
+  if (CUT > 1)
+    Cut_Kmer_Table(T,CUT);
 
   { int c, cnt;
 
     for (c = 2; c < argc; c++)
       if (strcmp(argv[c],"LIST") == 0)
-        List_Kmer_Table(T);
+        List_Kmer_Table(T,stdout);
       else if (strcmp(argv[c],"CHECK") == 0)
-        Check_Kmer_Table(T);
+        { if (Check_Kmer_Table(T))
+            printf("The table is OK\n");
+        }
       else
         { if ((int) strlen(argv[c]) != T->kmer)
             printf("%*s: Not a %d-mer\n",T->kmer,argv[c],T->kmer);
@@ -102,8 +96,6 @@ int main(int argc, char *argv[])
   }
 
   Free_Kmer_Table(T);
-
-  free(name);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

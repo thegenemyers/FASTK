@@ -359,6 +359,7 @@ void Venn(Kmer_Table **T, int **comb, int nway)
           break;
       if (c >= nway)
         break;
+      itop = 0;
       in[itop++] = imin = c;
       for (c++; c < nway; c++)
         { if (ptr[c] == NULL)

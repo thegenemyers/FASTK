@@ -45,15 +45,17 @@ typedef struct
     int64  *index;   //  Search accelerator if needed
   } Kmer_Table;
 
-Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads);
+Kmer_Table *Load_Kmer_Table(char *name);
+void        Cut_Kmer_Table(Kmer_Table *t, int cut_freq);
 void        Free_Kmer_Table(Kmer_Table *T);
 
 char       *Fetch_Kmer(Kmer_Table *T, int i);
 int         Fetch_Count(Kmer_Table *T, int i);
 
-void        List_Kmer_Table(Kmer_Table *T);
-void        Check_Kmer_Table(Kmer_Table *T);
 int         Find_Kmer(Kmer_Table *T, char *kseq);
+
+void        List_Kmer_Table(Kmer_Table *T, FILE *out);
+int         Check_Kmer_Table(Kmer_Table *T);
 
 
    //  PROFILES
@@ -61,13 +63,14 @@ int         Find_Kmer(Kmer_Table *T, char *kseq);
 typedef struct
   { int    kmer;     //  Kmer length
     int    nparts;   //  # of threads/parts for the profiles
-    int    nreads;   //  # of threads/parts for the profiles
-    int64 *nbase;    //  nbase[i] = id of last read in part i
-    FILE **nfile;    //  nfile[i] = stream for "P" file of part i
-    int64 *index;    //  Kmer+count entry in bytes
+    int    nreads;   //  total # of reads in data set
+    int64 *nbase;    //  nbase[i] for i in [0,nparts) = id of last read in part i + 1
+    FILE **nfile;    //  nfile[i] for i in [0,nparts) = stream for "P" file of part i
+    int64 *index;    //  index[i] for i in [0,nreads) = offset in relevant part of
+                     //    compressed profile for read i
   } Profile_Index;
 
-Profile_Index *Open_Profiles(char *name, int kmer, int nthreads);
+Profile_Index *Open_Profiles(char *name);
 
 void Free_Profiles(Profile_Index *P);
 

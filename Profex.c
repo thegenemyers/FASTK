@@ -25,9 +25,7 @@ static char *Usage = "<source_root>[.prof] <read:int> ...";
  *****************************************************************************************/
 
 int main(int argc, char *argv[])
-{ char          *name;
-  int            kmer, nthreads;
-  Profile_Index *P;
+{ Profile_Index *P;
 
   { int    i, j, k;
     int    flags[128];
@@ -54,25 +52,11 @@ int main(int argc, char *argv[])
       }
   }
 
-  { FILE *f;
-    char *dir, *root;
-
-    dir  = PathTo(argv[1]);
-    root = Root(argv[1],".prof");
-    name = Strdup(Catenate(dir,"/.",root,""),NULL);
-    f = fopen(Catenate(dir,"/",root,".prof"),"r");
-    if (f == NULL)
-      { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,Catenate(dir,"/",root,".prof"));
-        exit (1);
-      }
-    fread(&kmer,sizeof(int),1,f);
-    fread(&nthreads,sizeof(int),1,f);
-    fclose(f);
-    free(root);
-    free(dir);
-  }
-
-  P = Open_Profiles(name,kmer,nthreads);
+  P = Open_Profiles(argv[1]);
+  if (P == NULL)
+    { fprintf(stderr,"%s: Cannot open %s\n",Prog_Name,argv[1]);
+      exit (1);
+    }
 
   { int     c, id;
     char   *eptr;
@@ -106,8 +90,6 @@ int main(int argc, char *argv[])
   }
 
   Free_Profiles(P);
-
-  free(name);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

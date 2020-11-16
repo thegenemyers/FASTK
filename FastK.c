@@ -92,12 +92,7 @@ static struct rusage   Itime;
 static struct timespec Iwall;
 
 void startTime()
-{ struct timespec zero;
-
-  zero.tv_sec  = 0;
-  zero.tv_nsec = 0;
-
-  getrusage(RUSAGE_SELF,&Itime);
+{ getrusage(RUSAGE_SELF,&Itime);
   clock_gettime(CLOCK_MONOTONIC,&Iwall);
 }
 

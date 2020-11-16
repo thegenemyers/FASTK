@@ -153,9 +153,7 @@ easily incorporate the library into your C or C++ code.
 
 ### K-mer Histogram
 
-The interface allows one to simply load a FastK histogram into an easily understood
-Histogram data type with <code>Load\_Histogram</code> and to free the object later
-with <code>Free\_Histogram</code>.  A Histogram object is a record with 4 fields
+A Histogram object is a record with 4 fields
 as described in the comments below 
 
 ```
@@ -178,7 +176,7 @@ void       Subrange_Histogram(Histogram *H, int low, int high);
 void       Free_Histogram(Histogram *H);
 ```
 <code>Load\_Histogram</code> opens the FastK histogram at path name <code>name</code>
-adding the <code>.hist</code> extension if it is not present.  It returns a pointer to a
+adding the .hist extension if it is not present.  It returns a pointer to a
 newly allocated <code>Histogram</code> object for the data encoded in the specified
 file.  The routine returns NULL if it cannot open the file, and if there is
 insufficient memory available (very unlikely given its size), it prints a message
@@ -193,45 +191,116 @@ counts of the frequencies below and above them, per our convention.
 
 ### K-mer Table
 
+A Kmer\_Table object is a record with 6 fields as described in the comments below  
+
 ```
 typedef struct
   { int     kmer;    //  Kmer length
     int     kbyte;   //  Kmer encoding in bytes
-    int     tbyte;   //  Kmer+count entry in bytes
+    int     tbyte;   //  Kmer,count entry in bytes
     int64   nels;    //  # of unique, sorted k-mers in the table
     uint8  *table;   //  The (huge) table in memory
-    int64  *index;   //  Search accelerator if needed
+    int64  *index;   //  Search accelerator (private)
   } Kmer_Table;
+```
 
-Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads);
+The field <code>table</code> is a pointer to an array of <code>nels</code> entries of
+size <code>tbyte</code> bytes where each item encodes a k-mer, count pair and the
+entries are **sorted** in lexicographical order of the k-mers.
+The k-mer of a table entry is encoded in the first <code>kbyte</code> = (kmer+3)/4 bytes where each base is compressed into 2-bits so that each byte contains up to four bases, in order of high bits to low bits.  The
+bases a,c,g,t are assigned to the values 0,1,2,3, respectively.  As an example, 0xc6 encodes
+tacg.  The last byte is partially filled if kmer is not a multiple of 4, and the remainder is guaranteed to be zeroed.  The byte sequence for a k-mer is then followed by a 2-byte 
+unsigned integer count with a maximum value of 32,767 (implying tbytes = kbytes+2).
+The number of bytes in the count may change in a future version.  
+
+```
+Kmer_Table *Load_Kmer_Table(char *name);
+void        Cut_Kmer_Table(Kmer_Table *T, int cut_thresh);
 void        Free_Kmer_Table(Kmer_Table *T);
 
 char       *Fetch_Kmer(Kmer_Table *T, int i);
 int         Fetch_Count(Kmer_Table *T, int i);
 
-void        List_Kmer_Table(Kmer_Table *T);
-void        Check_Kmer_Table(Kmer_Table *T);
 int         Find_Kmer(Kmer_Table *T, char *kseq);
+
+void        List_Kmer_Table(Kmer_Table *T, FILE *out);
+int         Check_Kmer_Table(Kmer_Table *T);
 ```
 
+<code>Load\_Kmer\_Table</code> opens the FastK k-mer table represented by the stub file
+at path name <code>name</code>, adding the .ktab extension if it is not present.  It returns a pointer to a newly allocated <code>Kmer_Table</code> object for
+the data encoded in the relevant files.  The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with
+the stub file, it prints an informative message to standard error and exits.  *This routine attempts to load the entire table into memory and so may fail as these tables can be very large.  For example, if FastK is run on a human genome data set with -t4 the table can require as much as 40-50GB.*
+
+<code>Cut\_Kmer\_Table</code> removes all entries from <code>T</code> with a count of
+less than <code>cut\_thresh</code>. 
+
+<code>Free\_Kmer\_Table</code> removes all memory encoding the table object.
+
+The two <code>Fetch</code> routines return the k-mer and count, respectively, of the
+<code>i</code><sup>th</sup> entry in the given table.  <code>Fetch_Kmer</code> in particular returns a pointer to an ascii, 0-terminated string giving the k-mer in lower-case
+a, c, g, t.  This string is local to the routine and is reset with a new value on
+each call, so if you need a k-mer to persist you much copy the result.
+
+<code>Find\_Kmer</code> searches the table for the supplied k-mer string and returns the
+count of the k-mer if found, or 0 if not found.  The string <code>kseq</code> must be
+at least kmer bases long, and if longer, the trailing bases are ignored.  The string
+may use either upper- or lower-case Ascii letters.
+
+<code>List\_Kmer\_Table</code> prints out the contents of the table in an Ascii format
+to the indicated output and <code>Check\_Kmer\_Table</code> checks that the k-mers of a
+table are actually sorted, return 1 if so, and return 0 after printing a diagnostic to the standard error if not.
+
 ### Sequence Profiles
+
+A Profile\_Index object is a record with 6 fields as described in the comments below  
 
 ```
 typedef struct
   { int    kmer;     //  Kmer length
     int    nparts;   //  # of threads/parts for the profiles
-    int    nreads;   //  # of threads/parts for the profiles
-    int64 *nbase;    //  nbase[i] = id of last read in part i
-    FILE **nfile;    //  nfile[i] = stream for "P" file of part i
-    int64 *index;    //  Kmer+count entry in bytes
+    int    nreads;   //  total # of reads in data set
+    int64 *nbase;    //  nbase[i] for i in [0,nparts) = id of last read in part i + 1
+    FILE **nfile;    //  nfile[i] for i in [0,nparts) = stream for ".prof" file of part i
+    int64 *index;    //  index[i] for i in [0,nreads] = offset in relevant part of
+                     //      compressed profile for read i.
   } Profile_Index;
+```
 
-Profile_Index *Open_Profiles(char *name, int kmer, int nthreads);
+Unlike histograms and k-mer table where the conceptual object is **loaded** into memory,
+the set of all profiles are only **opened** so that individual profiles for a sequence
+can be read in and uncompressed on demand.  So <code>nparts</code> indicates how many
+hidden part files constitute the set of all profiles and <code>nfile</code> is an open
+file stream to each of the npart hidden .prof files containing the compressed profiles.
+On the otherhand, all the .pidx files are loaded into an array of <code>nreads+1</code> offsets into the hidden files pointed at by <code>index</code> where the small nparts element table <code>nbase</code> is used to resolve which part file a read is in.
+Specificaly, the reads whose compressed profile are found in part p, are those in [x,nbase[p]] where x is 0 if p = 0 and nbase[p-1] otherwise.
+For those reads whose compressed profile is in part p, the profile is at [y,index[i])
+in the stream nfile[p] where y is 0 if i = x and index[i-1] otherwise.
+
+```
+Profile_Index *Open_Profiles(char *name);
 
 void Free_Profiles(Profile_Index *P);
 
 int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile);
 ```
+
+<code>Open\_Profiles</code> opens the FastK profile files represented by the stub file
+at path name <code>name</code>, adding the .prof extension if it is not present.  It returns a pointer to a newly allocated <code>Profile_Index</code> object that facilitates access
+to individual compressed profiles in the hidden .prof data files.
+The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with
+the stub file, it prints an informative message to standard error and exits.
+
+<code>Free\_Profiles</code> removes all memory encoding the profile index object.
+
+<code>Fetch\_Profile</code> uses the index <code>P</code> to fetch the compressed profile
+for the sequence with ordinal index <code>id</code> in the data set (starting with 0),
+and attempts to decompress it into the 2-byte integer array presumed to be pointed at
+by <code>profile</code> of presumed length <code>plen</code>.  It always returns the
+length of the indicated profile.  If this is greater than plen, then only the first
+plen values of the profile are placed in profile, otherwise the entire profile of the
+given length is placed in the array.
+
 
 ## Data Encodings
 
@@ -258,7 +327,7 @@ times.
 ### K-mer Table
 
 A table of canonical k-mers and their counts is produced in N parts, where N is the number of threads FastK was run with.
-A single *stub* file <code>\<source>.ktab</code> where <source> is the output path name used by
+A single *stub* file <code>\<source>.ktab</code> where \<source> is the output path name used by
 FastK.
 This stub file contains just the k-mer length followed by the number of threads FastK was run
 with as two integers.
