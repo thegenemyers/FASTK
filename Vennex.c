@@ -17,38 +17,9 @@
 
 #undef DEBUG_PARTITION
 
-#include "gene_core.h"
+#include "libfastk.h"
 
 static char *Usage = "[-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...";
-
-
-/****************************************************************************************
- *
- *  The interface you may want to lift for your own use
- *
- *****************************************************************************************/
-
-typedef struct
-  { FILE  *copn;    //  File currently open
-    int    part;    //  Thread # of file currently open
-    int    nthr;    //  # of thread parts
-    int    cut;     //  cut frequency
-    char  *name;    //  Root name for table
-    int    kmer;    //  Kmer length
-    int    kbyte;   //  Kmer encoding in bytes
-    int    tbyte;   //  Kmer+count entry in bytes
-    int    nels;    //  # of unique, sorted k-mers in the table
-    uint8 *table;   //  The (huge) table in memory
-  } Kmer_Table;
-
-#define  KMER(i)  (table+(i)*tbyte)
-#define  COUNT(i) (*((uint16 *) (table+(i)*tbyte+kbyte)))
-#define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
-
-Kmer_Table *Open_Kmer_Table(char *name, int cut_freq, int smer, int nthreads);
-int         More_Kmer_Table(Kmer_Table *T);
-void        Free_Kmer_Table(Kmer_Table *T);
-
 
 /****************************************************************************************
  *
@@ -56,49 +27,8 @@ void        Free_Kmer_Table(Kmer_Table *T);
  *
  *****************************************************************************************/
 
-static char dna[4] = { 'a', 'c', 'g', 't' };
 
-static char *fmer[256], _fmer[1280];
-
-static void setup_fmer_table()
-{ char *t;
-  int   i, l3, l2, l1, l0;
-
-  i = 0;
-  t = _fmer;
-  for (l3 = 0; l3 < 4; l3++)
-   for (l2 = 0; l2 < 4; l2++)
-    for (l1 = 0; l1 < 4; l1++)
-     for (l0 = 0; l0 < 4; l0++)
-       { fmer[i] = t;
-         *t++ = dna[l3];
-         *t++ = dna[l2];
-         *t++ = dna[l1];
-         *t++ = dna[l0];
-         *t++ = 0;
-         i += 1;
-       }
-}
-
-static void print_seq(uint8 *seq, int len)
-{ int i, b, k;
-
-  b = len >> 2;
-  for (i = 0; i < b; i++)
-    printf("%s",fmer[seq[i]]);
-  k = 6;
-  for (i = b << 2; i < len; i++)
-    { printf("%c",dna[seq[b] >> k]);
-      k -= 2;
-    }
-}
-
-static void print_pack(uint8 *seq, int len)
-{ int i;
-
-  for (i = 0; i < (len+3)/4; i++)
-    printf(" %02x",seq[i]);
-}
+#define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
 
 static inline int mycmp(uint8 *a, uint8 *b, int n)
 { while (n-- > 0)
@@ -108,130 +38,6 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
   return (0);
 }
 
-static inline void mycpy(uint8 *a, uint8 *b, int n)
-{ while (n--)
-    *a++ = *b++;
-}
-
-
-/****************************************************************************************
- *
- *  Read in a table and return as Kmer_Table object
- *
- *****************************************************************************************/
-
-Kmer_Table *Open_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
-{ Kmer_Table *T;
-  int         kmer, tbyte, kbyte;
-  int64       nels;
-  uint8      *table;
-  FILE       *copn;
-  int         part;
-  int64  n;
-
-  //  Find all parts and accumulate total size
-
-  nels = 0;
-  for (part = 1; part <= nthreads; part++)
-    { copn = fopen(Catenate(name,Numbered_Suffix(".ktab.",part,""),"",""),"r");
-      if (copn == NULL)
-        { fprintf(stderr,"%s: Table part %s.ktab.%d is misssing ?\n",Prog_Name,name,part);
-          exit (1);
-        }
-      fread(&kmer,sizeof(int),1,copn);
-      fread(&n,sizeof(int64),1,copn);
-      nels += n;
-      if (kmer != smer)
-        { fprintf(stderr,"%s: Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
-                         Prog_Name,name,part);
-          exit (1);
-        }
-      fclose(copn);
-    }
-
-  //  Allocate in-memory table
-
-  kbyte = (kmer+3)>>2;
-  tbyte = kbyte+2;
-  table = Malloc(1000l*tbyte,"Allocating k-mer table\n");
-  if (table == NULL)
-    exit (1);
-
-  //  Load the parts into memory
-
-  fprintf(stderr,"Opening %d-mer table with ",kmer);
-  Print_Number(nels,0,stderr);
-  fprintf(stderr," entries in %d parts\n",part-1);
-  fflush(stderr);
-
-  copn = fopen(Catenate(name,".ktab.1","",""),"r");
-  fread(&kmer,sizeof(int),1,copn);
-  fread(&n,sizeof(int64),1,copn);
-  nels = fread(KMER(0),1000*tbyte,1,copn) / tbyte;
-
-  if (cut_freq > 1)
-    { int64  i;
-      uint8 *iptr, *jptr;
-
-      jptr = table;
-      for (i = 0; i < nels; i++)
-        { iptr = KMER(i);
-          if (COUNT_OF(iptr) >= cut_freq)
-            { mycpy(jptr,iptr,tbyte);
-              jptr += tbyte;
-            }
-        }
-      nels = (jptr-table)/tbyte;
-    }
-
-  T = Malloc(sizeof(Kmer_Table),"Allocating table record");
-  T->name  = Strdup(name,"Allocating name");
-  if (T == NULL || T->name == NULL)
-    exit (1);
-
-  T->copn  = copn;
-  T->part  = 1;
-  T->nthr  = nthreads;
-  T->cut   = cut_freq;
-  T->kmer  = kmer;
-  T->tbyte = tbyte;
-  T->kbyte = kbyte;
-  T->nels  = nels;
-  T->table = table;
-
-  return (T);
-}
-
-int More_Kmer_Table(Kmer_Table *T)
-{ int    tbyte = T->tbyte;
-  FILE  *copn  = T->copn;
-  int64  rels;
-  int    nels, kmer;
- 
-  nels = fread(T->table,1000*tbyte,1,copn) / tbyte;
-  while (nels == 0)
-    { T->part += 1;
-      if (T->part > T->nthr)
-        return (0);
-      copn = fopen(Catenate(T->name,Numbered_Suffix(".T",T->part,""),"",""),"r");
-      fread(&kmer,sizeof(int),1,copn);
-      fread(&rels,sizeof(int64),1,copn);
-      nels = fread(T->table,1000*tbyte,1,copn) / tbyte;
-    }
-  T->nels = nels;
-  T->copn = copn;
-  return (nels);
-}
-
-void Free_Kmer_Table(Kmer_Table *T)
-{ free(T->name);
-  free(T->table);
-  if (T->copn != NULL)
-    fclose(T->copn);
-  free(T);
-}
-
-
 /****************************************************************************************
  *
  *  Find Venn Histograms
@@ -240,14 +46,12 @@ void Free_Kmer_Table(Kmer_Table *T)
 
 static int HIST_LOW, HIST_HGH;
 
-void Venn2(Kmer_Table **Tv, int64 **comb)
-{ int    tbyte = Tv[0]->tbyte;
-  int    kbyte = Tv[0]->kbyte;
+void Venn2(Kmer_Stream **Tv, int64 **comb)
+{ int kbyte = Tv[0]->kbyte;
 
-  Kmer_Table *T, *U;
-  int64      *Inter, *AminB, *BminA;
+  Kmer_Stream *T, *U;
+  int64       *Inter, *AminB, *BminA;
 
-  int    i, j;
   uint8 *iptr, *jptr;
   int64 *h;
   int    c, d, v;
@@ -259,30 +63,17 @@ void Venn2(Kmer_Table **Tv, int64 **comb)
   BminA = comb[1];
   Inter = comb[2];
 
-  setup_fmer_table();
-
-  i = 0;
-  j = 0;
-  iptr = T->table;
-  jptr = U->table;
+  iptr = First_Kmer_Entry(T);
+  jptr = First_Kmer_Entry(U);
   while (1)
-    { if (i >= T->nels)
-        { if (More_Kmer_Table(T) == 0)
-            { i = j;
-              T = U;
-              iptr = jptr;
-              AminB = BminA;
-              break;
-            }
-          i = 0;
-          iptr = T->table;
+    { if (iptr == NULL)
+        { T = U;
+          iptr = jptr;
+          AminB = BminA;
+          break;
         }
-      if (j >= U->nels)
-        { if (More_Kmer_Table(U) == 0)
-            break;
-          j = 0;
-          jptr = U->table;
-        }
+      if (jptr == NULL)
+        break;
       v = mycmp(iptr,jptr,kbyte);
       if (v == 0)
         { h = Inter;
@@ -290,18 +81,18 @@ void Venn2(Kmer_Table **Tv, int64 **comb)
           d = COUNT_OF(jptr);
           if (c > d)
             c = d;
-          iptr += tbyte;
-          jptr += tbyte;
+          iptr = Next_Kmer_Entry(T);
+          jptr = Next_Kmer_Entry(U);
         }
       else if (v < 0)
         { h = AminB;
           c = COUNT_OF(iptr);
-          iptr += tbyte;
+          iptr = Next_Kmer_Entry(T);
         }
       else
         { h = BminA;
           c = COUNT_OF(jptr);
-          jptr += tbyte;
+          jptr = Next_Kmer_Entry(U);
         }
       if (c <= HIST_LOW)
         h[HIST_LOW] += 1;
@@ -311,15 +102,9 @@ void Venn2(Kmer_Table **Tv, int64 **comb)
         h[c] += 1;
     }
 
-  while (1)
-    { if (i >= T->nels)
-        { if (More_Kmer_Table(T) == 0)
-            break;
-          i = 0;
-          iptr = T->table;
-        }
-      c = COUNT_OF(iptr);
-      iptr += tbyte;
+  while (iptr != NULL)
+    { c = COUNT_OF(iptr);
+      iptr = Next_Kmer_Entry(T);
       if (c <= HIST_LOW)
         AminB[HIST_LOW] += 1;
       else if (c >= HIST_HGH)
@@ -329,32 +114,17 @@ void Venn2(Kmer_Table **Tv, int64 **comb)
     }
 }
 
-void Venn(Kmer_Table **T, int **comb, int nway)
-{ int    tbyte = T[0]->tbyte;
-  int    kbyte = T[0]->kbyte;
+void Venn(Kmer_Stream **T, int64 **comb, int nway)
+{ int kbyte = T[0]->kbyte;
 
-  uint8 *end[nway];
   uint8 *ptr[nway];
   int    itop, in[nway], imin;
-  int    c, v;
-
-  setup_fmer_table();
+  int    c, v, x;
 
   for (c = 0; c < nway; c++)
-    { ptr[c] = T[c]->table;
-      end[c] = ptr[c] + T[c]->nels*tbyte;
-    }
+    ptr[c] = First_Kmer_Entry(T[c]);
   while (1)
     { for (c = 0; c < nway; c++)
-        if (ptr[c] >= end[c])
-          { if (More_Kmer_Table(T[c]) == 0)
-              ptr[c] = NULL;
-            else
-              { ptr[c] = T[c]->table;
-                end[c] = ptr[c] + T[c]->nels*tbyte;
-              }
-          }
-      for (c = 0; c < nway; c++)
         if (ptr[c] != NULL)
           break;
       if (c >= nway)
@@ -364,6 +134,7 @@ void Venn(Kmer_Table **T, int **comb, int nway)
       for (c++; c < nway; c++)
         { if (ptr[c] == NULL)
             continue;
+          v = mycmp(ptr[c],ptr[imin],kbyte);
           v = mycmp(ptr[c],ptr[imin],kbyte);
           if (v == 0)
             in[itop++] = c;
@@ -375,11 +146,11 @@ void Venn(Kmer_Table **T, int **comb, int nway)
 
       v = 0;
       for (c = 0; c < itop; c++)
-        v |= (1 << in[c]); 
+        { x = in[c];
+          v |= (1 << x); 
+          ptr[x] = Next_Kmer_Entry(T[x]);
+        }
       comb[v-1] += 1;
-
-      for (c = 0; c < itop; c++)
-        ptr[c] += tbyte;
     }
 }
 
@@ -393,14 +164,11 @@ void Venn(Kmer_Table **T, int **comb, int nway)
 int main(int argc, char *argv[])
 { int nway;
 
-  (void) print_pack;
-
   { int    i, j, k;
     int    flags[128];
     char  *eptr, *fptr;
 
     (void) flags;
-    (void) print_seq;
 
     ARG_INIT("Vennex");
 
@@ -452,12 +220,12 @@ int main(int argc, char *argv[])
       }
   }
 
-  { Kmer_Table *T[nway];
-    char       *upp[nway];
-    char       *low[nway];
-    int64     **comb;
-    char       *name;
-    int         kmer, ncomb;
+  { Kmer_Stream *T[nway];
+    char        *upp[nway];
+    char        *low[nway];
+    int64      **comb;
+    char        *name;
+    int          kmer, ncomb;
 
     { int64 *hist;
       int    i;
@@ -474,36 +242,20 @@ int main(int argc, char *argv[])
     }
 
     { int c;
-      FILE *f;
-      char *dir, *root;
-      int   smer, nthreads;
 
       kmer = 0;
       for (c = 0; c < nway; c++)
-        { dir  = PathTo(argv[c+1]);
-          root = Root(argv[c+1],".ktab");
-          name = Strdup(Catenate(dir,"/.",root,""),NULL);
-          f = fopen(Catenate(dir,"/",root,".ktab"),"r");
-          if (f == NULL)
-            { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,
-                             Catenate(dir,"/",root,".ktab"));
+        { T[c] = Open_Kmer_Stream(argv[c+1],1);
+          if (T[c] == NULL)
+            { fprintf(stderr,"%s: Cannot open k-mer table %s\n",Prog_Name,argv[c+1]);
               exit (1);
             }
-          fread(&smer,sizeof(int),1,f);
-          fread(&nthreads,sizeof(int),1,f);
-          fclose(f);
-          free(root);
-          free(dir);
-
-          T[c] = Open_Kmer_Table(name,1,smer,nthreads);
           if (kmer == 0)
             kmer = T[c]->kmer;
           else if (T[c]->kmer != kmer)
             { fprintf(stderr,"%s: K-mer tables do not involve the same K\n",Prog_Name);
               exit (1);
             }
-
-          free(name);
         }
     }
 
@@ -535,8 +287,8 @@ int main(int argc, char *argv[])
 
     if (nway == 2)
       Venn2(T,comb);
-    // else
-      // Venn(T,nway,comb,ncomb);
+    else
+      Venn(T,comb,nway);
 
     { int   i, b, f, c;
       char *a;
@@ -571,7 +323,7 @@ int main(int argc, char *argv[])
           free(upp[c]);
         }
       for (c = 0; c < nway; c++)
-        Free_Kmer_Table(T[c]);
+        Free_Kmer_Stream(T[c]);
       free(comb[0]);
     }
   }

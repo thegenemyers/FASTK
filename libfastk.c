@@ -91,6 +91,15 @@ void Free_Histogram(Histogram *H)
  *
  *****************************************************************************************/
 
+typedef struct
+  { int     kmer;         //  Kmer length
+    int     kbyte;        //  Kmer encoding in bytes
+    int     tbyte;        //  Kmer+count entry in bytes
+    int64   nels;         //  # of unique, sorted k-mers in the table
+    uint8  *table;        //  The (huge) table in memory
+    void   *index;        //  Accelerator index for searches
+  } _Kmer_Table;
+
 /****************************************************************************************
  *
  *  Print & compare utilities
@@ -99,6 +108,7 @@ void Free_Histogram(Histogram *H)
 
 #define  KMER(i)  (table+(i)*tbyte)
 #define  COUNT(i) (*((uint16 *) (table+(i)*tbyte+kbyte)))
+#define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
 
 static char dna[4] = { 'a', 'c', 'g', 't' };
 
@@ -164,17 +174,16 @@ static inline void mycpy(uint8 *a, uint8 *b, int n)
  *
  *****************************************************************************************/
 
-Kmer_Table *Load_Kmer_Table(char *name)
-{ Kmer_Table *T;
-  int         kmer, tbyte, kbyte;
-  int64       nels;
-  uint8      *table;
+Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
+{ Kmer_Table  *T;
+  Kmer_Stream *S;
+  int          kmer, tbyte, kbyte, minval;
+  int64        nels;
+  uint8       *table;
 
-  FILE  *f;
+  int    f;
   char  *dir, *root, *hidden;
   int    smer, nthreads;
-  int    p;
-  int64  n;
 
   setup_fmer_table();
 
@@ -183,39 +192,57 @@ Kmer_Table *Load_Kmer_Table(char *name)
   dir    = PathTo(name);
   root   = Root(name,".ktab");
   hidden = Strdup(Catenate(dir,"/.",root,""),NULL);
-  f = fopen(Catenate(dir,"/",root,".ktab"),"r");
+  f = open(Catenate(dir,"/",root,".ktab"),O_RDONLY);
   free(root);
   free(dir);
-  if (f == NULL)
+  if (f < 0)
     return (NULL);
-  fread(&smer,sizeof(int),1,f);
-  fread(&nthreads,sizeof(int),1,f);
-  fclose(f);
+  read(f,&smer,sizeof(int));
+  read(f,&nthreads,sizeof(int));
+  read(f,&minval,sizeof(int));
+  close(f);
+
+  kbyte = (smer+3)>>2;
+  tbyte = kbyte+2;
 
   //  Find all parts and accumulate total size
 
   nels = 0;
-  for (p = 1; p <= nthreads; p++)
-    { f = fopen(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),"r");
-      if (f == NULL)
-        { fprintf(stderr,"Table part %s.ktab.%d is misssing ?\n",hidden,p);
-          exit (1);
+  if (cut_off > minval)
+
+    { uint8 *iptr;
+
+      S = Open_Kmer_Stream(name,cut_off);
+      for (iptr = First_Kmer_Entry(S); iptr != NULL; iptr = Next_Kmer_Entry(S))
+        if (COUNT_OF(iptr) >= cut_off)
+          nels += 1;
+    }
+
+  else
+
+    { int    p;
+      int64  n;
+ 
+      for (p = 1; p <= nthreads; p++)
+        { f = open(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
+          if (f < 0)
+            { fprintf(stderr,"Table part %s.ktab.%d is misssing ?\n",hidden,p);
+              exit (1);
+            }
+          read(f,&kmer,sizeof(int));
+          read(f,&n,sizeof(int64));
+          nels += n;
+          if (kmer != smer)
+            { fprintf(stderr,"Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
+                             hidden,p);
+              exit (1);
+            }
+          close(f);
         }
-      fread(&kmer,sizeof(int),1,f);
-      fread(&n,sizeof(int64),1,f);
-      nels += n;
-      if (kmer != smer)
-        { fprintf(stderr,"Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
-                         hidden,p);
-          exit (1);
-        }
-      fclose(f);
     }
 
   //  Allocate in-memory table
 
-  kbyte = (kmer+3)>>2;
-  tbyte = kbyte+2;
   T     = Malloc(sizeof(Kmer_Table),"Allocating table record");
   table = Malloc(nels*tbyte,"Allocating k-mer table\n");
   if ( T == NULL || table == NULL)
@@ -223,47 +250,48 @@ Kmer_Table *Load_Kmer_Table(char *name)
 
   //  Load the parts into memory
 
-  nels = 0;
-  for (p = 1; p <= nthreads; p++)
-    { f = fopen(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),"r");
-      fread(&kmer,sizeof(int),1,f);
-      fread(&n,sizeof(int64),1,f);
-      fread(KMER(nels),n*tbyte,1,f);
-      nels += n;
-      fclose(f);
+  if (cut_off > minval)
+
+    { uint8 *iptr, *jptr;
+
+      jptr = table;
+      for (iptr = First_Kmer_Entry(S); iptr != NULL; iptr = Next_Kmer_Entry(S))
+        if (COUNT_OF(iptr) >= cut_off)
+          { mycpy(jptr,iptr,tbyte);
+            jptr += tbyte;
+          }
+      Free_Kmer_Stream(S);
+
+      minval = cut_off;
+    }
+
+  else
+
+    { int    p;
+      int64  n;
+ 
+      nels = 0;
+      for (p = 1; p <= nthreads; p++)
+        { f = open(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
+          read(f,&kmer,sizeof(int));
+          read(f,&n,sizeof(int64));
+          read(f,KMER(nels),n*tbyte);
+          nels += n;
+          close(f);
+        }
     }
 
   free(hidden);
 
-  T->kmer  = kmer;
-  T->tbyte = tbyte;
-  T->kbyte = kbyte;
-  T->nels  = nels;
-  T->table = table;
-  T->index = NULL;
+  T->kmer   = kmer;
+  T->minval = minval;
+  T->tbyte  = tbyte;
+  T->kbyte  = kbyte;
+  T->nels   = nels;
+  T->table  = table;
+  ((_Kmer_Table *) T)->index = NULL;
 
   return (T);
-}
-
-void Cut_Kmer_Table(Kmer_Table *T, int cut)
-{ int    kbyte = T->kbyte;
-  int    tbyte = T->tbyte;
-  int    nels  = T->nels;
-  uint8 *table = T->table;
-
-  int64 i, j;
-
-  if (cut > 1)
-    { j = 0;
-      for (i = 0; i < nels; i++)
-        if (COUNT(i) >= cut)
-          mycpy(KMER(j++),KMER(i),tbyte);
-
-      if (j < nels)
-        { T->nels = j;
-          T->table = Realloc(table,nels*tbyte,"Reallocating table");
-        }
-    }
 }
 
 
@@ -281,7 +309,7 @@ char *Fetch_Kmer(Kmer_Table *T, int i)
   int    tbyte = T->tbyte;
   uint8 *table = T->table;
 
-  if (i < 0)
+  if (T == NULL)
     { free(seq);
       max = 0;
       return (NULL);
@@ -320,7 +348,7 @@ int Fetch_Count(Kmer_Table *T, int i)
 
 void Free_Kmer_Table(Kmer_Table *T)
 { free(T->table);
-  free(T->index);
+  free(((_Kmer_Table *) T)->index);
   free(T);
 }
 
@@ -382,7 +410,7 @@ void List_Kmer_Table(Kmer_Table *T, FILE *out)
  *
  *****************************************************************************************/
 
-static void set_up_accelerator(Kmer_Table *T)
+static void set_up_accelerator(_Kmer_Table *T)
 { int     tbyte = T->tbyte;
   int64   nels  = T->nels;
   uint8  *table = T->table;
@@ -523,10 +551,10 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
     compress_comp(kseq,kmer,cmp);
 
   if (kbyte >= 3)
-    { int64 *index = T->index;
+    { int64 *index = ((_Kmer_Table *) T)->index;
       if (index == NULL)
-        { set_up_accelerator(T);
-          index = T->index;
+        { set_up_accelerator((_Kmer_Table *) T);
+          index = ((_Kmer_Table *) T)->index;
         }
       m = (cmp[0] << 16) | (cmp[1] << 8) | cmp[2];
       l = index[m];
@@ -553,6 +581,260 @@ int Find_Kmer(Kmer_Table *T, char *kseq)
   return (COUNT(l));
 }
 
+/****************************************************************************************
+ *
+ *  K-MER STREAM CODE
+ *
+ *****************************************************************************************/
+
+typedef struct
+  { int    kmer;    //  Kmer length
+    int    minval;  //  The minimum count of a k-mer in the stream
+    int    kbyte;   //  Kmer encoding in bytes
+    int    tbyte;   //  Kmer+count entry in bytes
+    int64  nels;    //  # of elements in entire table
+
+    int    copn;    //  File currently open
+    int    part;    //  Thread # of file currently open
+    int    nthr;    //  # of thread parts
+    int    cut;     //  need to cut by minval
+    char  *name;    //  Root name for table
+    uint8 *table;   //  The (huge) table in memory
+    uint8 *celm;    //  Current element
+    uint8 *ctop;    //  Ptr top of current table block
+  } _Kmer_Stream;
+
+/****************************************************************************************
+ *
+ *  Open a table and return as Kmer_Stream object
+ *
+ *****************************************************************************************/
+
+static void More_Kmer_Stream(_Kmer_Stream *S)
+{ int    tbyte = S->tbyte;
+  uint8 *table = S->table;
+  int    copn  = S->copn;
+  uint8 *ctop;
+  int64  rels;
+  int    kmer;
+
+  while (1)
+    { ctop = table + read(copn,table,1024*tbyte);
+      if (ctop <= table)
+        close(copn);
+      else if (S->cut)
+        { int    minv  = S->minval;
+          int    kbyte = S->kbyte;
+          uint8 *iptr, *jptr;
+
+          jptr = table;
+          for (iptr = table; iptr < ctop; iptr += tbyte)
+            { if (COUNT_OF(iptr) >= minv)
+                { mycpy(jptr,iptr,tbyte);
+                  ctop += tbyte;
+                }
+            }
+          ctop = jptr;
+          if (ctop <= table)
+            continue;
+          else
+            break;
+        }
+      else
+        break;
+      S->part += 1;
+      if (S->part > S->nthr)
+        { S->celm = NULL;
+          return;
+        }
+      copn = open(Catenate(S->name,Numbered_Suffix(".T",S->part,""),"",""),O_RDONLY);
+      read(copn,&kmer,sizeof(int));
+      read(copn,&rels,sizeof(int64));
+    }
+  S->celm = table;
+  S->ctop = ctop;
+  S->copn = copn;
+}
+
+Kmer_Stream *Open_Kmer_Stream(char *name, int cut_off)
+{ _Kmer_Stream *S;
+  int           kmer, tbyte, kbyte, minval;
+  int64         nels;
+  int           copn;
+
+  int    f;
+  char  *dir, *root, *hidden;
+  int    smer, nthreads;
+  int    p;
+  int64  n;
+
+  setup_fmer_table();
+
+  //  Open stub file and get # of parts
+
+  dir    = PathTo(name);
+  root   = Root(name,".ktab");
+  hidden = Strdup(Catenate(dir,"/.",root,""),NULL);
+  f = open(Catenate(dir,"/",root,".ktab"),O_RDONLY);
+  free(root);
+  free(dir);
+  if (f < 0)
+    return (NULL);
+  read(f,&smer,sizeof(int));
+  read(f,&nthreads,sizeof(int));
+  read(f,&minval,sizeof(int));
+  close(f);
+
+  kbyte   = (smer+3)>>2;
+  tbyte    = kbyte+2;
+
+  //  Find all parts and accumulate total size
+
+  nels = 0;
+  for (p = 1; p <= nthreads; p++)
+    { copn = open(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
+      if (copn < 0)
+        { fprintf(stderr,"%s: Table part %s.ktab.%d is misssing ?\n",Prog_Name,hidden,p);
+          exit (1);
+        }
+      read(copn,&kmer,sizeof(int));
+      read(copn,&n,sizeof(int64));
+      nels += n;
+      if (kmer != smer)
+        { fprintf(stderr,"%s: Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
+                         Prog_Name,hidden,p);
+          exit (1);
+        }
+      close(copn);
+    }
+
+  //  Allocate in-memory buffer & establish initial condition
+
+  S        = Malloc(sizeof(Kmer_Stream),"Allocating table record");
+  S->name  = Strdup(hidden,"Allocating name");
+  S->table = Malloc(1024ll*tbyte,"Allocating k-mer table\n");
+  if (S == NULL || S->name == NULL || S->table == NULL)
+    exit (1);
+
+  free(hidden);
+
+  S->kmer   = kmer;
+  if (minval < cut_off)
+    S->minval = cut_off;
+  else
+    S->minval = minval;
+  S->tbyte  = tbyte;
+  S->kbyte  = kbyte;
+  S->nels   = nels;
+
+  copn = open(Catenate(hidden,".ktab.1","",""),O_RDONLY);
+  read(copn,&kmer,sizeof(int));
+  read(copn,&n,sizeof(int64));
+
+  S->copn  = copn;
+  S->part  = 1;
+  S->nthr  = nthreads;
+  S->cut   = (minval < cut_off);
+
+  More_Kmer_Stream(S);
+
+  return ((Kmer_Stream *) S);
+}
+
+/****************************************************************************************
+ *
+ *  Free, Iterate, and Get Stream Entries
+ *
+ *****************************************************************************************/
+
+inline uint8 *First_Kmer_Entry(Kmer_Stream *_S)
+{ _Kmer_Stream *S = (_Kmer_Stream *) _S;
+
+  if (S->part == 1)
+    lseek(S->copn,0,SEEK_SET);
+  else
+    { if (S->part <= S->nthr)
+        close(S->copn);
+      S->copn = open(Catenate(S->name,".ktab.1","",""),O_RDONLY);
+      S->part = 1;
+    }
+
+  More_Kmer_Stream(S);
+
+  return (S->celm);
+}
+
+#define REAL(S) ((_Kmer_Stream *) S)
+
+inline uint8 *Next_Kmer_Entry(Kmer_Stream *S)
+{ REAL(S)->celm += REAL(S)->tbyte;
+  if (REAL(S)->celm >= REAL(S)->ctop)
+    More_Kmer_Stream(REAL(S));
+  return (REAL(S)->celm);
+}
+
+char *Current_Kmer(Kmer_Stream *S)
+{ static char *seq = NULL;
+  static int   max = 0;
+
+  int kmer = S->kmer;
+
+  if (S == NULL)
+    { free(seq);
+      max = 0;
+      return (NULL);
+    }
+
+  if (kmer > max)
+    { max = kmer;
+      seq = Realloc(seq,max+1,"Reallocating k-mer buffer");
+      if (seq == NULL)
+        exit (1);
+    }
+
+  { int    j, k;
+    uint8 *a;
+
+    a = ((_Kmer_Stream *) S)->celm;
+    for (j = 0; j < kmer; j += 4)
+      sprintf(seq+j,"%s",fmer[*a++]);
+    k = 6;
+    for (j -= 4; j < kmer; j++)
+      { seq[j] = dna[*a >> k];
+        k -= 2;
+      }
+  }
+
+  return (seq);
+}
+
+int Current_Count(Kmer_Stream *S)
+{ int kbyte = S->kbyte;
+  return (COUNT_OF(((_Kmer_Stream *) S)->celm));
+}
+
+void Mark_Current(Kmer_Stream *_S)
+{ _Kmer_Stream *S = (_Kmer_Stream *) _S;
+
+  S->mark_part = S->part;
+  S->mark_off  = lseek(S->copn,0,SEEK_CUR) - (S->ctop-S->celm);
+}
+
+Kmer_Table *Load_To_Last_Mark(Kmer_Stream *_S)
+{ _Kmer_Stream *S = (_Kmer_Stream *) _S;
+
+}
+
+void Free_Kmer_Stream(Kmer_Stream *_S)
+{ _Kmer_Stream *S = (_Kmer_Stream *) _S;
+
+  free(S->name);
+  free(S->table);
+  if (S->copn >= 0)
+    close(S->copn);
+  free(_S);
+}
+
 
 /*********************************************************************************************\
  *
@@ -571,9 +853,9 @@ Profile_Index *Open_Profiles(char *name)
 { Profile_Index *P;
   int            kmer, nparts;
   int64          nreads, *nbase, *index;
-  FILE         **nfile;
+  int           *nfile;
 
-  FILE  *f;
+  int    f;
   char  *dir, *root, *hidden;
   int    smer, nthreads;
   int64  n;
@@ -583,34 +865,34 @@ Profile_Index *Open_Profiles(char *name)
   dir    = PathTo(name);
   root   = Root(name,".prof");
   hidden = Strdup(Catenate(dir,"/.",root,""),NULL);
-  f = fopen(Catenate(dir,"/",root,".prof"),"r");
+  f = open(Catenate(dir,"/",root,".prof"),O_RDONLY);
   free(root);
   free(dir);
-  if (f == NULL)
+  if (f < 0)
     return (NULL);
-  fread(&smer,sizeof(int),1,f);
-  fread(&nthreads,sizeof(int),1,f);
-  fclose(f);
+  read(f,&smer,sizeof(int));
+  read(f,&nthreads,sizeof(int));
+  close(f);
 
   //  Find all parts and accumulate total size
 
   nreads = 0;
   for (nparts = 0; nparts < nthreads; nparts++)
-    { f = fopen(Catenate(hidden,Numbered_Suffix(".pidx.",nparts+1,""),"",""),"r");
-      if (f == NULL)
+    { f = open(Catenate(hidden,Numbered_Suffix(".pidx.",nparts+1,""),"",""),O_RDONLY);
+      if (f < 0)
         { fprintf(stderr,"Profile part %s.pidx.%d is misssing ?\n",hidden,nparts+1);
           exit (1);
         }
-      fread(&kmer,sizeof(int),1,f);
-      fread(&n,sizeof(int64),1,f);
-      fread(&n,sizeof(int64),1,f);
+      read(f,&kmer,sizeof(int));
+      read(f,&n,sizeof(int64));
+      read(f,&n,sizeof(int64));
       nreads += n;
       if (kmer != smer)
         { fprintf(stderr,"Profile part %s.pidx.%d does not have k-mer length matching stub ?\n",
                          hidden,nparts+1);
           exit (1);
         }
-      fclose(f);
+      close(f);
     }
 
   //  Allocate in-memory table
@@ -625,17 +907,17 @@ Profile_Index *Open_Profiles(char *name)
   nreads = 0;
   index[0] = 0;
   for (nparts = 0; nparts < nthreads; nparts++)
-    { f = fopen(Catenate(hidden,Numbered_Suffix(".pidx.",nparts+1,""),"",""),"r");
-      fread(&kmer,sizeof(int),1,f);
-      fread(&n,sizeof(int64),1,f);
-      fread(&n,sizeof(int64),1,f);
-      fread(index+(nreads+1),sizeof(int64),n,f);
+    { f = open(Catenate(hidden,Numbered_Suffix(".pidx.",nparts+1,""),"",""),O_RDONLY);
+      read(f,&kmer,sizeof(int));
+      read(f,&n,sizeof(int64));
+      read(f,&n,sizeof(int64));
+      read(f,index+(nreads+1),n*sizeof(int64));
       nreads += n;
       nbase[nparts] = nreads;
-      fclose(f);
+      close(f);
 
-      f = fopen(Catenate(hidden,Numbered_Suffix(".prof.",nparts+1,""),"",""),"r");
-      if (f == NULL)
+      f = open(Catenate(hidden,Numbered_Suffix(".prof.",nparts+1,""),"",""),O_RDONLY);
+      if (f < 0)
         { fprintf(stderr,"Profile part %s.prof.%d is misssing ?\n",hidden,nparts+1);
           exit (1);
         }
@@ -668,7 +950,7 @@ void Free_Profiles(Profile_Index *P)
   free(P->index);
   free(P->nbase);
   for (i = 0; i < P->nparts; i++)
-    fclose(P->nfile[i]);
+    close(P->nfile[i]);
   free(P->nfile);
   free(P);
 }
@@ -677,9 +959,12 @@ void Free_Profiles(Profile_Index *P)
   //    Returns the length of the uncompressed profile.  If the plen is less than
   //    this then only the first plen counts are uncompressed into profile
 
+#define PROF_BUF0 4096
+#define PROF_BUF1 4095
+
 int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
-{ uint8 count[1000], *cend = count+999;
-  FILE  *f;
+{ uint8 count[PROF_BUF0], *cend = count+PROF_BUF1;
+  int    f;
   int    w, len;
   uint8 *p, *q;
   uint16 x, d, i;
@@ -695,16 +980,16 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
   f = P->nfile[w];
 
   if (id == 0 || (w > 0 && id == P->nbase[w-1]))
-    { fseek(f,0,SEEK_SET);
+    { lseek(f,0,SEEK_SET);
       len = P->index[id+1];
     }
   else
     { int64 off = P->index[id];
-      fseek(f,off,SEEK_SET);
+      lseek(f,off,SEEK_SET);
       len = P->index[id+1] - off;
     }
 
-  fread(count,1000,1,f);
+  read(f,count,PROF_BUF0);
 
   p = count;
   q = count + len;
@@ -726,15 +1011,14 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
         { if (p >= cend)
             { if (p == cend)
                 { *count = *p; 
-                  fread(count+1,999,1,f);
-                  p  = count;
-                  q -= 999;
+                  read(f,count+1,PROF_BUF1);
+                  q -= PROF_BUF1;
                 }
               else
-                { fread(count,1000,1,f);
-                  p = count;
-                  q -= 1000;
+                { read(f,count,PROF_BUF0);
+                  q -= PROF_BUF0;
                 }
+              p = count;
             }
           x = *p++;
           if ((x & 0xc0) == 0)
@@ -785,15 +1069,14 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
     { if (p >= cend)
         { if (p == cend)
             { *count = *p; 
-              fread(count+1,999,1,f);
-              p  = count;
-              q -= 999;
+              read(f,count+1,PROF_BUF1);
+              q -= PROF_BUF1;
             }
           else
-            { fread(count,1000,1,f);
-              p = count;
-              q -= 1000;
+            { read(f,count,PROF_BUF0);
+              q -= PROF_BUF0;
             }
+          p = count;
         } 
       x = *p++;
       if ((x & 0xc0) == 0)

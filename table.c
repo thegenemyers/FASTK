@@ -380,6 +380,7 @@ void Merge_Tables(char *path, char *root)
     }
   write(f,&KMER,sizeof(int));
   write(f,&NTHREADS,sizeof(int));
+  write(f,&DO_TABLE,sizeof(int));
   close(f);
 
   for (t = 0; t < NTHREADS; t++)

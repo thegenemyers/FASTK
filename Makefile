@@ -41,8 +41,8 @@ Profex: Profex.c libfastk.c libfastk.h
 Haplex: Haplex.c gene_core.c gene_core.h
 	gcc $(CFLAGS) -o Haplex Haplex.c gene_core.c -lpthread -lm
 
-Vennex: Vennex.c gene_core.c gene_core.h
-	gcc $(CFLAGS) -o Vennex Vennex.c gene_core.c -lpthread -lm
+Vennex: Vennex.c libfastk.c libfastk.h
+	gcc $(CFLAGS) -o Vennex Vennex.c libfastk.c -lpthread -lm
 
 tidyup:
 	rm -f $(ALL)

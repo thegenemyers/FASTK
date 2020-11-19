@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
       exit (1);
     }
 
-  if (HIST_LOW > H->low || HIST_HGH < H->high)
+  if (HIST_LOW < H->low || HIST_HGH > H->high)
     { fprintf(stderr,"%s: Range of histogram, [%d,%d], does not superset requested range\n",
                      Prog_Name,H->low,H->high); 
       exit (1);
@@ -126,8 +126,10 @@ int main(int argc, char *argv[])
     for (j = HIST_HGH; j > HIST_LOW; j--)
       { ssum += cgram[j];
         if (j == HIST_HGH)
-          { printf(" >= %5d: %12lld",j,ssum);
-            printf("   %5.1f%%\n",(100.*ssum)/stotal);
+          { if (ssum > 0)
+              { printf(" >= %5d: %12lld",j,ssum);
+                printf("   %5.1f%%\n",(100.*ssum)/stotal);
+              }
           }
         else if (j < HIST_HGH && j > HIST_LOW && cgram[j] > 0)
           { printf("    %5d: %12lld",j,cgram[j]);

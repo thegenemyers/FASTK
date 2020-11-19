@@ -17,6 +17,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <fcntl.h>
 
 #include "gene_core.h"
 
@@ -37,16 +38,16 @@ void       Free_Histogram(Histogram *H);
   //  K-MER TABLE
 
 typedef struct
-  { int     kmer;    //  Kmer length
-    int     kbyte;   //  Kmer encoding in bytes
-    int     tbyte;   //  Kmer+count entry in bytes
-    int64   nels;    //  # of unique, sorted k-mers in the table
-    uint8  *table;   //  The (huge) table in memory
-    int64  *index;   //  Search accelerator if needed
+  { int     kmer;         //  Kmer length
+    int     minval;       //  The minimum count of a k-mer in the table
+    int     kbyte;        //  Kmer encoding in bytes
+    int     tbyte;        //  Kmer+count entry in bytes
+    int64   nels;         //  # of unique, sorted k-mers in the table
+    uint8  *table;        //  The (huge) table in memory
+    void   *private[1];   //  Private fields
   } Kmer_Table;
 
-Kmer_Table *Load_Kmer_Table(char *name);
-void        Cut_Kmer_Table(Kmer_Table *t, int cut_freq);
+Kmer_Table *Load_Kmer_Table(char *name, int cut_off);
 void        Free_Kmer_Table(Kmer_Table *T);
 
 char       *Fetch_Kmer(Kmer_Table *T, int i);
@@ -58,14 +59,38 @@ void        List_Kmer_Table(Kmer_Table *T, FILE *out);
 int         Check_Kmer_Table(Kmer_Table *T);
 
 
-   //  PROFILES
+  //  K-MER STREAM
+
+typedef struct
+  { int    kmer;       //  Kmer length
+    int    minval;     //  The minimum count of a k-mer in the stream
+    int    kbyte;      //  Kmer encoding in bytes
+    int    tbyte;      //  Kmer+count entry in bytes
+    int64  nels;       //  # of elements in entire table
+    void  *private[8]; //  Private fields
+  } Kmer_Stream;
+
+Kmer_Stream *Open_Kmer_Stream(char *name, int cut_freq);
+void         Free_Kmer_Stream(Kmer_Stream *S);
+
+uint8       *First_Kmer_Entry(Kmer_Stream *S);
+uint8       *Next_Kmer_Entry(Kmer_Stream *S);
+
+char        *Current_Kmer(Kmer_Stream *entry);
+int          Current_Count(Kmer_Stream *entry);
+
+void         Mark_Current(Kmer_Stream *S);
+Kmer_Table  *Load_To_Last_Mark(Kmer_Stream *S);
+
+
+  //  PROFILES
 
 typedef struct
   { int    kmer;     //  Kmer length
     int    nparts;   //  # of threads/parts for the profiles
     int    nreads;   //  total # of reads in data set
     int64 *nbase;    //  nbase[i] for i in [0,nparts) = id of last read in part i + 1
-    FILE **nfile;    //  nfile[i] for i in [0,nparts) = stream for "P" file of part i
+    int   *nfile;    //  nfile[i] for i in [0,nparts) = stream for ".prof" file of part i
     int64 *index;    //  index[i] for i in [0,nreads) = offset in relevant part of
                      //    compressed profile for read i
   } Profile_Index;

@@ -1,8 +1,26 @@
 # FastK: A K-mer counter (for HQ assembly data sets)
   
-## _Author:  Gene Myers_
-## _First:   July 22, 2020_
-## _Current: October 20, 2020_
+<font size ="4">**_Author:  Gene Myers_**<br>
+**_First:   July 22, 2020_**<br>
+**_Current: November 18, 2020_**</font>
+
+- [Command Line](#command-line)
+
+- [Sample Applications](#sample-applications)
+
+- [C-Library Interface](#c-library-interface)
+  - [K-mer Histogram Class](#k-mer-histogram-class)
+  - [K-mer Table Class](#k-mer-table-class)
+  - [K-mer Stream Class](#k-mer-stream-class)
+  - [K-mer Profile Class](#k-mer-histogram-class)
+ 
+- [File Encodings](#file-encodings)
+  - [<code>.hist</code>: K-mer Histogram File](#k-mer-histogram-file)
+  - [<code>.ktab</code>: K-mer Table Files](#k-mer-table-files)
+  - [<code>.prof</code>: K-mer Profile Files](#k-mer-profile-files)
+
+
+## Command Line
 
 FastK is a k-mer counter that is optimized for processing high quality DNA assembly data
 sets such as those produced with an Illumina instrument or a PacBio run in HiFi mode.
@@ -107,8 +125,19 @@ the base name of source is used to form a complete destination path for both Fas
 As for the UNIX rm, mv, and cp commands, the -i option asks the command to query each file as to whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the hidden files corresponding to each stub, which share the same fate as their stub file.
 The -n option tells Fastmv and Fastcp to not overwrite any files.
 
+### Current Limitations
+
+Currently if multiple input files are given they must all be of the same type, e.g. fasta
+or cram.  This restriction is not fundamental and could be removed with some coding effort.
+
+&nbsp;
+
+&nbsp;
+
+## Sample Applications
+
 ```
-3. Histex [-h[<int(1)>:]<int(100)>] <source>[.hist]
+1. Histex [-h[<int(1)>:]<int(100)>] <source>[.hist]
 ```
 
 This command and also Tabex and Profex are presented specifically to
@@ -120,7 +149,7 @@ one can view the histogram of k-mer counts with **Histex** where the -h specifie
 interval of frequencies to be displayed where 1 is assumed if the lower bound is not given.
 
 ```
-4. Tabex [-t<int>] <source>[.ktab]  (LIST|CHECK|(<k-mer:string>) ...
+2. Tabex [-t<int>] <source>[.ktab]  (LIST|CHECK|(<k-mer:string>) ...
 ```
 
 Given that a set of k-mer counter table files have been generated represented by stub file
@@ -131,19 +160,19 @@ argument is interpreted as a k-mer and it is looked up in the table and its coun
 if found.  If the -t option is given than only those k-mers with counts greater or equal to the given value are operated upon.
 
 ```
-5. Profex <source>[.prof] <read:int> ...
+3. Profex <source>[.prof] <read:int> ...
 ```
 Given that a set of profile files have been generated represented by stub file
 \<source>.prof, ***Profex*** opens the corresonding hiddent profile files (two per thread)
 and gives a display of each sequence profile whose ordinal id is given on
 the remainder of the command line.  The index of the first read is 1 (not 0).
 
-## Current Limitations
+&nbsp;
 
-Currently if multiple input files are given they must all be of the same type, e.g. fasta
-or cram.  This restriction is not fundamental and could be removed with some coding effort.
+&nbsp;
 
-## The FastK C-interface to K-mer Histograms, Tables, and Profiles
+
+## C-Library Interface
 
 For each of the 3 distinct outputs of FastK, we have suppled a simple C library
 that gives a user access to the data therein.  The library is simply embodied in
@@ -151,7 +180,8 @@ the C-file, <code>libfastk.c</code>, and associated include file <code>libfastk.
 The makefile commands for building Histex, Tabex, and Profex illustrate how to
 easily incorporate the library into your C or C++ code.
 
-### K-mer Histogram
+
+### K-mer Histogram Class
 
 A Histogram object is a record with 4 fields
 as described in the comments below 
@@ -189,18 +219,21 @@ counts of the frequencies below and above them, per our convention.
 
 <code>Free\_Histogram</code> removes all memory encoding the input histogram.
 
-### K-mer Table
+&nbsp;
+
+### K-mer Table Class
 
 A Kmer\_Table object is a record with 6 fields as described in the comments below  
 
 ```
 typedef struct
-  { int     kmer;    //  Kmer length
-    int     kbyte;   //  Kmer encoding in bytes
-    int     tbyte;   //  Kmer,count entry in bytes
-    int64   nels;    //  # of unique, sorted k-mers in the table
-    uint8  *table;   //  The (huge) table in memory
-    int64  *index;   //  Search accelerator (private)
+  { int     kmer;       //  Kmer length
+    int     minval;     //  The minimum count of a k-mer in the table
+    int     kbyte;      //  Kmer encoding in bytes
+    int     tbyte;      //  Kmer,count entry in bytes
+    int64   nels;       //  # of unique, sorted k-mers in the table
+    uint8  *table;      //  The (huge) table in memory
+    void   *private[1]; //  Private field
   } Kmer_Table;
 ```
 
@@ -210,37 +243,40 @@ entries are **sorted** in lexicographical order of the k-mers.
 The k-mer of a table entry is encoded in the first <code>kbyte</code> = (kmer+3)/4 bytes where each base is compressed into 2-bits so that each byte contains up to four bases, in order of high bits to low bits.  The
 bases a,c,g,t are assigned to the values 0,1,2,3, respectively.  As an example, 0xc6 encodes
 tacg.  The last byte is partially filled if kmer is not a multiple of 4, and the remainder is guaranteed to be zeroed.  The byte sequence for a k-mer is then followed by a 2-byte 
-unsigned integer count with a maximum value of 32,767 (implying tbytes = kbytes+2).
+unsigned integer count with a maximum value of 32,767 (implying tbytes = kbytes+2) and
+a minimum value of <code>minval</code>.  This later value is the maximum of (a) the cutoff
+given in the stub file (from the -t option of the FastK run producing the file) and (b) the <code>cutoff</code> parameter given to <code>Load\_Kmer\_Table</code>.
 The number of bytes in the count may change in a future version.  
 
 ```
-Kmer_Table *Load_Kmer_Table(char *name);
-void        Cut_Kmer_Table(Kmer_Table *T, int cut_thresh);
+Kmer_Table *Load_Kmer_Table(char *name, int cut_off);
 void        Free_Kmer_Table(Kmer_Table *T);
 
 char       *Fetch_Kmer(Kmer_Table *T, int i);
 int         Fetch_Count(Kmer_Table *T, int i);
 
 int         Find_Kmer(Kmer_Table *T, char *kseq);
-
 void        List_Kmer_Table(Kmer_Table *T, FILE *out);
 int         Check_Kmer_Table(Kmer_Table *T);
 ```
 
 <code>Load\_Kmer\_Table</code> opens the FastK k-mer table represented by the stub file
-at path name <code>name</code>, adding the .ktab extension if it is not present.  It returns a pointer to a newly allocated <code>Kmer_Table</code> object for
+at path name <code>name</code>, adding the .ktab extension if it is not present.  It returns a pointer to a newly allocated <code>Kmer\_Table</code> object for
 the data encoded in the relevant files.  The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with
-the stub file, it prints an informative message to standard error and exits.  *This routine attempts to load the entire table into memory and so may fail as these tables can be very large.  For example, if FastK is run on a human genome data set with -t4 the table can require as much as 40-50GB.*
-
-<code>Cut\_Kmer\_Table</code> removes all entries from <code>T</code> with a count of
-less than <code>cut\_thresh</code>. 
+the stub file, it prints an informative message to standard error and exits.  Unless the <code>cut\_off</code> parameter implies the table should be trimmed, this routine attempts to load the entire table into memory and so may fail as these tables can be very large.  For example, if FastK is run on a human genome data set with -t4 the table can require as much as 40-50GB.*  In the cases where one wants the table of only those k-mers
+whose counts are not less than <code>cut\_off</code> and this threshold is greater than
+that recorded in the stub file, then the load actually reads the table
+twice with a <code>Kmer_Stream</code> to use only the memory required for exactly those
+k-mers.  This can save significant space at the expense of taking more time to load.
 
 <code>Free\_Kmer\_Table</code> removes all memory encoding the table object.
 
 The two <code>Fetch</code> routines return the k-mer and count, respectively, of the
 <code>i</code><sup>th</sup> entry in the given table.  <code>Fetch_Kmer</code> in particular returns a pointer to an ascii, 0-terminated string giving the k-mer in lower-case
 a, c, g, t.  This string is local to the routine and is reset with a new value on
-each call, so if you need a k-mer to persist you much copy the result.
+each call, so if you need a k-mer to persist you must copy the result.  Moreover, if
+you call <code>Fetch\_Kmer</code> with T = NULL it will free the space occupied by this
+local buffer and return NULL.
 
 <code>Find\_Kmer</code> searches the table for the supplied k-mer string and returns the
 count of the k-mer if found, or 0 if not found.  The string <code>kseq</code> must be
@@ -251,7 +287,82 @@ may use either upper- or lower-case Ascii letters.
 to the indicated output and <code>Check\_Kmer\_Table</code> checks that the k-mers of a
 table are actually sorted, return 1 if so, and return 0 after printing a diagnostic to the standard error if not.
 
-### Sequence Profiles
+The sample code below opens a table, prints out the contents of the table, and ends
+by freeing all memory involved.
+
+```
+Kmer_Table *T = Open_Kmer_Table(S,1);
+for (int i = 0; i != T->nels; i++)
+  printf("%s : %d\n",Fetch_Kmer(T,i),Fetch_Count(T,i));
+Free_Kmer_Table(T);
+Fetch_Kmer(NULL,0);
+```
+
+&nbsp;
+
+### K-mer Stream Class
+
+K-mer tables can be truly large so that when loaded in memory 10's of gigabytes of main
+memory are required.  On the other hand many operations can be arranged as sweeps of
+one or more tables especially given that they are sorted, e.g finding the k-mers common to two tables.  The FastK library therefore also contains a <code>Kmer_Stream</code> class
+that allows one to iterate over the elements of a table:
+
+```
+typedef struct
+  { int     kmer;        //  Kmer length
+    int     minval;      //  The minimum count of a k-mer in the stream
+    int     kbyte;       //  Kmer encoding in bytes
+    int     tbyte;       //  Kmer,count entry in bytes
+    int64   nels;        //  # of unique, sorted k-mers in the stream
+    void   *private[8];  //  Private fields
+  } Kmer_Stream;
+```
+Unlike a Kmer_Table object almost all of the fields for a Kmer_Stream are hidden from
+the user who is expected to use the table through the following operators:
+
+```
+Kmer_Stream *Open_Kmer_Stream(char *name, int cut_off);
+void         Free_Kmer_Stream(Kmer_Stream *S);
+
+uint8       *First_Kmer_Entry(Kmer_Stream *S);
+uint8       *Next_Kmer_Entry(Kmer_Stream *S);
+
+char       *Current_Kmer(Kmer_Streaam *S);
+int         Current_Count(Kmer_Streaam *S);
+```
+
+<code>Open\_Kmer\_Stream</code> opens a k-mer table for a scan that will iterate over those
+entries whose count is not less than <code>cut_off</code>.  As it iterates over the
+entries it uses only a small input buffer of several KB.  Note carefully that the routine
+conceptually **opens** the table for reading, but does not **load** it (into memory).
+The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with the stub file, it prints an informative message to standard error and exits.
+
+<code>Free\_Kmer\_Stream</code> removes all memory encoding the stream object.
+
+<code>First\_Kmer\_Entry</code> sets the iterator for the stream to the first entry of
+the table and <code>Next\_Kmer\_Entry</code> advance the stream to the next entry.
+The routines return NULL when the end of the table is reached, but normally
+return a <code>uint8</code> pointer to the current entry so that the
+sophisticated user can directly work with the 2-bit packed k-mer sequence described
+at the start of the [K-mer Table Class](#k-mer-table-class) description or the [K-mer Table Files](#k-mer-table-files) section.    Otherwise, one can extract the count and k-mer of
+the current entry with <code>Current\_Count</code> and <code>Current\_Kmer</code> routines,
+respectively. 
+<code>Current_Kmer</code> in particular returns a pointer to an ascii, 0-terminated string giving the k-mer in lower-case a, c, g, t.  This string is local to the routine and is reset with a new value on each call, so if you need a k-mer to persist you must copy the result.  Moreover, if you call <code>Current\_Kmer</code> with S = NULL it will free the space
+occupied by this local buffer and return NULL. 
+As an example, the code below opens a stream, prints out the contents of the table, and ends
+by freeing all memory involved.
+
+```
+Kmer_Stream *S = Open_Kmer_Stream(S,1);
+for (uint8 *e = First_Kmer_Entry(S); e != NULL; e = Next_Kmer_Entry(S))
+  printf("%s : %d\n",Current_Kmer(S),Current_Count(S));
+Free_Kmer_Stream(S);
+Current_Kmer(NULL);
+```
+
+&nbsp;
+
+### K-mer Profile Class
 
 A Profile\_Index object is a record with 6 fields as described in the comments below  
 
@@ -261,14 +372,14 @@ typedef struct
     int    nparts;   //  # of threads/parts for the profiles
     int    nreads;   //  total # of reads in data set
     int64 *nbase;    //  nbase[i] for i in [0,nparts) = id of last read in part i + 1
-    FILE **nfile;    //  nfile[i] for i in [0,nparts) = stream for ".prof" file of part i
-    int64 *index;    //  index[i] for i in [0,nreads] = offset in relevant part of
+    int   *nfile;    //  nfile[i] for i in [0,nparts) = stream for ".prof" file of part i
+    int64 *index;    //  index[i] for i in [0,nreads] = offset in relevant part file of
                      //      compressed profile for read i.
   } Profile_Index;
 ```
 
-Unlike histograms and k-mer table where the conceptual object is **loaded** into memory,
-the set of all profiles are only **opened** so that individual profiles for a sequence
+Like the k-mer stream class, the set of all profiles is not **loaded** into memory,
+but rather only **opened** so that individual profiles for a sequence
 can be read in and uncompressed on demand.  So <code>nparts</code> indicates how many
 hidden part files constitute the set of all profiles and <code>nfile</code> is an open
 file stream to each of the npart hidden .prof files containing the compressed profiles.
@@ -299,12 +410,15 @@ and attempts to decompress it into the 2-byte integer array presumed to be point
 by <code>profile</code> of presumed length <code>plen</code>.  It always returns the
 length of the indicated profile.  If this is greater than plen, then only the first
 plen values of the profile are placed in profile, otherwise the entire profile of the
-given length is placed in the array.
+given length is placed at the start of the array.
 
+&nbsp;
 
-## Data Encodings
+&nbsp;
 
-### K-mer Histogram
+## File Encodings
+
+### K-mer Histogram File
 
 The histogram file has a name of the form <code>\<source>.hist</code> where \<source> is the
 output path name used by FastK.  It contains an initial integer
@@ -324,13 +438,14 @@ Note carefully that the count for the entry h, is actually the count of all k-me
 h-or-more times, and when l>1, the entry l, is the count of all k-mers that occur l-or-fewer
 times.
 
-### K-mer Table
+&nbsp;
+
+### K-mer Table Files
 
 A table of canonical k-mers and their counts is produced in N parts, where N is the number of threads FastK was run with.
 A single *stub* file <code>\<source>.ktab</code> where \<source> is the output path name used by
 FastK.
-This stub file contains just the k-mer length followed by the number of threads FastK was run
-with as two integers.
+This stub file contains (1) the k-mer length, followed by (2) the number of threads FastK was run with, followed by (3) the frequency cutoff (-t option) used to prune the table, as three integers.
 The table file parts are in N hidden files in the same directory as the stub
 file with the names <code>.\<base>.ktab.[1,N]</code> assuming that \<source> = \<dir>/\<base>.
 The k-mers in each part are lexicographically ordered and the k-mers in Ti are all less than the k-mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
@@ -351,7 +466,9 @@ tacg.  The last byte is partially filled if k is not a multiple of 4, and the re
 guaranteed to be zeroed.  The byte sequence for a k-mer is then followed by a 2-byte 
 unsigned integer count with a maximum value of 32,767.
 
-### Sequence Profiles
+&nbsp;
+
+### K-mer Profiles Files
 
 The read profiles are stored in N pairs of file, an index and a data pair, that are hidden
 and identified by a single *stub* file <code>\<source>.prof</code>.
@@ -398,7 +515,8 @@ profile and a special one byte form codes this as a run length.  Formally the fo
   00x  => x+1 in [1,64] 0 diffs
   010x =>   x+1  in [1,32]
   011x => -(x+1) in [-1,-32]
-  1x,y => x.y in 15 bit 2's complement in [-16384,-33] U [33,16383] (modulo 32768 arithmetic)
+  1x,y => x.y in 15 bit 2's complement in [-16384,-33] U [33,16383]
+                                             (modulo 32768 arithmetic)
 ```
 
 If the high order bit of the current byte is set, then the remaining 15-bits of the current

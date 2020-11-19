@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
       }
   }
 
-  T = Load_Kmer_Table(argv[1]);
+  T = Load_Kmer_Table(argv[1],CUT);
   if (T == NULL)
     { fprintf(stderr,"%s: Cannot open %s\n",Prog_Name,argv[1]);
       exit (1);
@@ -69,9 +69,6 @@ int main(int argc, char *argv[])
   Print_Number(T->nels,0,stderr);
   fprintf(stderr," entries\n");
   fflush(stderr);
-
-  if (CUT > 1)
-    Cut_Kmer_Table(T,CUT);
 
   { int c, cnt;
 
