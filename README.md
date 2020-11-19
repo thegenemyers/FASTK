@@ -12,7 +12,7 @@
   - [K-mer Histogram Class](#k-mer-histogram-class)
   - [K-mer Table Class](#k-mer-table-class)
   - [K-mer Stream Class](#k-mer-stream-class)
-  - [K-mer Profile Class](#k-mer-histogram-class)
+  - [K-mer Profile Class](#k-mer-profile-class)
  
 - [File Encodings](#file-encodings)
   - [<code>.hist</code>: K-mer Histogram File](#k-mer-histogram-file)
@@ -468,7 +468,7 @@ unsigned integer count with a maximum value of 32,767.
 
 &nbsp;
 
-### K-mer Profiles Files
+### K-mer Profile Files
 
 The read profiles are stored in N pairs of file, an index and a data pair, that are hidden
 and identified by a single *stub* file <code>\<source>.prof</code>.
