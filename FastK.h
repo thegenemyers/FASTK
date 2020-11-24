@@ -14,7 +14,7 @@
 #ifndef _KMERS
 #define _KMERS
 
-#undef DEVELOPER
+#define DEVELOPER
 
 #define IO_BUF_LEN   4096       // number of uint's in bit stuffed IO buffer for each part+thread
 #define IO_UBITS       64
@@ -77,7 +77,7 @@ extern int SMER_WORD;    //  # of bytes in a super-mer entry
 extern int TMER_WORD;    //  bytes to hold a k-mer/count table entry
 extern int CMER_WORD;    //  bytes to hold a count/position entry
 
-extern int NUM_READS;    //  Number of reads in data set
+extern int64 *NUM_RID;   //  [i] for i in [0,ITHREADS) = # of super-mers per vertical stripe
 
 extern uint8 Comp[256];  //  complement of 4bp byte code
 
@@ -114,7 +114,7 @@ typedef void *Input_Partition;
   //  Stages
 
 int Determine_Scheme(DATA_BLOCK *block);
- 
+
 void Split_Kmers(Input_Partition *io, char *root);
 
   void Distribute_Block(DATA_BLOCK *block, int tid);

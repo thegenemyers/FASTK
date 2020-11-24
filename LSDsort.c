@@ -113,8 +113,8 @@ static void *lexbeg_thread(void *arg)
 //    Return a pointer to the array containing the final result.
 
 void *LSD_Sort(int64 nelem, void *src, void *trg, int rsize, int *bytes)
-{ pthread_t threads[NTHREADS];
-  Lex_Arg   parmx[NTHREADS];   //  Thread control record for sorting
+{ pthread_t *threads;
+  Lex_Arg   *parmx;   //  Thread control record for sorting
 
   uint8   *xch;
   int64    x, y, asize;
@@ -127,8 +127,14 @@ void *LSD_Sort(int64 nelem, void *src, void *trg, int rsize, int *bytes)
   LEX_src  = (uint8 *) src;
   LEX_trg  = (uint8 *) trg;
 
-  for (i = 0; i < NTHREADS; i++)
-    parmx[i].sptr = (int64 *) alloca(NTHREADS*256*sizeof(int64));
+  parmx   = Malloc(sizeof(Lex_Arg)*NTHREADS,"LSD sort vectors");
+  threads = Malloc(sizeof(pthread_t)*NTHREADS,"LSD sort vectors");
+  parmx[0].sptr = Malloc(sizeof(int64)*256*NTHREADS*NTHREADS,"LSD sort vectors");
+  if (parmx == NULL || threads == NULL || parmx[0].sptr == NULL)
+    exit (1);
+
+  for (i = 1; i < NTHREADS; i++)
+    parmx[i].sptr = parmx[i-1].sptr + NTHREADS*256;
 
   //  For each requested byte b in order, radix sort
 
@@ -251,6 +257,10 @@ void *LSD_Sort(int64 nelem, void *src, void *trg, int rsize, int *bytes)
       }
 #endif
     }
+
+  free(parmx[0].sptr);
+  free(threads);
+  free(parmx);
 
   return ((void *) LEX_src);
 }

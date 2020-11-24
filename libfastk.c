@@ -22,28 +22,28 @@ Histogram *Load_Histogram(char *name)
   int        kmer, low, high;
   int64     *hist;
   char      *dir, *root;
-  FILE      *f;
+  int        f;
 
   dir  = PathTo(name);
   root = Root(name,".hist");
-  f = fopen(Catenate(dir,"/",root,".hist"),"r");
-  if (f == NULL)
+  f = open(Catenate(dir,"/",root,".hist"),O_RDONLY);
+  if (f < 0)
     return (NULL);
   free(root);
   free(dir);
 
-  fread(&kmer,sizeof(int),1,f);
-  fread(&low,sizeof(int),1,f);
-  fread(&high,sizeof(int),1,f);
+  read(f,&kmer,sizeof(int));
+  read(f,&low,sizeof(int));
+  read(f,&high,sizeof(int));
 
   H    = Malloc(sizeof(Histogram),"Allocating histogram");
   hist = Malloc(sizeof(int64)*((high-low)+1),"Allocating histogram");
   if (H == NULL || hist == NULL)
     exit (1);
 
-  fread(hist,sizeof(int64),(high-low)+1,f);
+  read(f,hist,sizeof(int64)*((high-low)+1));
     
-  fclose(f);
+  close(f);
 
   H->kmer = kmer;
   H->low  = low;
@@ -93,6 +93,7 @@ void Free_Histogram(Histogram *H)
 
 typedef struct
   { int     kmer;         //  Kmer length
+    int     minval;       //  The minimum count of a k-mer in the table
     int     kbyte;        //  Kmer encoding in bytes
     int     tbyte;        //  Kmer+count entry in bytes
     int64   nels;         //  # of unique, sorted k-mers in the table
@@ -174,6 +175,19 @@ static inline void mycpy(uint8 *a, uint8 *b, int n)
  *
  *****************************************************************************************/
 
+static inline int64 big_read(int f, uint8 *buffer, int64 bytes)
+{ int64 v;
+
+  v = 0;
+  while (bytes > 0x70000000)
+    { v += read(f,buffer,0x70000000);
+      bytes  -= 0x70000000;
+      buffer += 0x70000000;
+    }
+  v += read(f,buffer,bytes);
+  return (v);
+}
+
 Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
 { Kmer_Table  *T;
   Kmer_Stream *S;
@@ -202,7 +216,8 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
   read(f,&minval,sizeof(int));
   close(f);
 
-  kbyte = (smer+3)>>2;
+  kmer  = smer;
+  kbyte = (kmer+3)>>2;
   tbyte = kbyte+2;
 
   //  Find all parts and accumulate total size
@@ -214,8 +229,7 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
 
       S = Open_Kmer_Stream(name,cut_off);
       for (iptr = First_Kmer_Entry(S); iptr != NULL; iptr = Next_Kmer_Entry(S))
-        if (COUNT_OF(iptr) >= cut_off)
-          nels += 1;
+        nels += 1;
     }
 
   else
@@ -256,10 +270,9 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
 
       jptr = table;
       for (iptr = First_Kmer_Entry(S); iptr != NULL; iptr = Next_Kmer_Entry(S))
-        if (COUNT_OF(iptr) >= cut_off)
-          { mycpy(jptr,iptr,tbyte);
-            jptr += tbyte;
-          }
+        { mycpy(jptr,iptr,tbyte);
+          jptr += tbyte;
+        }
       Free_Kmer_Stream(S);
 
       minval = cut_off;
@@ -275,7 +288,7 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
         { f = open(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
           read(f,&kmer,sizeof(int));
           read(f,&n,sizeof(int64));
-          read(f,KMER(nels),n*tbyte);
+          big_read(f,KMER(nels),n*tbyte);
           nels += n;
           close(f);
         }
@@ -631,7 +644,7 @@ static void More_Kmer_Stream(_Kmer_Stream *S)
           for (iptr = table; iptr < ctop; iptr += tbyte)
             { if (COUNT_OF(iptr) >= minv)
                 { mycpy(jptr,iptr,tbyte);
-                  ctop += tbyte;
+                  jptr += tbyte;
                 }
             }
           ctop = jptr;
@@ -647,7 +660,7 @@ static void More_Kmer_Stream(_Kmer_Stream *S)
         { S->celm = NULL;
           return;
         }
-      copn = open(Catenate(S->name,Numbered_Suffix(".T",S->part,""),"",""),O_RDONLY);
+      copn = open(Catenate(S->name,Numbered_Suffix(".ktab.",S->part,""),"",""),O_RDONLY);
       read(copn,&kmer,sizeof(int));
       read(copn,&rels,sizeof(int64));
     }
@@ -750,14 +763,14 @@ Kmer_Stream *Open_Kmer_Stream(char *name, int cut_off)
 inline uint8 *First_Kmer_Entry(Kmer_Stream *_S)
 { _Kmer_Stream *S = (_Kmer_Stream *) _S;
 
-  if (S->part == 1)
-    lseek(S->copn,0,SEEK_SET);
-  else
+  if (S->part != 1)
     { if (S->part <= S->nthr)
         close(S->copn);
       S->copn = open(Catenate(S->name,".ktab.1","",""),O_RDONLY);
       S->part = 1;
     }
+
+  lseek(S->copn,sizeof(int)+sizeof(int64),SEEK_SET);
 
   More_Kmer_Stream(S);
 
@@ -811,18 +824,6 @@ char *Current_Kmer(Kmer_Stream *S)
 int Current_Count(Kmer_Stream *S)
 { int kbyte = S->kbyte;
   return (COUNT_OF(((_Kmer_Stream *) S)->celm));
-}
-
-void Mark_Current(Kmer_Stream *_S)
-{ _Kmer_Stream *S = (_Kmer_Stream *) _S;
-
-  S->mark_part = S->part;
-  S->mark_off  = lseek(S->copn,0,SEEK_CUR) - (S->ctop-S->celm);
-}
-
-Kmer_Table *Load_To_Last_Mark(Kmer_Stream *_S)
-{ _Kmer_Stream *S = (_Kmer_Stream *) _S;
-
 }
 
 void Free_Kmer_Stream(Kmer_Stream *_S)
@@ -988,6 +989,9 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
       lseek(f,off,SEEK_SET);
       len = P->index[id+1] - off;
     }
+
+  if (len == 0)
+    return (len);
 
   read(f,count,PROF_BUF0);
 

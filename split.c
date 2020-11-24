@@ -41,45 +41,6 @@
 
 /*******************************************************************************************
  *
- *  Optional homopolymer compressor
- *
- ********************************************************************************************/
-
-static void compress_block(DATA_BLOCK *block)
-{ int    nreads = block->nreads;
-  int64 *boff   = block->boff+1;
-  char  *bases  = block->bases;
-
-  char *s, *t;
-  int   q, p, i;
-  char *c, x;
-  int64 u;
-
-  u = 0;
-  c = bases;
-  t = bases + boff[-1];
-  for (i = 0; i < nreads; i++)
-    { s = t;
-      t = bases + boff[i];
-
-      for (p = 0; p < BC_PREFIX; p++)
-        c[u++] = s[p];
-      s += BC_PREFIX;
-      q = (t-s) - 1;
-
-      c[u++] = x = s[0];
-      for (p = 1; p < q; p++)
-        if (s[p] != x)
-          c[u++] = x = s[p];
-
-      c[u++] = '\0';
-      boff[i] = u;
-    }
-  block->totlen = u-nreads;
-}
-
-/*******************************************************************************************
- *
  *  DETERMINE PARTITION FOR SUPER K-MER DISTRIBUTION USING FIRST BLOCK
  *     int Determine_Scheme(DATA_BLOCK *block)
  *        Determine base mapping and then the core prefix trie in a series of
@@ -535,9 +496,6 @@ int Determine_Scheme(DATA_BLOCK *block)
 
   (void) DNA;
 
-  if (COMPRESS)
-    compress_block(block);
-
   nreads   = block->nreads;
   npieces  = 2*NPARTS;
 
@@ -895,7 +853,6 @@ static inline IO_UTYPE *Stuff_Seq(char *s, int len, IO_UTYPE *buf, int *bitp, in
   if (flip)
     { for (i = 1; i <= 4; i++)
         { val = Fran[(int) s[len-i]];
-          // val = (IO_UTYPE) (s[len-i] ^ 0x3);
           if (rem > 2)
             { rem -= 2;
               *buf |= (val << rem);
@@ -923,7 +880,6 @@ static inline IO_UTYPE *Stuff_Seq(char *s, int len, IO_UTYPE *buf, int *bitp, in
         }
       for (i = len-5; i >= 0; i--)
         { val = Fran[(int) s[i]];
-          // val = (IO_UTYPE) (s[i] ^ 0x3);
           if (rem > 2)
             { rem -= 2;
               *buf |= (val << rem);
@@ -952,7 +908,6 @@ static inline IO_UTYPE *Stuff_Seq(char *s, int len, IO_UTYPE *buf, int *bitp, in
   else
     { for (i = 0; i < 4; i++)
         { val = Dran[(int) s[i]];
-          // val = (IO_UTYPE) s[i];
           if (rem > 2)
             { rem -= 2;
               *buf |= (val << rem);
@@ -980,7 +935,6 @@ static inline IO_UTYPE *Stuff_Seq(char *s, int len, IO_UTYPE *buf, int *bitp, in
         }
       for (i = 4; i < len; i++)
         { val = Dran[(int) s[i]];
-          // val = (IO_UTYPE) s[i];
           if (rem > 2)
             { rem -= 2;
               *buf |= (val << rem);
@@ -1034,6 +988,7 @@ static int64     *nfirst;   //  # of super-mers generated so far
 static int       *nmbits;   //  # of bits currently being used for super-mer indices (if -p)
 static int       *totrds;   //  # of reads processed
 static int64     *totbps;   //  # of bps processed
+static int        short_read;  //   There was at least one read < KMER (after prefix removal)
 
 void Distribute_Block(DATA_BLOCK *block, int tid)
 { int    nreads  = block->nreads;
@@ -1066,9 +1021,6 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   IO_UTYPE  *ptr;
   int       *bit;
 
-  if (COMPRESS)
-    compress_block(block);
-
   if (block->rem > 0)
     { totrds[tid] += nreads-1;
       totbps[tid] += block->totlen - (KMER-1);
@@ -1095,6 +1047,11 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
       s += BC_PREFIX;
       q = (t-s)-1;
       r = s-KM1;
+
+      if (q < KMER)
+        { nidx += 1;
+          continue;
+        }
 
 #if defined(DEBUG_DISTRIBUTE) || defined(SHOW_PACKETS)
       printf("READ %d %lld\n",i+1,nidx);
@@ -1186,7 +1143,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                   ptr = Stuff_Seq(r+last,n,ptr,bit,0,prep);
                   trg->fours[pref] += 1;
 
-                  if (nidx >= nlim)
+                  while (nidx >= nlim)
                     { nlim <<= 1;
                       nbits += 1;
                     }
@@ -1288,6 +1245,8 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
  *
  *********************************************************************************************/
 
+int64 *NUM_RID;   //  [i] for i in [0,NTHREADS) = # of super-mers per vertical stripe
+
 void Split_Kmers(Input_Partition *io, char *root)
 { int           overflow;
   uint64        nfiles;
@@ -1361,8 +1320,8 @@ void Split_Kmers(Input_Partition *io, char *root)
           write(f,zero,sizeof(int64));
           write(f,zero,sizeof(int));
           write(f,zero,sizeof(int));
-#endif
           write(f,zero,sizeof(int64));
+#endif
           write(f,zero,sizeof(int64));
           write(f,zero,sizeof(int64));
           write(f,out[p].fours,sizeof(int64)*256);
@@ -1377,14 +1336,15 @@ void Split_Kmers(Input_Partition *io, char *root)
   { int   i;
     int64 val;
 
-    nfirst = Malloc(sizeof(int64)*2*ITHREADS,"Allocating distribution globals");
+    nfirst = Malloc(sizeof(int64)*ITHREADS,"Allocating distribution globals");
+    totbps = Malloc(sizeof(int64)*ITHREADS,"Allocating distribution globals");
     nmbits = Malloc(sizeof(int)*2*ITHREADS,"Allocating distribution globals");
     ogroup = Malloc(sizeof(Min_File *)*ITHREADS,"Allocating distribution globals");
     totrds = nmbits + ITHREADS;
-    totbps = nfirst + ITHREADS;
     if (nfirst == NULL || nmbits == NULL || ogroup == NULL)
       exit (1);
 
+    short_read = 0;
     for (i = 0; i < ITHREADS; i++)
       { nfirst[i] = 0;
         nmbits[i] = 17;
@@ -1394,6 +1354,13 @@ void Split_Kmers(Input_Partition *io, char *root)
       }
 
     Scan_All_Input(io);
+
+    if (short_read)
+      { if (VERBOSE)
+          fprintf(stderr,"  Warning: there were reads shorter than the k-mer length %d\n\n",KMER);
+        else
+          fprintf(stderr,"Warning: there were reads shorter than the k-mer length %d\n",KMER);
+      }
 
     nids     = 0;
     nreads   = 0;
@@ -1411,6 +1378,7 @@ void Split_Kmers(Input_Partition *io, char *root)
 
     free(ogroup);
     free(nmbits);
+    free(totbps);
   }
 
   //  Determine k-mer & super-mer totals for headers, flush buffers,
@@ -1522,17 +1490,21 @@ void Split_Kmers(Input_Partition *io, char *root)
           write(f,&NMAX,sizeof(int64));
           write(f,&KMAX_BYTES,sizeof(int));
           write(f,&RUN_BITS,sizeof(int));
+          write(f,nfirst+t,sizeof(int64));
 #endif
           write(f,&(out[p].kmers),sizeof(int64));
           write(f,&(out[p].nmers),sizeof(int64));
-          write(f,nfirst+t,sizeof(int64));
           write(f,out[p].fours,sizeof(int64)*256);
           close(f);
           p += 1;
         }
   }
 
+#ifdef DEVELOPER
   free(nfirst);
+#else
+  NUM_RID = nfirst;
+#endif
   free(buffers);
   free(out);
   free(Min_Part);

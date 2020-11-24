@@ -17,42 +17,17 @@
 
 #undef DEBUG_PARTITION
 
-#include "gene_core.h"
+#include "libfastk.h"
 
 static char *Usage = "[-h<int>:<int>] <source>[.ktab]";
-
-
-/****************************************************************************************
- *
- *  The interface you may want to lift for your own use
- *
- *****************************************************************************************/
-
-typedef struct
-  { int    kmer;    //  Kmer length
-    int    kbyte;   //  Kmer encoding in bytes
-    int    tbyte;   //  Kmer+count entry in bytes
-    int64  nels;    //  # of unique, sorted k-mers in the table
-    uint8 *table;   //  The (huge) table in memory
-  } Kmer_Table;
-
-#define  KMER(i)  (table+(i)*tbyte)
-#define  COUNT(i) (*((uint16 *) (table+(i)*tbyte+kbyte)))
-#define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
-
-Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads);
-void        Free_Kmer_Table(Kmer_Table *T);
-
-void        List_Kmer_Table(Kmer_Table *T);
-void        Check_Kmer_Table(Kmer_Table *T);
-int         Find_Kmer(Kmer_Table *T, char *kseq);
-
 
 /****************************************************************************************
  *
  *  Print & compare utilities
  *
  *****************************************************************************************/
+
+#define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
 
 static char dna[4] = { 'a', 'c', 'g', 't' };
 
@@ -91,13 +66,6 @@ static void print_seq(uint8 *seq, int len)
     }
 }
 
-static void print_pack(uint8 *seq, int len)
-{ int i;
-
-  for (i = 0; i < (len+3)/4; i++)
-    printf(" %02x",seq[i]);
-}
-
 static inline int mycmp(uint8 *a, uint8 *b, int n)
 { while (n-- > 0)
     { if (*a++ != *b++)
@@ -109,105 +77,6 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
 static inline void mycpy(uint8 *a, uint8 *b, int n)
 { while (n--)
     *a++ = *b++;
-}
-
-
-/****************************************************************************************
- *
- *  Read in a table and return as Kmer_Table object
- *
- *****************************************************************************************/
-
-Kmer_Table *Load_Kmer_Table(char *name, int cut_freq, int smer, int nthreads)
-{ Kmer_Table *T;
-  int         kmer, tbyte, kbyte;
-  int64       nels;
-  uint8      *table;
-
-  FILE  *f;
-  int    p;
-  int64  n;
-
-  //  Find all parts and accumulate total size
-
-  nels = 0;
-  for (p = 1; p <= nthreads; p++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".ktab.",p,""),"",""),"r");
-      if (f == NULL)
-        { fprintf(stderr,"%s: Table part %s.ktab.%d is misssing ?\n",Prog_Name,name,p);
-          exit (1);
-        }
-      fread(&kmer,sizeof(int),1,f);
-      fread(&n,sizeof(int64),1,f);
-      nels += n;
-      if (kmer != smer)
-        { fprintf(stderr,"%s: Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
-                         Prog_Name,name,p);
-          exit (1);
-        }
-      fclose(f);
-    }
-
-  //  Allocate in-memory table
-
-  kbyte = (kmer+3)>>2;
-  tbyte = kbyte+2;
-  table = Malloc(nels*tbyte,"Allocating k-mer table\n");
-  if (table == NULL)
-    exit (1);
-
-  //  Load the parts into memory
-
-  fprintf(stderr,"Loading %d-mer table with ",kmer);
-  Print_Number(nels,0,stderr);
-  fprintf(stderr," entries in %d parts\n",p-1);
-  fflush(stderr);
-
-  nels = 0;
-  for (p = 1; p <= nthreads; p++)
-    { f = fopen(Catenate(name,Numbered_Suffix(".ktab.",p,""),"",""),"r");
-      fread(&kmer,sizeof(int),1,f);
-      fread(&n,sizeof(int64),1,f);
-      fread(KMER(nels),n*tbyte,1,f);
-      nels += n;
-      fclose(f);
-    }
-
-  if (cut_freq > 1)
-    { int64 i, j;
-      uint8 *iptr, *jptr;
-
-      jptr = table;
-      for (i = 0; i < nels; i++)
-        { iptr = KMER(i);
-          if (COUNT_OF(iptr) >= cut_freq)
-            { mycpy(jptr,iptr,tbyte);
-              jptr += tbyte;
-            }
-        }
-      j = (jptr-table)/tbyte;
-      if (j < nels)
-        { nels = j;
-          table = Realloc(table,nels*tbyte,"Reallocating table");
-        }
-    }
-
-  T = Malloc(sizeof(Kmer_Table),"Allocating table record");
-  if (T == NULL)
-    exit (1);
-
-  T->kmer  = kmer;
-  T->tbyte = tbyte;
-  T->kbyte = kbyte;
-  T->nels  = nels;
-  T->table = table;
-
-  return (T);
-}
-
-void Free_Kmer_Table(Kmer_Table *T)
-{ free(T->table);
-  free(T);
 }
 
 
@@ -244,21 +113,21 @@ static inline int mypref(uint8 *a, uint8 *b, int n)
   return (n+1);
 }
 
-void Find_Haplo_Pairs(Kmer_Table *T)
+void Find_Haplo_Pairs(Kmer_Stream *T)
 { int    kmer  = T->kmer;
   int    tbyte = T->tbyte;
   int    kbyte = T->kbyte;
-  int64  nels  = T->nels;
-  uint8 *table = T->table;
 
   int    khalf;
   uint8  prefs[] = { 0x3f, 0x0f, 0x03, 0x00 };
   int    mask, offs, rem;
 
-  uint8 *iptr, *nptr;
+  uint8 *iptr;
+  uint8 *cache, *cptr, *ctop;
 
   int    f, i;
-  uint8 *finger[5];
+  int    index[4];
+  uint8 *finger[4];
   uint8 *flimit[4];
 
   int    a, advn[4];
@@ -277,37 +146,54 @@ void Find_Haplo_Pairs(Kmer_Table *T)
   printf("Extension = K[%d]&%02x . K[%d..%d)\n",offs-1,mask,offs,offs+rem);
 #endif
 
-  nptr = KMER(nels);
-  iptr = table + 368645*tbyte;
-  while (iptr < nptr)
+  cache = Malloc(4096*tbyte,"Allocating entry buffer");
+  cptr  = cache;
+  ctop  = cache + 4096*tbyte;
+
+  iptr = First_Kmer_Entry(T);
+  while (iptr != NULL)
     { f = 0;
-      finger[f++] = iptr;
-      for (iptr += tbyte; iptr < nptr; iptr += tbyte)
-        { int x = mypref(iptr-tbyte,iptr,khalf); 
+      cptr = cache;
+      index[f++] = 0;
+      mycpy(cptr,iptr,tbyte);
+      for (iptr = Next_Kmer_Entry(T); iptr != NULL; iptr = Next_Kmer_Entry(T))
+        { int x = mypref(cptr,iptr,khalf); 
+          cptr += tbyte;
           if (x < khalf)
             break;
           if (x == khalf)
-            finger[f++] = iptr;
+            index[f++] = cptr-cache;
+          if (cptr >= ctop)
+            { int64 cidx = ctop-cache;
+              int64 cmax = cidx*1.4 + 2048*tbyte; 
+              cache = Realloc(cache,cmax,"Reallocting entry buffer");
+              ctop  = cache + cmax;
+              cptr  = cache + cidx;
+            }
+          mycpy(cptr,iptr,tbyte);
         }
 
 #ifdef DEBUG_PARTITION
       printf("part %d",f);
       for (i = 0; i < f; i++)
-        printf(" %ld",(finger[i]-table)/tbyte);
-      printf(" %ld\n",(iptr-table)/tbyte);
+        printf(" %d",index[i]/tbyte);
+      printf(" %ld\n",(cptr-cache)/tbyte);
 #endif
 
       if (f <= 1)
         continue;
-      finger[f] = iptr;
-      for (i = 0; i < f; i++)
-        flimit[i] = finger[i+1];
 
-#define ADD(i)					\
-{ int cn = COUNT_OF(finger[i]);			\
-  advn[a++] = i;				\
-  if (HAPLO_LOW <= cn && cn <= HAPLO_HGH)	\
-    good[c++] = i;				\
+      for (i = 0; i < f; i++)
+        finger[i] = cache + index[i];
+      for (i = 1; i < f; i++)
+        flimit[i-1] = finger[i];
+      flimit[f-1] = cptr;
+
+#define ADD(i)				\
+{ int cn = COUNT_OF(finger[i]);		\
+  advn[a++] = i;			\
+  if (cn <= HAPLO_HGH)			\
+    good[c++] = i;			\
 }
 
 #define SET(i)	\
@@ -369,7 +255,7 @@ void Find_Haplo_Pairs(Kmer_Table *T)
 
 #ifdef DEBUG_PARTITION
           for (i = 0; i < f; i++)
-            printf(" %ld",(finger[i]-table)/tbyte);
+            printf(" %ld",(finger[i]-cache)/tbyte);
           printf("\n");
 #endif
         }
@@ -384,11 +270,7 @@ void Find_Haplo_Pairs(Kmer_Table *T)
  *****************************************************************************************/
 
 int main(int argc, char *argv[])
-{ char       *name;
-  int         smer, nthreads;
-  Kmer_Table *T;
-
-  (void) print_pack;
+{ Kmer_Stream *T;
 
   { int    i, j, k;
     int    flags[128];
@@ -447,31 +329,11 @@ int main(int argc, char *argv[])
       }
   }
 
-  { FILE *f;
-    char *dir, *root;
-
-    dir  = PathTo(argv[1]);
-    root = Root(argv[1],".ktab");
-    name = Strdup(Catenate(dir,"/.",root,""),NULL);
-    f = fopen(Catenate(dir,"/",root,".ktab"),"r");
-    if (f == NULL)
-      { fprintf(stderr,"%s: Cannot open %s for reading\n",Prog_Name,Catenate(dir,"/",root,".ktab"));
-        exit (1);
-      }
-    fread(&smer,sizeof(int),1,f);
-    fread(&nthreads,sizeof(int),1,f);
-    fclose(f);
-    free(root);
-    free(dir);
-  }
-
-  T = Load_Kmer_Table(argv[1],1,smer,nthreads);
+  T = Open_Kmer_Stream(argv[1],HAPLO_LOW);
 
   Find_Haplo_Pairs(T);
 
-  Free_Kmer_Table(T);
-
-  free(name);
+  Free_Kmer_Stream(T);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

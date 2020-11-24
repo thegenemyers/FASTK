@@ -155,6 +155,7 @@ typedef struct
   { int     tfile;      //  Bit compressed super-mer input streaam for thread
     int64   nmers;      //  # of super-mers in the input
     int64   nbase;      //  if DO_PROFILE then start of indices for this thread
+    int64   nidxs;      //  total number of super-mers for this thread slice
     uint8  *fours[256]; //  finger for filling list sorted on first super-mer byte
   } Slist_Arg;
 
@@ -873,6 +874,7 @@ typedef struct
     int64     beg;
     int64     end;
     uint8    *prol;
+    int64     nidxs;
   } Pwrite_Arg;
 
 static void *profile_write_thread(void *arg)
@@ -925,10 +927,13 @@ static void *profile_write_thread(void *arg)
         }
 
 #ifdef DEVELOPER
-      if (t == 1 && data->wch == 0)
-        { write(pfile,&RUN_BYTES,sizeof(int));
-          write(pfile,&PLEN_BYTES,sizeof(int));
-          write(pfile,&MAX_SUPER,sizeof(int));
+      if (t == 1)
+        { if (data->wch == 0)
+            { write(pfile,&RUN_BYTES,sizeof(int));
+              write(pfile,&PLEN_BYTES,sizeof(int));
+              write(pfile,&MAX_SUPER,sizeof(int));
+            }
+          write(pfile,&data->nidxs,sizeof(int64));
         }
 #endif
 
@@ -1109,31 +1114,31 @@ void Sorting(char *dpwd, char *dbrt)
   // For each partition, make k-mer list, sort on k-mer and count, resort on position,
   //    and finally output super-counts
 
-  { Slist_Arg   parms[ITHREADS];
-    Klist_Arg   parmk[NTHREADS];
-    Clist_Arg   parmc[NTHREADS];
-    Twrite_Arg  parmt[NTHREADS];
-    Plist_Arg   parmp[NTHREADS];
-    Pwrite_Arg  parmw[ITHREADS];
+  { Slist_Arg  *parms = Malloc(sizeof(Slist_Arg)*ITHREADS,"Allocating sort controls");
+    Klist_Arg  *parmk = Malloc(sizeof(Klist_Arg)*NTHREADS,"Allocating sort controls");
+    Clist_Arg  *parmc = Malloc(sizeof(Clist_Arg)*NTHREADS,"Allocating sort controls");
+    Twrite_Arg *parmt = Malloc(sizeof(Twrite_Arg)*NTHREADS,"Allocating sort controls");
+    Plist_Arg  *parmp = Malloc(sizeof(Plist_Arg)*NTHREADS,"Allocating sort controls");
+    Pwrite_Arg *parmw = Malloc(sizeof(Pwrite_Arg)*ITHREADS,"Allocating sort controls");
 
-    int         Table_Split[NTHREADS];
-    int64       Sparts[256];
-    int64       Kparts[256];
-    Range       Panels[NTHREADS];
-    int64       Wkmers[NPARTS];
-    int64       Ukmers[NPARTS];
+    int   *Table_Split = Malloc(sizeof(int)*NTHREADS,"Allocating sort controls");
+    int64 *Sparts      = Malloc(sizeof(int64)*256,"Allocating sort controls");
+    int64 *Kparts      = Malloc(sizeof(int64)*256,"Allocating sort controls");
+    Range *Panels      = Malloc(sizeof(Range)*NTHREADS,"Allocating sort controls");
+    int64 *Wkmers      = Malloc(sizeof(int64)*NPARTS,"Allocating sort controls");
+    int64 *Ukmers      = Malloc(sizeof(int64)*NPARTS,"Allocating sort controls");
+
+#if !defined(DEBUG) || !defined(SHOW_RUN)
+    THREAD *threads = Malloc(sizeof(THREAD)*NTHREADS,"Allocating sort controls");
+#endif
+
+    int         ODD_PASS = 0;
 
     uint8      *s_sort;
     uint8      *k_sort;
     uint8      *i_sort;
     uint8      *p_sort;
     uint8      *a_sort;
-
-    int         ODD_PASS = 0;
-
-#if !defined(DEBUG) || !defined(SHOW_RUN)
-    THREAD      threads[NTHREADS];
-#endif
 
     int64  kmers;
     int64  nmers;
@@ -1142,6 +1147,19 @@ void Sorting(char *dpwd, char *dbrt)
 
     s_sort = NULL;
     i_sort = NULL;
+
+    if (parms == NULL || parmk == NULL || parmc == NULL ||
+        parmt == NULL || parmp == NULL || parmw == NULL)
+      exit (1);
+
+    if (Table_Split == NULL || Sparts == NULL || Kparts == NULL ||
+        Panels == NULL || Wkmers == NULL || Ukmers == NULL)
+      exit (1);
+
+#if !defined(DEBUG) || !defined(SHOW_RUN)
+    if (threads == NULL)
+      exit (1);
+#endif
 
 #ifndef DEVELOPER
     if (DO_PROFILE)
@@ -1181,14 +1199,16 @@ void Sorting(char *dpwd, char *dbrt)
             read(f,&NMAX,sizeof(int64));
             read(f,&KMAX_BYTES,sizeof(int));
             read(f,&RUN_BITS,sizeof(int));
+            read(f,&n,sizeof(int64));
+            parms[t].nidxs = n;
+#else
+            parms[t].nidxs = NUM_RID[t];
 #endif
             read(f,&k,sizeof(int64));
             read(f,&n,sizeof(int64));
             parms[t].nmers = n;
             kmers += k;
             nmers += n;
-            read(f,&n,sizeof(int64));
-            parms[t].nbase = n;
 
             read(f,Panels[t].khist,sizeof(int64)*256);
           }
@@ -1231,7 +1251,7 @@ void Sorting(char *dpwd, char *dbrt)
 
           o = 0;
           for (t = 0; t < ITHREADS; t++)
-            { x = parms[t].nbase;
+            { x = parms[t].nidxs;
               parms[t].nbase = o;
               o += x;
             }
@@ -1537,6 +1557,7 @@ void Sorting(char *dpwd, char *dbrt)
               parmw[t].beg   = o;
               o += parms[t].nmers;
               parmw[t].end   = o;
+              parmw[t].nidxs = parms[t].nidxs;
 #ifdef DEBUG_PWRITE
               printf("Partition %2d: %10lld [%lld]\n",t,o,nmers);
 #endif
@@ -1601,6 +1622,24 @@ void Sorting(char *dpwd, char *dbrt)
         fprintf(stderr,"  %*.1f\n",awide,(1.*utot)/wtot);
         fflush(stderr);
       }
+
+#if !defined(DEBUG) || !defined(SHOW_RUN)
+    free(threads);
+#endif
+
+    free(Ukmers);
+    free(Wkmers);
+    free(Panels);
+    free(Kparts);
+    free(Sparts);
+    free(Table_Split);
+
+    free(parmw);
+    free(parmp);
+    free(parmt);
+    free(parmc);
+    free(parmk);
+    free(parms);
   }
 
 

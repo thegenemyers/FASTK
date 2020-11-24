@@ -77,7 +77,8 @@ typedef struct
     int       wch;     //  Number of this thread
     int       afile;   //  A-file output
     int       dfile;   //  D-file output
-    int64     nreads;
+    int64     nreads;  //  # of reads seen by this thread
+    int64     nbase;   //  First rid for thread
   } Track_Arg;
 
 static int64 totin;  //  Total bytes for part 0, thread 0
@@ -96,10 +97,11 @@ static void *merge_profile_thread(void *arg)
   int    nreads;
   char  *fname;
   int64  panel, nanel;
-  int    naval, loaded, wlast;
+  int    naval, wlast;
   uint16 lcont, d;
   uint8 *db = (uint8 *)  &d;
   int    n;
+  int64  nidx;
 
   int64  pct1, partin, nextin;
   int    CLOCK;
@@ -150,7 +152,6 @@ static void *merge_profile_thread(void *arg)
   wlast = 1;
   lcont = 0;
   naval = NPARTS;
-  panel = 0x7fffffffffffffffll;
   for (n = 0; n < NPARTS; n++)
     { IO_block *src;
       uint8    *sptr;
@@ -192,8 +193,13 @@ static void *merge_profile_thread(void *arg)
             }
 
 #ifdef DEVELOPER
-          if (src->panel == 0 && data->wch == 0)
-            lseek(f,3*sizeof(int),SEEK_SET);
+          if (src->panel == 0)
+            { if (data->wch == 0)
+                lseek(f,3*sizeof(int),SEEK_SET);
+              read(f,&nidx,sizeof(int64));
+            }
+#else
+          nidx = NUM_RID[data->wch];
 #endif
           src->stream = f;
           src->top    = sptr + read(f,sptr,BUFLEN_UINT8);
@@ -222,23 +228,23 @@ static void *merge_profile_thread(void *arg)
       for (f = 0; f < RUN_BYTES; f++)
         rb[f] = *sptr++;
 #endif
-      if (rid < panel)
-        panel = rid;
       src->rid = rid;
       src->ptr = sptr;
     }
 
   //  For each run of PAN_SIZE consecutive super-mer profiles do
 
-  for ( ; naval > 0; panel = nanel)
+  nidx += data->nbase;
+  for (panel = data->nbase; naval > 0; panel = nanel)
     { nanel  = panel + PAN_SIZE;
-      loaded = 0;
+      if (nanel > nidx)
+        nanel = nidx;
 
 #ifdef DEBUG_SEGS
       printf("Panning %lld - %lld\n",panel,nanel);
+#endif
       for (n = 0; n < PAN_SIZE; n++)
         chord[n].len = 0;
-#endif
 
       //  Load profiles in current run range [panel,nanel) from the parts part so as to fill range
 
@@ -251,7 +257,7 @@ static void *merge_profile_thread(void *arg)
           sptr = src->ptr;
           rid  = src->rid;
           while (rid < nanel)    //  While next profile is in range
-            { loaded += 1;                      //  Load it
+            {
 #if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
               for (f = PLEN_BYTES; f > 0; f--)
                 lb[f] = *sptr++;
@@ -348,8 +354,8 @@ static void *merge_profile_thread(void *arg)
         }
 
 #ifdef DEBUG_SEGS
-      if (loaded < PAN_SIZE)
-        { printf("Loaded %d (%d)\n",loaded,data->wch);
+      if (nanel-panel < PAN_SIZE)
+        { printf("Loaded %lld (%d)\n",nanel-panel,data->wch);
           for (n = 0; n < PAN_SIZE; n++)
             if (chord[n].len > 0)
               printf("  %d -- %lld\n",n,panel+n);
@@ -360,11 +366,22 @@ static void *merge_profile_thread(void *arg)
       //  Compress and join the profile fragments in the current range and output
 
       { uint8 *o, *ptr;
+        int64  p;
 
         o = dbuf;
-        for (n = 0; n < loaded; n++)
+        for (n = 0, p = panel; p < nanel; n++, p++)
           { len = chord[n].len;
             ptr = chord[n].frag;
+
+            if (len == 0)
+              { if (aptr >= atop)
+                  { write(afile,abuf,BUFLEN_IBYTE);
+                    aptr = abuf;
+                  }
+                *aptr++ = offset + (o-dbuf);
+                nreads += 1;
+                continue;
+              }
 
             //  Get 1st count of profile n
 
@@ -488,6 +505,10 @@ void Merge_Profiles(char *dpwd, char *dbrt)
   uint8      *blocks;
   Entry      *chord;
   uint8      *_chord;
+  Track_Arg  *parmk;
+#ifndef DEBUG
+  THREAD     *threads;
+#endif
 
   if (VERBOSE)
     { fprintf(stderr,"\nPhase 4 (-p option): Merging Profile Fragments\n");
@@ -510,38 +531,58 @@ void Merge_Profiles(char *dpwd, char *dbrt)
 
   //  Allocate all working data structures
 
-  { int         f;
-    struct stat info;
+  parmk = Malloc(sizeof(Track_Arg)*ITHREADS,"Allocating control data");
+  if (parmk == NULL)
+    exit (1);
 
-    sprintf(fname,"%s/%s.0.P0.0",SORT_PATH,dbrt);
-    f = open(fname,O_RDONLY);
-    if (f == -1)
-      { fprintf(stderr,"%s: A Cannot find file %s.0.P0.0 in directory %s\n",
-                       Prog_Name,dbrt,SORT_PATH);
-        exit (1);
-      }
-  
-#ifdef DEVELOPER
-     read(f,&RUN_BYTES,sizeof(int));
-     read(f,&PLEN_BYTES,sizeof(int));
-     read(f,&MAX_SUPER,sizeof(int));
+#ifndef DEBUG
+  threads = Malloc(sizeof(THREAD)*ITHREADS,"Allocating control data");
+  if (threads == NULL)
+    exit (1);
 #endif
 
-     if (VERBOSE)
-       { fstat(f,&info);
-         totin = info.st_size;
+  { int   t;
+    int64 o, n;
 
-         close(f);
+    o = 0;
+    for (t = 0; t < ITHREADS; t++)
+      { int         f;
+        struct stat info;
 
-         for (int i = 1; i < NPANELS; i++)
-           { sprintf(fname,"%s/%s.0.P0.%d",SORT_PATH,dbrt,i);
-             stat(fname,&info);
-             totin += info.st_size;
-           }
-       }
-     else
-       close(f);
-   }
+        sprintf(fname,"%s/%s.0.P%d.0",SORT_PATH,dbrt,t);
+        f = open(fname,O_RDONLY);
+        if (f == -1)
+          { fprintf(stderr,"%s: A Cannot find file %s.0.P%d.0 in directory %s\n",
+                           Prog_Name,dbrt,t,SORT_PATH);
+            exit (1);
+          }
+  
+#ifdef DEVELOPER
+        if (t == 0)
+          { read(f,&RUN_BYTES,sizeof(int));
+            read(f,&PLEN_BYTES,sizeof(int));
+            read(f,&MAX_SUPER,sizeof(int));
+          }
+        read(f,&n,sizeof(int64));
+#else
+        n = NUM_RID[t];
+#endif
+        parmk[t].nbase = o;
+        o += n;
+
+        if (VERBOSE && t == 0)
+          { fstat(f,&info);
+            totin = info.st_size;
+  
+            for (int i = 1; i < NPANELS; i++)
+              { sprintf(fname,"%s/%s.0.P0.%d",SORT_PATH,dbrt,i);
+                stat(fname,&info);
+                totin += info.st_size;
+              }
+          }
+        close(f);
+      }
+  }
 
   BUFLEN_UINT8 = SORT_MEMORY/((NPARTS+1)*ITHREADS);
   if (BUFLEN_UINT8 > 0x7fffffffll)
@@ -562,11 +603,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
 
   //  Open up A- and D-files, assign blocks for the inputs, and setup thread params 
 
-  { Track_Arg   parmk[ITHREADS];
-#ifndef DEBUG
-    THREAD      threads[ITHREADS];
-#endif
-    char *root;
+  { char *root;
     int   t, n, p;
     
     root = Malloc(strlen(SORT_PATH) + strlen(dbrt) + 10,"File name buffer");
@@ -665,6 +702,10 @@ void Merge_Profiles(char *dpwd, char *dbrt)
     free(chord);
     free(blocks);
     free(io);
+#ifndef DEBUG
+    free(threads);
+#endif
+    free(parmk);
     free(fname);
   }
 }

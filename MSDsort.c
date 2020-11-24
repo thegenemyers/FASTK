@@ -401,6 +401,12 @@ static void msd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
           off = sum;
         }
     }
+  while (n < nthreads)
+    { parms[n].end = 256;
+      parms[n].beg = 256;
+      parms[n].off = off;
+      n += 1;
+    }
 
 #ifdef SHOW_STUFF
   for (x = 0; x < nthreads; x++)

@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -30,7 +31,7 @@ int    DO_STAGE;   //  Which step to perform
 
 #endif
 
-static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t<int(3)>] [-cp] [-bc<int(0)>]",
+static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t[<int(4)>]] [-cp] [-bc<int(0)>]",
                          "  [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]",
                          "    <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz] ..."
                        };
@@ -85,8 +86,6 @@ int KMER_WORD;    //  bytes to hold a k-mer entry
 int SMER_WORD;    //  bytes to hold a super-mer entry
 int TMER_WORD;    //  bytes to hold a k-mer table entry
 int CMER_WORD;    //  bytes to hold a count/index entry
-
-int NUM_READS;    //  number of sequences in the dataset
 
 static struct rusage   Itime;
 static struct timespec Iwall;
@@ -183,7 +182,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("vcp")
+            ARG_FLAGS("vcpt")
             break;
           case 'b':
             if (argv[i][2] != 'c')
@@ -227,8 +226,8 @@ int main(int argc, char *argv[])
             OUT_NAME = argv[i]+2;
             break;
           case 't':
-            if (argv[i][2] == '\0')
-              { DO_TABLE = 3;
+            if (argv[i][2] == '\0' || isalpha(argv[i][2]))
+              { ARG_FLAGS("vcpt");
                 break;
               }
             ARG_POSITIVE(DO_TABLE,"Cutoff for k-mer table")
@@ -265,6 +264,8 @@ int main(int argc, char *argv[])
     VERBOSE    = flags['v'];   //  Globally declared in filter.h
     DO_PROFILE = flags['p'];
     COMPRESS   = flags['c'];
+    if (flags['t'] && DO_TABLE == 0)
+      DO_TABLE = 4;
 
     if (argc < 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
@@ -347,8 +348,8 @@ int main(int argc, char *argv[])
 
     rsize  = KMER_BYTES + 2;
     gsize  = block->totlen - KMER*block->nreads;
-    if (gsize < 0)
-      { fprintf(stderr,"\n%s: Sequences are on aaverage smaller than k-mer size!\n",Prog_Name);
+    if (gsize < block->totlen/3)
+      { fprintf(stderr,"\n%s: Sequences are on average smaller than 1.5x k-mer size!\n",Prog_Name);
         exit (1);
       }
     gsize  = gsize*block->ratio*rsize;
@@ -357,11 +358,12 @@ int main(int argc, char *argv[])
     if (VERBOSE)
       { double est = gsize/(1.*rsize);
         if (est >= 5.e8)
-          fprintf(stderr,"  Estimate %.3fG %d-mers\n",est/1.e9,KMER);
+          fprintf(stderr,"  Estimate %.3fG",est/1.e9);
         else if (est >= 5.e5)
-          fprintf(stderr,"  Estimate %.3fM %d-mers\n",est/1.e6,KMER);
+          fprintf(stderr,"  Estimate %.3fM",est/1.e6);
         else
-          fprintf(stderr,"  Estimate %.3fK %d-mers\n",est/1.e3,KMER);
+          fprintf(stderr,"  Estimate %.3fK",est/1.e3);
+        fprintf(stderr," %d-%smers\n",KMER,COMPRESS?"hoco-":"");
         if (NPARTS > 1)
           fprintf(stderr,"  Dividing data into %d buckets\n",NPARTS);
         else
@@ -440,6 +442,10 @@ int main(int argc, char *argv[])
       Merge_Profiles(pwd,root);
 #else
     Merge_Profiles(pwd,root);
+#endif
+
+#ifndef DEVELOPER
+  free(NUM_RID);
 #endif
 
   free(pwd);

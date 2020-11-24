@@ -46,12 +46,12 @@ line options.  The table (2.) is over just the *canonical* k-mers present in the
 about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 
 ```
-1. FastK [-k<int(40)] [-h[<int(1)>:]<int>] [-t<int(3)>] [-cp] [-bc<int>]
+1. FastK [-k<int(40)] [-h[<int(1)>:]<int>] [-t[<int(4)>]] [-cp] [-bc<int>]
           [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
             <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz]] ...
 ```
 
-FastK counts the number of k-mers in a corpus of DNA sequences over the alphabet {a,c,g,t} for a specified k-mer size, 40 by default.
+FastK counts the number of k-mers in a corpus of DNA sequences over the alphabet {a,c,g,t} for a specified k&#8209;mer size, 40 by default.
 The input data can be in one or more CRAM, BAM, SAM, fasta, or fastq files, where the later two can be gzip'd, preferrably
 by [VGPzip](https://github.com/VGP/vgp-tools/tree/master/VGP). The data can also be in [Dazzler databases](https://github.com/thegenemyers/DAZZ_DB).  The type of the
 file is determined by its extension (and not its
@@ -63,47 +63,47 @@ FastK produces a number of outputs depending on the setting of its options.  By 
 outputs will be placed in the same directory as that of the first input and begin with the
 prefix \<source> which is the first path name absent any suffix extensions.  For example, if
 the input is <code>../BLUE/foo.fastq</code> then \<source> is <code>../BLUE/foo</code>, the
-outputs will be placed in directory <code>../BLUE</code>, and all result file names will begin with <code>foo</code>.  If the -N option is specified then the path name specified is used
+outputs will be placed in directory <code>../BLUE</code>, and all result file names will begin with <code>foo</code>.  If the &#8209;N option is specified then the path name specified is used
 as \<source>.
 
-One can select any value of k &ge; 5 with the -k option.
+One can select any value of k &ge; 5 with the &#8209;k option.
 FastK always outputs a file <code>\<source>.hist</code> that contains a histogram of the k-mer frequency
 distribution where the highest possible count is 2<sup>15</sup>-1 = 32,767 -- FastK clips all higher values to this upper limit.  Its exact format is described in the section on Data Encodings.
-If the -h option is specified then the histogram is displayed by FastK on the standard output as 
+If the &#8209;h option is specified then the histogram is displayed by FastK on the standard output as 
 soon as it is computed.
 This option allows you to specify the interval of frequencies to display, where the lower limit
 is 1 if ommitted.
 
-One can optionally request, by specifying the -t option, that FastK produce a sorted table of
-all canonical k-mers that occur -t or more times along with their counts, where the default
+One can optionally request, by specifying the &#8209;t option, that FastK produce a sorted table of
+all canonical k&#8209;mers that occur &#8209;t or more times along with their counts, where the default
 for the threshold is 3.
 The output is placed in a single *stub* file with the name <code>\<source>.ktab</code> and N
 roughly equal-sized *hidden* files with the names <code>.\<base>.ktab.#</code> assuming
 \<source> = \<dir>/\<base> and
 where # is a thread number between 1 and N where N is the number of threads used by FastK (4 by default).
-The exact format of the N-part table is described in the section on Data Encodings.
+The exact format of the N&#8209;part table is described in the section on Data Encodings.
 
-One can also ask FastK to produce a k-mer count profile of each sequence in the input data set
-by specifying the -p option.  A single *stub* file with the name <code>\<source>.prof</code> is output
+One can also ask FastK to produce a k&#8209;mer count profile of each sequence in the input data set
+by specifying the &#8209;p option.  A single *stub* file with the name <code>\<source>.prof</code> is output
 along with 2N roughly equal-sized pairs of *hidden* files with the names
 <code>.\<base>.pidx.#</code> and <code>.\<base>.prof.#</code> in the order of the sequences in the input.  Here \<base> is the base name part of \<source> = \<dir>/\<base>.
 The profiles are individually compressed and the exact format of these
 files is described in the section on Data Encodings.
 
-The -c option asks FastK to first homopolymer compress the input sequences before analyzing
+The &#8209;c option asks FastK to first homopolymer compress the input sequences before analyzing
 the k-mer content.  In a homopolymer compressed sequence, every substring of 2 or more a's
 is replaced with a single a, and similarly for runs of c's, g's, and t's.  This is particularly useful for Pacbio data where homopolymer errors are five-fold more frequent than other
 errors and thus the error rate of these "hoco" k-mers is five-fold less.
 
-The -v option asks FastK to output information about its ongoing operation to standard error.
-The -bc option allows you to ignore the prefix of each read of the indicated length, e.g. when
+The &#8209;v option asks FastK to output information about its ongoing operation to standard error.
+The &#8209;bc option allows you to ignore the prefix of each read of the indicated length, e.g. when
 the reads have a bar code at the start of each read.
-The -P option specifies where FastK should place all the numerous temporary files it creates, if not `/tmp` by default.
-The -M option specifies the maximum amount of memory, in GB, FastK should use at any given
+The &#8209;P option specifies where FastK should place all the numerous temporary files it creates, if not `/tmp` by default.
+The &#8209;M option specifies the maximum amount of memory, in GB, FastK should use at any given
 moment.
 FastK by design uses a modest amount of memory, the default 12GB should generally
 be more than enough.
-Lastly, the -T option allows the user to specify the number of threads to use.
+Lastly, the &#8209;T option allows the user to specify the number of threads to use.
 Generally, this is ideally set to the actual number of physical cores in one's machine.
             
 ```
@@ -112,18 +112,18 @@ Generally, this is ideally set to the actual number of physical cores in one's m
 2c. Fastcp [-in] <source>[.hist|.ktab|.prof] <dest>
 ```
 
-As described above FastK produces hidden files whose names begin with a . for the -t and -p
+As described above FastK produces hidden files whose names begin with a . for the &#8209;t and &#8209;p
 options in order to avoid clutter when listing a directory's contents.
 An issue with this approach is that it is inconvenient for the user to remove, rename, or copy these files
 and often a user will forget they are there, potentially wasting disk space.
 We therefore provide Fastrm, Fastmv, and Fastcp that remove, rename, and copy FastK .hist, .ktab, and .prof output files as a single unit.
 
 If \<source> does not end with a FastK extenion then the command operates on any histogram, k-mer table, and profile files with \<source> as its prefix.  Otherwise the command operates on the file with the given extension and its hidden files.  Fastrm removes the relevant stub and
-hidden files, Fastmv renames all the relevant files as if FastK had been called with option -N\<dest>, and Fastcp makes a copy of all associated files with the path name \<dest>.  If \<dest> is a directory than
+hidden files, Fastmv renames all the relevant files as if FastK had been called with option &#8209;N\<dest>, and Fastcp makes a copy of all associated files with the path name \<dest>.  If \<dest> is a directory than
 the base name of source is used to form a complete destination path for both Fastmv and Fastcp.
 
-As for the UNIX rm, mv, and cp commands, the -i option asks the command to query each file as to whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the hidden files corresponding to each stub, which share the same fate as their stub file.
-The -n option tells Fastmv and Fastcp to not overwrite any files.
+As for the UNIX rm, mv, and cp commands, the &#8209;i option asks the command to query each file as to whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the hidden files corresponding to each stub, which share the same fate as their stub file.
+The &#8209;n option tells Fastmv and Fastcp to not overwrite any files.
 
 ### Current Limitations
 
@@ -141,11 +141,12 @@ or cram.  This restriction is not fundamental and could be removed with some cod
 ```
 
 This command and also Tabex and Profex are presented specifically to
-give a user an example of how to use the C-interface, <code>libfastk.c</code>, module
-to manipulate the histogram, k-mer count tables, and profiles produced by FastK.
+give a user simple examples of how to use the C&#8209;interface modules,
+<code>libfastk.c</code>,
+to manipulate the histogram, k&#8209;mer count tables, and profiles produced by FastK.
 
 Given a histogram file \<source>.hist produced by FastK,
-one can view the histogram of k-mer counts with **Histex** where the -h specifies the 
+one can view the histogram of k&#8209;mer counts with **Histex** where the &#8209;h specifies the 
 interval of frequencies to be displayed where 1 is assumed if the lower bound is not given.
 
 ```
@@ -157,15 +158,91 @@ Given that a set of k-mer counter table files have been generated represented by
 remaining arguments on the command line.  The literal argument LIST lists the contents
 of the table in radix order.  CHECK checks that the table is indeed sorted.  Otherwise the
 argument is interpreted as a k-mer and it is looked up in the table and its count returned
-if found.  If the -t option is given than only those k-mers with counts greater or equal to the given value are operated upon.
+if found.  If the &#8209;t option is given than only those k&#8209;mers with counts greater or equal to the given value are operated upon.
 
 ```
 3. Profex <source>[.prof] <read:int> ...
 ```
-Given that a set of profile files have been generated represented by stub file
-\<source>.prof, ***Profex*** opens the corresonding hiddent profile files (two per thread)
+Given that a set of profile files have been generated and are represented by stub file
+\<source>.prof, ***Profex*** opens the corresonding hidden profile files (two per thread)
 and gives a display of each sequence profile whose ordinal id is given on
 the remainder of the command line.  The index of the first read is 1 (not 0).
+
+```
+4. Haplex [-h<int>:<int>] <source>[.ktab]
+```
+In a scan of \<source> identify all bundles of 2&#8209;4 k&#8209;mers that differ only in their
+middle base, i.e. the &lfloor;k/2&rfloor;<sup>th</sup> base.  If the &#8209;h option is
+given then only bundles where the count of each k&#8209;mer is in the specified integer
+range (inclusively) are reported.  Each bundle is output to the standard output with
+each k&#8209;mer followed by its count on a line and a blank line between bundles.  For example,
+
+```
+...
+
+cgatcctatcacttctaggaCccccatatgaatatagata 21
+cgatcctatcacttctaggaTccccatatgaatatagata 12
+
+cgatcctatctgtgcagattCccagcagcaccaataagaa 7
+cgatcctatctgtgcagattTccagcagcaccaataagaa 19
+
+cgatcctcaaccccggtgtgAgggtttgtttggccccgca 17
+cgatcctcaaccccggtgtgGgggtttgtttggccccgca 19
+
+cgatcctcacacttattcgaAcgctttttcggtactcgcc 18
+cgatcctcacacttattcgaCcgctttttcggtactcgcc 21
+cgatcctcacacttattcgaGcgctttttcggtactcgcc 8
+
+cgatcctcacactttttcgaCgctttttcggtactcgccc 30
+cgatcctcacactttttcgaTgctttttcggtactcgccc 26
+
+...
+```
+in response to <code>Haplex -h7:36 CB.ktab</code> where CB is a 50X HiFi data set of
+Cabernet Sauvignon.
+
+```
+5. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
+```
+In a scan of \<source> identify all k&#8209;mers that contain a homopolymer straddling the
+mid-point with count in the range given by the &#8209;g parameter.  Consider the k&#8209;mers with
+one extra or one less homopolymer base aded to the right end of the homopolymer.  If
+those k&#8209;mers have count no more than &#8209;e they they are considered homopolymer errors.
+The total # of correct and erroneous homopolymer instances for each puridine and pyrimidine and of each length up to 10 is collected and reported.  For example,
+<code>Homex -e6 -g10:60 CB.ktab</code> where CB is a 50X HiFi data set of
+Cabernet Sauvignon, the following table is output (in about a minute).
+
+```
+              -1      Good          +1      Error Rate
+  2 at:    1083037 1444004873    1354886 -> 0.2%
+  3 at:    2280582  544204150    1342588 -> 0.7%
+  4 at:    2967419  231095068    1234288 -> 1.8%
+  5 at:    2376973   87922494    1025822 -> 3.7%
+  6 at:    1290169   29863257     587888 -> 5.9%
+  7 at:     704839   11839930     368393 -> 8.3%
+  8 at:     411238    5250289     217606 -> 10.7%
+  9 at:     244298    2493850     129673 -> 13.0%
+ 10 at:     189475    1603996      98766 -> 15.2%
+
+  2 cg:    1023595  764923391     626469 -> 0.2%
+  3 cg:    1092236  168190300     307076 -> 0.8%
+  4 cg:     608471   33793608     115702 -> 2.1%
+  5 cg:     257885    7252509      45142 -> 4.0%
+  6 cg:      84391    1570406      16852 -> 6.1%
+  7 cg:      22940     351055       6788 -> 7.8%
+  8 cg:       3655      49731       1563 -> 9.5%
+  9 cg:       1369      15226        719 -> 12.1%
+ 10 cg:       1167      11200        751 -> 14.6%
+```
+
+
+```
+6. Logex [-h<int>:<int>] <source>[.ktab]
+```
+
+```
+7. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...
+```
 
 &nbsp;
 
@@ -176,7 +253,7 @@ the remainder of the command line.  The index of the first read is 1 (not 0).
 
 For each of the 3 distinct outputs of FastK, we have suppled a simple C library
 that gives a user access to the data therein.  The library is simply embodied in
-the C-file, <code>libfastk.c</code>, and associated include file <code>libfastk.h</code>.
+the C&#8209;file, <code>libfastk.c</code>, and associated include file <code>libfastk.h</code>.
 The makefile commands for building Histex, Tabex, and Profex illustrate how to
 easily incorporate the library into your C or C++ code.
 
@@ -184,7 +261,7 @@ easily incorporate the library into your C or C++ code.
 ### K-mer Histogram Class
 
 A Histogram object is a record with 4 fields
-as described in the comments below 
+as described in the comments of the declaration below:
 
 ```
 typedef struct
@@ -198,7 +275,7 @@ typedef struct
 The frequencies are stored in the array pointed at by the field <code>hist</code>
 where indexing said with any value between <code>low</code> and <code>high</code>,
 inclusive will deliver a valid frequency.  But caution: indexing with any frequency outside this range may result in an out-of-bounds memory access and possible segfault.
-By convention, the lowest and highest frequencies always contain the number of k-mers with the given frequency **plus** the number of k-mers with lower or higher frequencies, respectively.  This is to ensure the convention that the total sum of the k-mers in a histogram is equal to the number in the source sequence data set.
+By convention, the lowest and highest frequencies always contain the number of k&#8209;mers with the given frequency **plus** the number of k&#8209;mers with lower or higher frequencies, respectively.  This is to ensure the convention that the total sum of the k&#8209;mers in a histogram is equal to the number in the source sequence data set.
 
 ```
 Histogram *Load_Histogram(char *name);
@@ -223,7 +300,7 @@ counts of the frequencies below and above them, per our convention.
 
 ### K-mer Table Class
 
-A Kmer\_Table object is a record with 6 fields as described in the comments below  
+A Kmer\_Table object is a record with 6 fields as described in the comments of the declaration below:
 
 ```
 typedef struct
@@ -287,12 +364,11 @@ may use either upper- or lower-case Ascii letters.
 to the indicated output and <code>Check\_Kmer\_Table</code> checks that the k-mers of a
 table are actually sorted, return 1 if so, and return 0 after printing a diagnostic to the standard error if not.
 
-The sample code below opens a table, prints out the contents of the table, and ends
-by freeing all memory involved.
+The sample code below opens a table for "foo.ktab", prints out the contents of the table, and ends by freeing all memory involved.
 
 ```
-Kmer_Table *T = Open_Kmer_Table(S,1);
-for (int i = 0; i != T->nels; i++)
+Kmer_Table *T = Open_Kmer_Table("foo",0);
+for (int i = 0; i < T->nels; i++)
   printf("%s : %d\n",Fetch_Kmer(T,i),Fetch_Count(T,i));
 Free_Kmer_Table(T);
 Fetch_Kmer(NULL,0);
@@ -349,11 +425,11 @@ the current entry with <code>Current\_Count</code> and <code>Current\_Kmer</code
 respectively. 
 <code>Current_Kmer</code> in particular returns a pointer to an ascii, 0-terminated string giving the k-mer in lower-case a, c, g, t.  This string is local to the routine and is reset with a new value on each call, so if you need a k-mer to persist you must copy the result.  Moreover, if you call <code>Current\_Kmer</code> with S = NULL it will free the space
 occupied by this local buffer and return NULL. 
-As an example, the code below opens a stream, prints out the contents of the table, and ends
+As an example, the code below opens a stream for "foo.ktab", prints out the contents of the table, and ends
 by freeing all memory involved.
 
 ```
-Kmer_Stream *S = Open_Kmer_Stream(S,1);
+Kmer_Stream *S = Open_Kmer_Stream("foo",1);
 for (uint8 *e = First_Kmer_Entry(S); e != NULL; e = Next_Kmer_Entry(S))
   printf("%s : %d\n",Current_Kmer(S),Current_Count(S));
 Free_Kmer_Stream(S);
@@ -364,7 +440,7 @@ Current_Kmer(NULL);
 
 ### K-mer Profile Class
 
-A Profile\_Index object is a record with 6 fields as described in the comments below  
+A Profile\_Index object is a record with 6 fields as described in the comments of the declaration below:
 
 ```
 typedef struct

@@ -289,6 +289,19 @@ static void Free_File(File_Object *input)
  *
  ********************************************************************************************/
 
+static int homo_compress(char *seq, int len)
+{ int i, x, n;
+
+  n = 0;
+  x = seq[n++];
+  for (i = 1; i < len; i++)
+    if (seq[i] != x)
+      seq[n++] = x = seq[i];
+  seq[n] = '\0';
+  return (n);
+} 
+  
+
 static int Add_Data_Block(DATA_BLOCK *dset, int len, char *seq)
 { int   n, r;
   int64 o;
@@ -301,6 +314,8 @@ static int Add_Data_Block(DATA_BLOCK *dset, int len, char *seq)
     { len = dset->rem;
       seq = dset->next;
     }
+  else if (COMPRESS)
+    len = homo_compress(seq,len);
 
   if (n >= dset->maxrds)
     return (1);
@@ -1352,7 +1367,6 @@ typedef struct
     uint32 flags;
     int    len;
     char  *seq;
-    char  *arr;
     char  *qvs;
     int    lmax;     //  current max size for seq, arr, and qvs
     int    dmax;     //  current max size for data
@@ -1388,11 +1402,10 @@ static int bam_record_scan(BAM_FILE *sf, samRecord *theR)
 
     if (lseq > theR->lmax)
       { theR->lmax = 1.2*lseq + 1000;
-        theR->seq  = (char *) Realloc(theR->seq,3*theR->lmax,"Reallocating sequence buffer");
+        theR->seq  = (char *) Realloc(theR->seq,2*theR->lmax,"Reallocating sequence buffer");
         if (theR->seq == NULL)
           exit (1);
-        theR->arr  = theR->seq + theR->lmax;
-        theR->qvs  = theR->arr + theR->lmax;
+        theR->qvs  = theR->seq + theR->lmax;
       }
 
     if (ldata > theR->dmax)
@@ -1508,11 +1521,10 @@ static int sam_record_scan(BAM_FILE *sf, samRecord *theR)
 
     if (qlen > theR->lmax)
       { theR->lmax = 1.2*qlen + 1000;
-        theR->seq  = (char *) Realloc(theR->seq,3*theR->lmax,"Reallocating sequence buffer");
+        theR->seq  = (char *) Realloc(theR->seq,2*theR->lmax,"Reallocating sequence buffer");
         if (theR->seq == NULL)
           exit (1);
-        theR->arr  = theR->seq + theR->lmax;
-        theR->qvs  = theR->arr + theR->lmax;
+        theR->qvs  = theR->seq + theR->lmax;
       }
 
     if ((flags & 0x900) != 0)
@@ -1593,11 +1605,10 @@ static void *bam_output_thread(void *arg)
         exit (1);
     }
   theR->lmax = 75000;
-  theR->seq  = Malloc(3*theR->lmax,"Allocating sequence array");
+  theR->seq  = Malloc(2*theR->lmax,"Allocating sequence array");
   if (theR->seq == NULL)
     exit (1);
-  theR->arr = theR->seq + theR->lmax;
-  theR->qvs = theR->arr + theR->lmax;
+  theR->qvs = theR->seq + theR->lmax;
 
   bam->decomp = parm->decomp;
 

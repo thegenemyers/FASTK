@@ -65,7 +65,7 @@ int main(int argc, char **argv)
       }
   }
 
-  { int   p, len, a, yes, nthreads;
+  { int   p, len, a, yes, any, nthreads;
     int   alen, rlen;
     int   doh, dot, dop;
     char *dir, *root;
@@ -82,6 +82,7 @@ int main(int argc, char **argv)
 
     alen = strlen(argv[1]);
     rlen = strlen(root);
+    any  = 0;
     if (alen == rlen)
       doh = dot = dop = 1;
     else
@@ -89,9 +90,12 @@ int main(int argc, char **argv)
         dot = (strcmp(argv[1] + rlen,".ktab") == 0);
         dop = (strcmp(argv[1] + rlen,".prof") == 0);
         if (doh + dot + dop == 0)
-          { fprintf(stderr,"%s: Do not recognize extension .%s\n",Prog_Name,argv[1]+rlen);
-            exit (1);
+          { free(root);
+            root = Strdup(argv[1],NULL);
+            doh = dot = dop = 1;
           }
+        else
+          any = 1;
       }
 
     if (stat(argv[2],&B) == 0 && (B.st_mode & S_IFMT) == S_IFDIR)
@@ -105,7 +109,8 @@ int main(int argc, char **argv)
 
     yes = doh;
     if (doh && stat(Catenate(DIR,"/",ROOT,".hist"),&B) == 0)
-      { if (NO_OVERWRITE)
+      { any = 1;
+        if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
           { printf("overwrite %s/%s.hist? ",DIR,ROOT);
@@ -124,7 +129,8 @@ int main(int argc, char **argv)
 
     yes = dot;
     if (dot && stat(Catenate(DIR,"/",ROOT,".ktab"),&B) == 0)
-      { if (NO_OVERWRITE)
+      { any = 1;
+        if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
           { printf("overwrite %s/%s.ktab? ",DIR,ROOT);
@@ -153,7 +159,8 @@ int main(int argc, char **argv)
 
     yes = dop;
     if (dop && stat(Catenate(DIR,"/",ROOT,".prof"),&B) == 0)
-      { if (NO_OVERWRITE)
+      { any = 1;
+        if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
           { printf("overwrite %s/%s.prof? ",DIR,ROOT);
@@ -181,6 +188,9 @@ int main(int argc, char **argv)
             system(command);
           }
       }
+
+    if (any == 0)
+      fprintf(stderr,"%s: Warning, no FastK output files with root %s\n",Prog_Name,root);
 
     free(root);
     free(dir);

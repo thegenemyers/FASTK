@@ -13,11 +13,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <math.h>
-#include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include "gene_core.h"
 
@@ -78,9 +82,6 @@ uint8       *Next_Kmer_Entry(Kmer_Stream *S);
 
 char        *Current_Kmer(Kmer_Stream *entry);
 int          Current_Count(Kmer_Stream *entry);
-
-void         Mark_Current(Kmer_Stream *S);
-Kmer_Table  *Load_To_Last_Mark(Kmer_Stream *S);
 
 
   //  PROFILES
