@@ -169,10 +169,10 @@ and gives a display of each sequence profile whose ordinal id is given on
 the remainder of the command line.  The index of the first read is 1 (not 0).
 
 ```
-4. Haplex [-h<int>:<int>] <source>[.ktab]
+4. Haplex [-g<int>:<int>] <source>[.ktab]
 ```
 In a scan of \<source> identify all bundles of 2&#8209;4 k&#8209;mers that differ only in their
-middle base, i.e. the &lfloor;k/2&rfloor;<sup>th</sup> base.  If the &#8209;h option is
+middle base, i.e. the &lfloor;k/2&rfloor;<sup>th</sup> base.  If the &#8209;g option is
 given then only bundles where the count of each k&#8209;mer is in the specified integer
 range (inclusively) are reported.  Each bundle is output to the standard output with
 each k&#8209;mer followed by its count on a line and a blank line between bundles.  For example,
@@ -235,14 +235,85 @@ Cabernet Sauvignon, the following table is output (in about a minute).
  10 cg:       1167      11200        751 -> 14.6%
 ```
 
+&nbsp;
+
 
 ```
-6. Logex [-h<int>:<int>] <source>[.ktab]
+6. Logex [-T<int(4)] [-[hH][<int(1)>:]<int>] <name[:=]expr> ... <source>[.ktab] ...
 ```
+
+*UNDER CONSTRUCTION*
+
+Logex takes one or more k-mer table "assignments" as its first arguments and applies it to the ordered merge of the k-mer count tables that follow, yielding new k-mer tables with the assigned names, of the k-mers satisfying the logic of the associated expression along with counts computed per the "modulators" of the expression.  For example,
+<code>Logex 'AnB = A &. B' Tab1 Tab2</code> would produce a new table stub file AnB.ktab
+and associated hidden files, of the k-mers common to the tables represented by the
+stub files Tab1.ktab and Tab2.ktab.  If the -h option is given then a histogram over
+the given range is generated for each asssignment, and if the -H option is given then
+only the histograms are generated and not the tables.  The -T option can be used to
+specify the number of threads used.
+
+A k-mer table expression has as its basis a logical predicate made up from the binary
+operators '|' (or), '&' (and), '^' (xor), and '-' (minus) over arguments that are alphabetic letters from a-h or A-H where case does not matter.
+So for example, the logical predicate <code>(A^B)-C</code> would select those k-mers that occur in either the first or second table, but not both, and that do not occur in the third table.  The order of precedence of the operators is '&' (highest), then '^' then '-' then '|' (lowest).  Parenthesis can be used to override precedence and spaces may be freely interspersed in the expression.
+If there are k &le; 8 table arguments after the assignments, then the assignment expressions in toto are expected to involve the k-consecutive letters starting with 'a'.
+
+The tables are not just an ordered list of k-mers, but an ordered list of k-mers *with a
+count for each*, i.e. k-mer,count pairs.  So a k-mer table expression is a logical expression augmented with "modulators" that specify how to compute the count associated
+with a logically accepted k-mer and further whether to accept the k-mer based on the
+input counts.  Specifically
+
+* Any sub-expression can be followed by a post-fix modulation operator consisting of a
+comma separated list of integer ranges in square brackets, i.e.
+'[' \<range> \( ',' \<range> )\* ']'  where \<range> is an integer range where either
+the upper or lower bound (or both) can be missing, i.e. [\<int>] '-' [\<int>].
+Only those k-mer,count pairs produced by the filter's sub-expression whose counts are
+in one of the supplied ranges is accepted by this modulator expression.  For example,
+<code>A[5-10]</code> accepts all k-mers in the first table with count between 5 and
+10 (inclusive), and <code>(A-B)[7-]</code> accepts all k-mer that are in the first
+table but not the second and have a count of 7 or more.
+
+* When the same k-mer is in several of the tables and so accepted by the logical
+expression, e.g. it is in both the first and second table and the operator is & or |,
+then the question arises as to what the count of the accepted k-mer should be.
+At this moment we provide 6 "modulators" that immediately follow the logical operator
+as follows:
+
+	* '+' takes the sum of the k-mers
+	* '-' subtracts the count of the left-kmer,counter pair from the right.
+	* '<' takes the minimum count
+	* '>' takes the maximum count
+	* '*' takes the average of the two counts
+	* '.' takes the count of the left-kmer whenever it is available, the right otherwise
+
+So A &+ B will produce a k-mer, count pair when a k-mer is in both the first and second
+tables and give the k-mer the sum of the counts of the two instances.
+A |+ B will produce a k-mer, count pair when a k-mer is in one or both of the first
+and second tables and give the k-mer the sum of the counts of the instances available.
+(A |> B |> C |> D)[-3] will output any k-mer that has a count of 3 or less in the
+first four tables along with its smallest count.
 
 ```
 7. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...
 ```
+*UNDER CONSTRUCTION*
+
+Vennex takes two or more, say k, tables, and produces histograms of the counts for each
+region in the k-way Venn diagram.  That is <code>Vennex Alpha Beta</code> where
+<code>Alpha</code> and <code>Beta</code> are .ktab's will produce histograms of the
+counts of:
+
+* the k-mers in both Alpha and Beta, i.e. Alpha & Beta, in file <code>ALPHA.BETA.hist</code>
+* the k-mers in Alpha but not Beta, i.e. Alpha-Beta, in file <code>ALPHA.beta.hist</code>, and
+* the k-mers in Beta but not Alpha, i.e. Beta-Alpha, in file <code>alpha.BETA.hist</code>.
+
+Generalizing,
+<code>Vennex A B C</code>, produces 7 ( = 2<sup>k</sup>-1) histograms with the names, a.b.C, a.B.c, a.B.C.,
+A.b.c, A.b.C, A.B.c, and A.B.C where the convention is that a table name is in upper case if it is in, and the name is in
+lower case if it is out.  For example, a.B.c is a histogram of the counts of the k-mers  that are in B but not A and not C, i.e. B-A-C.  The range of the histograms is 1 to 100 (inclusive) by
+default but may be specified with the -h option.
+
+The astute reader will not that <code>Vennex Alpha Beta</code> is basiscally a tailored
+version of the command <code>Logex -H100 'ALPHA.BETA:A&B' 'ALPHA.beta:A-B' 'alpha.BETA:B-A' Alpha Beta</code>
 
 &nbsp;
 

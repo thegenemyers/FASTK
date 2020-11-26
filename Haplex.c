@@ -19,7 +19,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = "[-h<int>:<int>] <source>[.ktab]";
+static char *Usage = "[-g<int>:<int>] <source>[.ktab]";
 
 /****************************************************************************************
  *
@@ -290,11 +290,11 @@ int main(int argc, char *argv[])
         { default:
             ARG_FLAGS("")
             break;
-          case 'h':
+          case 'g':
             HAPLO_LOW = strtol(argv[i]+2,&eptr,10);
             if (eptr > argv[i]+2)
               { if (HAPLO_LOW < 1 || HAPLO_LOW > 0x7fff)
-                  { fprintf(stderr,"%s: Haplotype minimum count %d is out of range\n",
+                  { fprintf(stderr,"%s: Good minimum count %d is out of range\n",
                                    Prog_Name,HAPLO_LOW);
                     exit (1);
                   }
@@ -302,19 +302,19 @@ int main(int argc, char *argv[])
                   { HAPLO_HGH = strtol(eptr+1,&fptr,10);
                     if (fptr > eptr+1 && *fptr == '\0')
                       { if (HAPLO_HGH < 1 || HAPLO_HGH > 0x7fff)
-                          { fprintf(stderr,"%s: Haplotype maximum count %d is out of range\n",
+                          { fprintf(stderr,"%s: Good maximum count %d is out of range\n",
                                            Prog_Name,HAPLO_HGH);
                             exit (1);
                           }
                         if (HAPLO_LOW > HAPLO_HGH)
-                          { fprintf(stderr,"%s: Histogram range is invalid\n",Prog_Name);
+                          { fprintf(stderr,"%s: Good count range is invalid\n",Prog_Name);
                             exit (1);
                           }
                         break;
                       }
                   }
               }
-            fprintf(stderr,"%s: Syntax of -h option invalid -h<int>:<int>\n",Prog_Name);
+            fprintf(stderr,"%s: Syntax of -g option invalid -h<int>:<int>\n",Prog_Name);
             exit (1);
         }
       else
@@ -324,7 +324,7 @@ int main(int argc, char *argv[])
     if (argc != 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
-        fprintf(stderr,"      -h: Accept only haplotypes with count in given range (inclusive).\n");
+        fprintf(stderr,"      -g: Accept only haplotypes with count in given range (inclusive).\n");
         exit (1);
       }
   }

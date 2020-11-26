@@ -1043,7 +1043,7 @@ int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile)
                   else
                     x = (x << 8) & 0x7fff;
                   x |= *p++;
-                  d += x;
+                  d = (d+x) & 0x7fff;
 #ifdef SHOW_RUN
                   printf(" %hd+(%d)\n",x,d);
 #endif
