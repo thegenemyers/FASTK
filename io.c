@@ -2623,7 +2623,7 @@ DATA_BLOCK *Get_First_Block(Input_Partition *parts, int64 numbp)
   cust.block.maxrds = numbp/150;
   cust.block.maxbps = numbp + cust.block.maxrds;
   cust.block.bases  = Malloc(sizeof(char)*(cust.block.maxbps+1),"Allocating first data block");
-  cust.block.boff   = Malloc(sizeof(int64)*(cust.block.maxrds+1),"Allocating first data block");
+  cust.block.boff   = Malloc(sizeof(int)*(cust.block.maxrds+1),"Allocating first data block");
 
   cust.eidx   = parm[ITHREADS-1].eidx;
   cust.end    = parm[ITHREADS-1].end;
@@ -2673,13 +2673,13 @@ void Scan_All_Input(Input_Partition *parts)
   pthread_t   threads[ITHREADS];
 #endif
   char  *bases;
-  int64 *boff;
+  int   *boff;
   int    i;
 
   parm[0].block.ratio = cust.block.ratio * cust.block.totlen;
 
   bases = Malloc(sizeof(char)*(DT_BLOCK+1)*ITHREADS,"Allocating data blocks");
-  boff  = Malloc(sizeof(int64)*(DT_READS+1)*ITHREADS,"Allocating data blocks");
+  boff  = Malloc(sizeof(int)*(DT_READS+1)*ITHREADS,"Allocating data blocks");
   for (i = 0; i < ITHREADS; i++)
     { parm[i].block.bases  = bases + (DT_BLOCK+1)*i;
       parm[i].block.boff   = boff  + (DT_READS+1)*i;
