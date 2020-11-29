@@ -197,15 +197,15 @@ int main(int argc, char *argv[])
             ARG_POSITIVE(KMER,"K-mer length")
             break;
           case 'p':
-            if (argv[i][2] == '\0' || isalpha(argv[i][2]))
+            if (argv[i][2] != ':')
               { ARG_FLAGS("vcpt");
                 break;
               }
             { char *d, *r;
               FILE *f;
 
-              d = PathTo(argv[i]+2);
-              r = Root(argv[i]+2,".ktab");
+              d = PathTo(argv[i]+3);
+              r = Root(argv[i]+3,".ktab");
               PRO_HIDDEN = Strdup(Catenate(d,"/.",r,""),NULL);
               f = fopen(Catenate(d,"/",r,".ktab"),"r");
               if (f == NULL)
@@ -276,7 +276,7 @@ int main(int argc, char *argv[])
                            Prog_Name,promer,KMER);
             exit (1);
           }
-        fprintf(stderr,"%s: Sorry this feature not yet functional\n",Prog_Name);
+        fprintf(stderr,"%s: Sorry -p:ktab feature not yet functional\n",Prog_Name);
         exit (1);
       }
 

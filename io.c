@@ -59,9 +59,15 @@
 
 #define IO_BLOCK 10000000ll
 
+#define DT_BLOCK  10000ll
+#define DT_MINIM   2000ll
+#define DT_READS    10000
+
+/*
 #define DT_BLOCK  1000000ll
 #define DT_MINIM   100000ll
 #define DT_READS    10000
+*/
 
 typedef struct libdeflate_decompressor DEPRESS;
 
@@ -301,7 +307,6 @@ static int homo_compress(char *seq, int len)
   return (n);
 } 
   
-
 static int Add_Data_Block(DATA_BLOCK *dset, int len, char *seq)
 { int   n, r;
   int64 o;
@@ -351,20 +356,21 @@ static void Print_Block(DATA_BLOCK *dset, int tid)
 
   (void) tid;
 
+  printf("Buffer load rem = %d\n",dset->rem);
   bases = dset->bases;
   for (i = 0; i < dset->nreads; i++)
     { end = dset->boff[i+1]-1;
       printf("%5d %8d:\n",i,tc++);
-#define ONE_LINE
+#undef ONE_LINE
 #ifdef ONE_LINE
-      printf("%.80s\n",bases+dset->boff[i]);
+      printf("    %.80s\n",bases+dset->boff[i]);
 #else
       { int64 j;
 
         for (j = dset->boff[i]; j+80 < end; j += 80)
-          printf("%.80s\n",bases+j);
+          printf("    %.80s\n",bases+j);
         if (j < end)
-          printf("%.*s\n",(int) (end-j),bases+j);
+          printf("    %.*s\n",(int) (end-j),bases+j);
        }
 #endif
     }
@@ -373,9 +379,14 @@ static void Print_Block(DATA_BLOCK *dset, int tid)
 
 #endif
 
-static void Reset_Data_Block(DATA_BLOCK *dset)
-{ dset->nreads = 0;
-  dset->totlen = 0;
+static void Reset_Data_Block(DATA_BLOCK *dset, int roll)
+{ if (roll)
+    { memcpy(dset->bases,dset->bases+(dset->boff[dset->nreads]-KMER),KMER-1);
+      dset->totlen = KMER-1;
+    }
+  else
+    dset->totlen = 0;
+  dset->nreads = 0;
   dset->boff[0] = 0;
 }
 
@@ -551,6 +562,52 @@ static char *Name2[] =
 
 #endif
 
+#define DUMP(notyet,dclose)						  \
+if (action == SAMPLE)                                                     \
+  { dset->ratio = (1.*parm->work) / (totread-(notyet));			  \
+    dset->totlen = dset->boff[dset->nreads] - dset->nreads;		  \
+    dclose(fid);                                                          \
+    return (NULL);                                                        \
+  }                                                                       \
+else                                                                      \
+  { dset->totlen = dset->boff[dset->nreads] - dset->nreads;		  \
+    CALL_BACK(dset,tid);                                                  \
+    if (CLOCK)                                                            \
+      { cumbps += dset->totlen;                                           \
+        if (cumbps >= nxtbps)                                             \
+          { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));     \
+            fflush(stderr);                                               \
+            nxtbps = cumbps+pct1;                                         \
+          }                                                               \
+      }                                                                   \
+  }                                                                       \
+
+
+#define END_SEQ(notyet)								\
+{ line[olen++] = lastc = '\0';							\
+  dset->boff[++dset->nreads] = olen;						\
+  if (olen > omax-DT_MINIM || dset->nreads >= dset->maxrds)			\
+    { DUMP(notyet,close)							\
+      Reset_Data_Block(dset,0);							\
+      olen = 0;									\
+    }										\
+}
+
+#define ADD(c)									\
+{ if (!COMPRESS || c != lastc)							\
+    { if (olen >= omax)								\
+        { line[olen++] = '\0';							\
+          dset->boff[++dset->nreads] = olen;					\
+          dset->rem  = 1;							\
+          DUMP(slen-b,close)							\
+          dset->rem  = 0;							\
+          Reset_Data_Block(dset,1);						\
+          olen = KMER-1;							\
+        }									\
+      line[olen++] = lastc = c;							\
+    }										\
+}
+
   //  Write fast records in relevant partition
 
 static void *fast_output_thread(void *arg)
@@ -571,7 +628,7 @@ static void *fast_output_thread(void *arg)
   int64       *zoffs;
   int64        totread;
 
-  int   state;
+  int   state, lastc;
   int   omax, olen;
   char *line;
 
@@ -591,8 +648,8 @@ static void *fast_output_thread(void *arg)
 
   //  Do relevant section of each file assigned to this thread in sequence
 
-  omax = 100000;
-  line = Malloc(omax+1,"Allocating line buffer");
+  omax = dset->maxbps;
+  line = dset->bases;
 
   totread = 0;
 
@@ -625,6 +682,7 @@ static void *fast_output_thread(void *arg)
 
       state = QAT;
       olen  = 0;
+      lastc = 0;
 
 #ifdef DEBUG_IO
       fprintf(stderr,"\nFrom block %lld / offset %lld\n",blk,off);
@@ -685,35 +743,9 @@ static void *fast_output_thread(void *arg)
                   
                 case QSEQ:
                   if (c != '\n')
-                    { if (olen >= omax)
-                        { omax = omax*1.2 + 1000;
-                          line = (char *) Realloc(line,omax+1,"Reallocating line buffer");
-                          if (line == NULL)
-                            exit (1);
-                        }
-                      line[olen++] = c;
-                    }
+                    ADD(c)
                   else
-                    { while (Add_Data_Block(dset,olen,line))
-                        { if (action == SAMPLE)
-                            { dset->ratio = (1.*parm->work) / (totread-(slen-b));
-                              close(fid);
-                              return (NULL);
-                            }
-                          else
-                            { CALL_BACK(dset,tid);
-                              if (CLOCK)
-                                { cumbps += dset->totlen;
-                                  if (cumbps >= nxtbps)
-                                    { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
-                                      fflush(stderr);
-                                      nxtbps = cumbps+pct1;
-                                    }
-                                }
-                              Reset_Data_Block(dset);
-                            }
-                        }
-                      olen  = 0;
+                    { END_SEQ(slen-b)
                       state = QPLS;
                     }
                   break;
@@ -730,36 +762,11 @@ static void *fast_output_thread(void *arg)
 
                 case AEOL:
                   if (c == '>')
-                    { while (Add_Data_Block(dset,olen,line))
-                        { if (action == SAMPLE)
-                            { dset->ratio = (1.*parm->work) / (totread-((slen-b)+dset->rem));
-                              close(fid);
-                              return (NULL);
-                            }
-                          else
-                            { CALL_BACK(dset,tid);
-                              if (CLOCK)
-                                { cumbps += dset->totlen;
-                                  if (cumbps >= nxtbps)
-                                    { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
-                                      fflush(stderr);
-                                      nxtbps = cumbps+pct1;
-                                    }
-                                }
-                              Reset_Data_Block(dset);
-                            }
-                        }
-                      olen  = 0;
+                    { END_SEQ(slen-b)
                       state = HSKP;
                     }
                   else if (c != '\n')
-                    { if (olen >= omax)
-                        { omax = omax*1.2 + 1000;
-                          line = (char *) Realloc(line,omax+1,"Reallocating line buffer");
-                          if (line == NULL)
-                            exit (1);
-                        }
-                      line[olen++] = c;
+                    { ADD(c)
                       state = ASEQ;
                     }
                   break;
@@ -768,57 +775,28 @@ static void *fast_output_thread(void *arg)
                   if (c == '\n')
                     state = AEOL;
                   else
-                    { if (olen >= omax)
-                        { omax = omax*1.2 + 1000;
-                          line = (char *) Realloc(line,omax+1,"Reallocating line buffer");
-                          if (line == NULL)
-                            exit (1);
-                        }
-                      line[olen++] = c;
-                    }
-                  break;
+                    ADD(c)
               }
             }
           blk += 1;
           off = 0;
         }
       if (state == AEOL)
-        { while (Add_Data_Block(dset,olen,line))
-            { if (action == SAMPLE)
-                { dset->ratio = (1.*parm->work) / (totread - dset->rem);
-                  close(fid);
-                  return (NULL);
-                }
-              else
-                { CALL_BACK(dset,tid);
-                  if (CLOCK)
-                    { cumbps += dset->totlen;
-                      if (cumbps >= nxtbps)
-                        { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
-                          fflush(stderr);
-                          nxtbps = cumbps+pct1;
-                        }
-                    }
-                  Reset_Data_Block(dset);
-                }
-            }
-          olen  = 0;
-        }
+        END_SEQ(0)
       close(fid);
     }
 
+  dset->totlen = dset->boff[dset->nreads] - dset->nreads;
   if (action == SAMPLE)
     { dset->ratio = (1.*parm->work) / totread;
       return (NULL);
     }
-
-  if (dset->nreads > 0)
+  else if (dset->nreads > 0)
     CALL_BACK(dset,tid);
 
   if (CLOCK)
     fprintf(stderr,"\r         \r");
 
-  free(line);
   return (NULL);
 }
 
@@ -1691,7 +1669,7 @@ static void *bam_output_thread(void *arg)
                           nxtbps = cumbps+pct1;
                         }
                     }
-                  Reset_Data_Block(dset);
+                  Reset_Data_Block(dset,0);
                 }
             }
         }
@@ -1895,6 +1873,8 @@ static void *cram_output_thread(void *arg)
   cram_fd     *fid;
   int64        bpos, epos;
   int64        totread;
+  char        *line;
+  int          o, omax;
 
   int64 estbps, cumbps, nxtbps, pct1;
   int   CLOCK;
@@ -1911,6 +1891,8 @@ static void *cram_output_thread(void *arg)
     CLOCK = 0;
 
   totread = 0;
+  omax    = dset->maxbps;
+  line    = dset->bases;
 
   for (f = parm->bidx; f <= parm->eidx; f++)
     { inp = fobj+f;
@@ -1930,8 +1912,11 @@ static void *cram_output_thread(void *arg)
       fflush(stderr);
 #endif
 
+      o = 0;
       while (1)
         { cram_record *rec;
+          char        *seq;
+          int          len, ovl;
 
           rec = cram_get_seq(fid);
           if (rec == NULL)
@@ -1940,24 +1925,33 @@ static void *cram_output_thread(void *arg)
           if (htell(fid->fp) > epos)
             break;
 
-          while (Add_Data_Block(dset,rec->len,(char *) rec->s->seqs_blk->data+rec->seq))
-            { if (action == SAMPLE)
-                { dset->ratio = (1.*parm->work) / ((totread+htell(fid->fp))-(bpos+dset->rem));
-                  cram_close(fid);
-                  return (NULL);
-                }
-              else
-                { CALL_BACK(dset,tid);
-                  if (CLOCK)
-                    { cumbps += dset->totlen;
-                      if (cumbps >= nxtbps)
-                        { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
-                          fflush(stderr);
-                          nxtbps = cumbps+pct1;
-                        }
-                    }
-                  Reset_Data_Block(dset);
-                }
+          seq = (char *) (rec->s->seqs_blk->data+rec->seq);
+          if (COMPRESS)
+            len = homo_compress(seq,rec->len);
+          else
+            len = rec->len;
+
+          while (o+len > omax)
+            { ovl = omax-o;
+              memcpy(line+o,seq,ovl);
+              line[omax] = '\0';
+              dset->boff[++dset->nreads] = omax+1;
+              dset->rem = 1;
+              DUMP((bpos-htell(fid->fp))+(len-ovl),cram_close)
+              dset->rem = 0;
+              Reset_Data_Block(dset,1);
+              o = KMER-1;
+              len -= ovl;
+              seq += ovl; 
+            }
+          memcpy(line+o,seq,len);
+          o += len;
+          line[o++] = '\0';
+          dset->boff[++dset->nreads] = o;
+          if (o > omax-DT_MINIM || dset->nreads >= dset->maxrds)
+            { DUMP(bpos-htell(fid->fp),cram_close)
+              Reset_Data_Block(dset,0);
+              o = 0;
             }
         }
 
@@ -1965,12 +1959,12 @@ static void *cram_output_thread(void *arg)
       cram_close(fid);
     }
 
+  dset->totlen = dset->boff[dset->nreads] - dset->nreads;
   if (action == SAMPLE)
     { dset->ratio = (1.*parm->work) / totread;
       return (NULL);
     }
-
-  if (dset->nreads > 0)
+  else if (dset->nreads > 0)
     CALL_BACK(dset,tid);
 
   if (CLOCK)
@@ -2188,8 +2182,11 @@ static void *dazz_output_thread(void *arg)
   int64        totread;
 
   int  *zoffs;
-  int   r, n, len;
-  int64 o;
+  int   r, len;
+  int   covl, ovl, new;
+  int   o, omax;
+  int  *boff;
+  char *line;
 
   int64 estbps, cumbps, nxtbps, pct1;
   int   CLOCK;
@@ -2206,9 +2203,10 @@ static void *dazz_output_thread(void *arg)
     CLOCK = 0;
 
   totread = 0;
+  omax    = dset->maxbps;
+  line    = dset->bases;
+  boff    = dset->boff;
 
-  n = 0;
-  o = 0;
   for (f = parm->bidx; f <= parm->eidx; f++)
     { inp = fobj+f;
       fid = fopen(inp->path,"r");
@@ -2232,6 +2230,7 @@ static void *dazz_output_thread(void *arg)
       fflush(stderr);
 #endif
 
+      o = 0;
       while (r < epos)
         { len = zoffs[r++];
           if (len < 0)
@@ -2239,81 +2238,67 @@ static void *dazz_output_thread(void *arg)
               continue;
             }
 
-          while (1)
-            { if (n >= dset->maxrds)
-                ;
-              else if (o+len >= dset->maxbps)
-                { if (dset->maxbps - o > DT_MINIM)
-                    { dset->rem = len;
-                      len = ((dset->maxbps-o) >> 2) << 2;
-    
-                      fread(dset->bases+o,len>>2,1,fid);
-                      uncompress_read(len,dset->bases+o);
-                      dset->totlen += len;
-                      n += 1;
-                      o += len+1;
-                      dset->boff[n] = o;
-    
-                      dset->rem -= len;
-                    }
+          covl = 0;
+          while (o+len > omax)
+            { int x;
+
+              ovl = ((omax-o) >> 2) << 2;
+              fread(line+o,ovl>>2,1,fid);
+              uncompress_read(ovl,line+o);
+              len -= ovl;
+              if (COMPRESS)
+                { if (covl > 0)
+                    new = homo_compress(line+(o-1),ovl+1) - 1;
+                  else
+                    new = homo_compress(line+o,ovl);
+                  o += new;
+                  covl += new;
+                  if (covl <= KMER)
+                    continue;
+                  x = line[--o];
                 }
               else
-                { dset->rem = 0;
-                  break;
-                }
-    
-              dset->nreads = n;
-              if (action == SAMPLE)
-                { dset->ratio = (1.*parm->work) / ((totread+ftello(fid))-(bpos+dset->rem));
-                  fclose(fid);
-                  return (NULL);
-                }
-
-              CALL_BACK(dset,tid);
-              if (CLOCK)
-                { cumbps += dset->totlen;
-                  if (cumbps >= nxtbps)
-                    { fprintf(stderr,"\r  %3d%%",(int) ((100.*cumbps)/estbps));
-                      fflush(stderr);
-                      nxtbps = cumbps+pct1;
-                    }
-                }
-
-              if (dset->rem == 0)
-                { o = 0;
-                  n = 0;
-                  dset->totlen = 0;
-                }
-              else
-	        { o = KMER-1;
-                  memmove(dset->bases,dset->bases+(dset->boff[n]-KMER),o); 
-                  n = 0;
-                  dset->totlen = o;
-                  len = dset->rem;
-                  dset->rem = 0;
+                o += ovl;
+              line[o++] = '\0';
+              boff[++dset->nreads] = o;
+              dset->rem = 1;
+              DUMP((bpos-ftello(fid))+len,fclose)
+              dset->rem = 0;
+              Reset_Data_Block(dset,1);
+              o = KMER-1;
+              if (COMPRESS)
+                { line[o++] = x;
+                  covl = KMER;
                 }
             }
-
-          fread(dset->bases+o,(len+3)>>2,1,fid);
-          uncompress_read(len,dset->bases+o);
-          dset->totlen += len;
-
-          n += 1;
-          o += len+1;
-          dset->boff[n] = o;
+          fread(line+o,(len+3)>>2,1,fid);
+          uncompress_read(len,line+o);
+          if (COMPRESS)
+            { if (covl > 0)
+                len = homo_compress(line+(o-1),len+1) - 1;
+              else
+                len = homo_compress(line+o,len);
+            }
+          o += len;
+          line[o++] = '\0';
+          boff[++dset->nreads] = o;
+          if (o > omax-DT_MINIM || dset->nreads >= dset->maxrds)
+            { DUMP(bpos-ftello(fid),fclose)
+              Reset_Data_Block(dset,0);
+              o = 0;
+            }
         }
 
       totread += ftello(fid)-bpos;
       fclose(fid);
     }
-  dset->nreads = n;
 
+  dset->totlen = dset->boff[dset->nreads] - dset->nreads;
   if (action == SAMPLE)
     { dset->ratio = (1.*parm->work) / totread;
       return (NULL);
     }
-
-  if (dset->nreads > 0)
+  else if (dset->nreads > 0)
     CALL_BACK(dset,tid);
 
   if (CLOCK)
@@ -2628,7 +2613,7 @@ DATA_BLOCK *Get_First_Block(Input_Partition *parts, int64 numbp)
   cust.eidx   = parm[ITHREADS-1].eidx;
   cust.end    = parm[ITHREADS-1].end;
 
-  Reset_Data_Block(&cust.block);
+  Reset_Data_Block(&cust.block,0);
   cust.block.rem = 0;
   cust.output_thread(&cust);
 
@@ -2685,7 +2670,7 @@ void Scan_All_Input(Input_Partition *parts)
       parm[i].block.boff   = boff  + (DT_READS+1)*i;
       parm[i].block.maxbps = DT_BLOCK;
       parm[i].block.maxrds = DT_READS;
-      Reset_Data_Block(&parm[i].block);
+      Reset_Data_Block(&parm[i].block,0);
       parm[i].block.rem    = 0;
     }
 
@@ -2702,6 +2687,9 @@ void Scan_All_Input(Input_Partition *parts)
     pthread_join(threads[i],NULL);
 #endif
 
+#ifdef DEBUG_OUT
+  exit (0);
+#endif
   free(bases);
   free(boff);
 }
