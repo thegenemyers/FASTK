@@ -460,7 +460,7 @@ int main(int argc, char *argv[])
       }
   }
 
-  T = Open_Kmer_Stream(argv[1],1);
+  T = Open_Kmer_Stream(argv[1]);
 
   P = Count_Homopolymer_Errors(T);
 

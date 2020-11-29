@@ -11,13 +11,18 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#define PRINT_TREE
+#define DEBUG
 
 #include "libfastk.h"
 
 static char *Usage[] = { " [-T<int(4)>] [-[hH]{<int(1)>:]<int>]",
                          "   <output:name=expr> ... <source_root>[.ktab] ..." };
 
+#define MAX_TABS 8
+
+static int DO_TABLE;
+static int NTHREADS;
+static int HIST_LOW, HIST_HGH;
 
 /****************************************************************************************
  *
@@ -30,7 +35,8 @@ static char *Usage[] = { " [-T<int(4)>] [-[hH]{<int(1)>:]<int>]",
 #define OP_MIN 2
 #define OP_XOR 3
 #define OP_CNT 4
-#define OP_ARG 5
+#define OP_NUM 5
+#define OP_ARG 6
 
 #define MOD_AVE 0
 #define MOD_SUM 1
@@ -39,10 +45,10 @@ static char *Usage[] = { " [-T<int(4)>] [-[hH]{<int(1)>:]<int>]",
 #define MOD_MAX 4
 #define MOD_LFT 5
 
-#ifdef PRINT_TREE
+#ifdef DEBUG
 
 static char *Operator[] =
-  { "OR", "AND", "MIN", "XOR", "CNT", "ARG" };
+  { "OR", "AND", "MIN", "XOR", "CNT", "NUM", "ARG" };
 
 static char *Modulator[] =
   { "AVE", "SUM", "SUB", "MIN", "MAX", "LFT" };
@@ -128,7 +134,7 @@ static Node *terminal()
         x = *Scan-'a';
       else
         x = *Scan-'A';
-      if (x > 8)
+      if (x > MAX_TABS)
         ERROR(8)
       VarV |= (1 << x);
       Scan += 1;
@@ -139,6 +145,23 @@ static Node *terminal()
       ERROR(4)
     else
       ERROR(1)
+}
+
+static Node *num()
+{ Node *v;
+
+  while (isspace(*Scan))
+    Scan += 1;
+  if (*Scan == '#')
+    { Scan += 1;
+      v = terminal();
+      if (v == NULL)
+        return (NULL);
+      else
+        return (node(OP_NUM,0,v,NULL));
+    }
+  else
+    return (terminal());
 }
 
 static int get_number()
@@ -152,10 +175,16 @@ static int get_number()
   return (x);
 }
 
+static int RSORT(const void *l, const void *r)
+{ int *x = (int *) l;
+  int *y = (int *) r;
+  return (*x-*y);
+}
+
 static Node *filter()
 { Node *v;
 
-  v = terminal();
+  v = num();
   if (v == NULL)
     return (NULL);
 
@@ -164,6 +193,7 @@ static Node *filter()
   while (*Scan == '[')
     { int   len, *f;
       char *beg;
+      int   i, p;
 
       Scan += 1;
       while (isspace(*Scan))
@@ -223,6 +253,21 @@ static Node *filter()
         }
       Scan += 1;
 
+      qsort(f,len/2,2*sizeof(int),RSORT);
+
+      p = 0;
+      for (i = 2; i < len; i += 2)
+        if (f[i] <= f[p+1])
+          { if (f[i+1] > f[p+1])
+              f[p+1] = f[i+1];
+          }  
+        else
+          { p += 2;
+            f[p] = f[i];
+            f[p+1] = f[i+1];
+          }
+      len = p+2;
+
       v = node(OP_CNT,len,v,(Node *) f);
     } 
   return (v);
@@ -261,11 +306,8 @@ static Node *and()
         return (v);
       Scan += 1;
       m = get_mode();
-      if (m < 0)
-        { free_tree(v);
-          ERROR(3)
-        }
-      Scan += 1;
+      if (m >= 0)
+        Scan += 1;
       w = filter();
       if (w == NULL)
         { free_tree(v);
@@ -333,11 +375,8 @@ static Node *or()
         return (v);
       Scan += 1;
       m = get_mode();
-      if (m < 0)
-        { free_tree(v);
-          ERROR(3)
-        }
-      Scan += 1;
+      if (m >= 0)
+        Scan += 1;
       w = minus();
       if (w == NULL)
         { free_tree(v);
@@ -347,7 +386,7 @@ static Node *or()
     }
 }
 
-#ifdef PRINT_TREE
+#ifdef DEBUG
 
 static void print_tree(Node *v, int level)
 { if (v->op == OP_CNT)
@@ -362,6 +401,10 @@ static void print_tree(Node *v, int level)
     }
   else if (v->op == OP_ARG)
     printf("%*s%s %lld\n",level,"",Operator[v->op],(int64) (v->lft));
+  else if (v->op == OP_NUM)
+    { printf("%*s%s\n",level,"",Operator[v->op]);
+      print_tree(v->lft,level+2);
+    }
   else
     { printf("%*s%s",level,"",Operator[v->op]);
       if (v->op <= OP_AND)
@@ -374,9 +417,8 @@ static void print_tree(Node *v, int level)
 
 #endif
 
-static Node *parse_expression(char *expr, int *pargs)
+static Node *parse_expression(char *expr, int *varg)
 { Node *v;
-  int   i, nargs;
 
   VarV = 0;
   Scan = expr;
@@ -395,21 +437,10 @@ static Node *parse_expression(char *expr, int *pargs)
           fprintf(stderr,"    %s\n",expr);
           fprintf(stderr,"%*s^ %s\n",(int) ((Scan-expr)+4),"",Error_Messages[Error]);
         }
-      return (NULL);
+      exit (1);
     }
 
-  nargs = 0;
-  for (i = 0; i < 8; i++)
-    if ((VarV & (1 << i)) != 0)
-      { if (nargs < i)
-          { fprintf(stderr,"%s: Expression refers to '%c' but not '%c'?\n",
-                           Prog_Name,'a'+i,'a'+(i-1));
-            return (NULL);
-          }
-        nargs = i+1;
-      }
-
-  *pargs = nargs;
+  *varg = VarV;
   return (v);
 }
 
@@ -424,6 +455,8 @@ static int eval_logic(Node *t, int i)
     case OP_AND:
       return (eval_logic(t->lft,i) && eval_logic(t->rgt,i));
     case OP_CNT:
+      return (eval_logic(t->lft,i));
+    case OP_NUM:
       return (eval_logic(t->lft,i));
     case OP_ARG:
       { int64 x = (int64) (t->lft);
@@ -449,7 +482,13 @@ static int *compile_expression(Node *t, int ntabs)
 
 static int eval_expression(Node *t, int *cnts)
 { switch (t->op)
-  { case OP_OR:
+  { case OP_NUM:
+      if (eval_expression(t->lft,cnts) > 0)
+        return (1);
+      else
+        return (0);
+
+    case OP_OR:
     case OP_AND:
       { int x, y;
 
@@ -510,6 +549,55 @@ static int eval_expression(Node *t, int *cnts)
 
 /****************************************************************************************
  *
+ *  Output Assignment
+ *
+ *****************************************************************************************/
+
+typedef struct
+  { Node *expr;
+    int   varg;
+    char *root;
+    char *path;
+    int  *logic;
+  } Assignment;
+
+
+static Assignment *parse_assignment(char *ass)
+{ char       *expr;
+  Assignment *A;
+
+  A = Malloc(sizeof(Assignment),"Allocating assignment\n");
+  if (A == NULL)
+    exit (1);
+
+  expr = index(ass,'=');
+  while (isspace(expr[-1]))
+    expr -= 1;
+  *expr++ = '\0';
+
+  A->root  = Root(ass,".ktab");
+  A->path  = PathTo(ass);
+  A->expr  = parse_expression(expr+1,&(A->varg));
+  A->logic = NULL;
+
+  return (A);
+}
+
+static void print_assignment(Assignment *A)
+{ printf("'%s' '%s' %02x:\n",A->path,A->root,A->varg);
+  print_tree(A->expr,0);
+}
+
+static void free_assignment(Assignment *A)
+{ free(A->logic);
+  free(A->expr);
+  free(A->path);
+  free(A->root);
+  free(A);
+}
+
+/****************************************************************************************
+ *
  *  Streaming eval
  *
  *****************************************************************************************/
@@ -524,20 +612,49 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
   return (0);
 }
 
-static void Merge(Kmer_Stream **T, int ntabs, Node *E)
-{ int kbyte = T[0]->kbyte;
+static void Merge(Kmer_Stream **T, int ntabs, Assignment **A, int nass)
+{ static int one = 1;
+
+  int kbyte = T[0]->kbyte;
+  int kmer  = T[0]->kmer;
+  int hgram = (HIST_LOW > 0);
 
   uint8 *ptr[ntabs];
+  FILE  *out[nass];
+  int64 *hist[nass];
+  int    any_logic[256], any_count[256];
   int    itop, in[ntabs], cnt[ntabs], imin;
-  int    c, v, x;
-  int   *logic;
-
-  logic = compile_expression(E,ntabs);
+  int    c, v, x, i;
 
   for (c = 0; c < ntabs; c++)
     { ptr[c] = First_Kmer_Entry(T[c]);
       cnt[c] = 0;
     }
+
+  for (v = 0; v < (1 << ntabs); v++)
+    any_logic[v] = any_count[v] = 0;
+  for (i = 0; i < nass; i++)
+    { int *logic = A[i]->logic;
+      for (v = 0; v < (1 << ntabs); v++)
+        any_logic[v] |= logic[v];
+      if (A[i]->expr->op != OP_NUM)
+        for (v = 0; v < (1 << ntabs); v++)
+          any_count[v] |= logic[v];
+    }
+
+  for (i = 0; i < nass; i++)
+    { if (DO_TABLE)
+        { out[i] = fopen(Catenate(A[i]->path,"/.",A[i]->root,".ktab"),"w");
+          fwrite(&kmer,sizeof(int),1,out[i]);
+          fwrite(&one,sizeof(int),1,out[i]);
+          fwrite(&one,sizeof(int),1,out[i]);
+        }
+      if (hgram)
+        { hist[i] = Malloc(sizeof(int64)*((HIST_HGH-HIST_LOW)+1),"Allocating histogram");
+          hist[i] -= HIST_LOW;
+        }
+    }
+
   while (1)
     { for (c = 0; c < ntabs; c++)
         if (ptr[c] != NULL)
@@ -562,22 +679,44 @@ static void Merge(Kmer_Stream **T, int ntabs, Node *E)
             }
         }
 
-      if (logic[v])
-        { for (c = 0; c < itop; c++)
-            { x = in[c];
-              cnt[x] = COUNT_OF(ptr[x]);
-            }
+      if (any_logic[v])
+        { if (any_count[v])
+            { for (c = 0; c < itop; c++)
+                { x = in[c];
+                  cnt[x] = COUNT_OF(ptr[x]);
+                }
 
-          v = eval_expression(E,cnt);
-          if (v > 0)
-            { // write(f,ptr[x],kbyte);
-              // write(f,&v,sizeof(short);
-            }
+              for (i = 0; i < nass; i++)
+                if (A[i]->logic[v])
+                  { v = eval_expression(A[0]->expr,cnt);
+                    if (v > 0)
+                      { fwrite(ptr[x],kbyte,1,out[i]);
+                        fwrite(&v,sizeof(short),1,out[i]);
+                        if (hgram)
+                          { if (v < HIST_LOW)
+                              hist[i][HIST_LOW] += v;
+                            else if (v > HIST_HGH)
+                              hist[i][HIST_HGH] += v;
+                            else
+                              hist[i][v] += v;
+                          }
+                      }
+                  }
 
-          for (c = 0; c < itop; c++)
-            { x = in[c];
-              cnt[x] = 0;
-              ptr[x] = Next_Kmer_Entry(T[x]);
+              for (c = 0; c < itop; c++)
+                { x = in[c];
+                  cnt[x] = 0;
+                  ptr[x] = Next_Kmer_Entry(T[x]);
+                }
+            }
+          else
+            { for (i = 0; i < nass; i++)
+                if (A[i]->logic[v])
+                  { fwrite(ptr[x],kbyte,1,out[i]);
+                    fwrite(&v,sizeof(short),1,out[i]);
+                    if (hgram)
+                      hist[i][HIST_LOW] += 1;
+                  }
             }
         }
       else
@@ -586,6 +725,10 @@ static void Merge(Kmer_Stream **T, int ntabs, Node *E)
             ptr[x] = Next_Kmer_Entry(T[x]);
           }
     }
+
+  if (DO_TABLE)
+    for (i = 0; i < nass; i++)
+      fclose(out[i]);
 }
 
 
@@ -596,13 +739,9 @@ static void Merge(Kmer_Stream **T, int ntabs, Node *E)
  *****************************************************************************************/
 
 int main(int argc, char *argv[])
-{ Kmer_Stream **T;
-  int           ntabs;
-  Node         *E;
-
-  int DO_TABLE;
-  int NTHREADS;
-  int HIST_LOW, HIST_HGH;
+{ int           nass, narg;
+  Assignment  **A;
+  Kmer_Stream **S;
 
   { int    i, j, k;
     int    flags[128];
@@ -669,42 +808,149 @@ int main(int argc, char *argv[])
         exit (1);
       } 
   }   
+  
+  { int c, kmer;
 
-  E = parse_expression(argv[1],&ntabs);
-  if (E == NULL)
-    exit (1);
+    for (c = 1; c < argc; c++)
+      if (index(argv[c],'=') == NULL)
+        break;
+    nass = c-1;
+    narg = argc-c;
+    if (nass == 0)
+      { fprintf(stderr,"%s: There must be at least one assignment argument\n",Prog_Name);
+        exit (1);
+      }
+    if (narg == 0)
+      { fprintf(stderr,"%s: There must be at least one table argument\n",Prog_Name);
+        exit (1);
+      }
+    if (narg > MAX_TABS)
+      { fprintf(stderr,"%s: So sorry, but at most %d tables are possible.\n",Prog_Name,MAX_TABS);
+        exit (1);
+      }
 
-  print_tree(E,0);
+    A = Malloc(sizeof(Kmer_Stream *)*nass,"Allocating assignment pointers");
+    S = Malloc(sizeof(Kmer_Stream *)*narg,"Allocating table pointers");
+    if (A == NULL || S == NULL)
+      exit (1);
 
-  { int *logic = compile_expression(E,ntabs);
-    int  i;
-    for (i = 0; i < (1<<ntabs); i++)
-      printf(" %0*x: %d\n",(ntabs-1)/4+1,i,logic[i]);
+    for (c = 1; c <= nass; c++)
+      { Assignment *a = parse_assignment(argv[c]);
+        if (a == NULL)
+          exit (1);
+        if (DO_TABLE)
+          { FILE *f;
+            int   x, yes;
+
+            f = fopen(Catenate(a->path,"/",a->root,".ktab"),"r");
+            if (f != NULL)
+              { fclose(f);
+                printf("Output table %s already exists, continue? ",
+                       Catenate(a->path,"/",a->root,".ktab"));
+                fflush(stdout);
+                yes = 0;
+                while ((x = getc(stdin)) != '\n')
+                  if (x == 'y' || x == 'Y')
+                    yes = 1;
+                  else if (x == 'n' || x == 'N')
+                    yes = 0;
+                if (!yes)
+                  exit (1);
+              }
+          }
+        A[c-1] = a;
+#ifdef DEBUG
+        print_assignment(a);
+#endif
+      }
+
+    kmer = 0;
+    for (c = 1; c <= narg; c++)
+      { Kmer_Stream *s = Open_Kmer_Stream(argv[c+nass]);
+        if (s == NULL)
+          { fprintf(stderr,"%s: Cannot open table %s\n",Prog_Name,argv[c+nass]);
+            exit (1);
+          }
+        if (c == 1)
+          kmer = s->kmer;
+        else
+          { if (s->kmer != kmer)
+              { fprintf(stderr,"%s: K-mer tables do not involve the same K\n",Prog_Name);
+                exit (1);
+              }
+          }
+        S[c-1] = s;
+      }
   }
 
-  if (ntabs != argc-2)
-    { fprintf(stderr,"%s: # of arguments (%d) != # of supplied tables (%d)\n",
-                     Prog_Name,ntabs,argc-2);
-      exit (1);
-    }
+  { int c, varg;
+
+    varg = 0;
+    for (c = 0; c < nass; c++) 
+      varg |= A[c]->varg;
+
+    if (varg >= (1 << narg))
+      { if (nass == 1)
+          fprintf(stderr,"%s: Expression refers to tables not given\n",Prog_Name);
+        else
+          fprintf(stderr,"%s: Expressions refer to tables not given\n",Prog_Name);
+        exit (1);
+      }
+    if (varg < (1 << (narg-1)))
+      { fprintf(stderr,"%s: There are tables not referred to by an expression\n",Prog_Name);
+        exit (1);
+      }
+    if (varg != (1 << narg)-1)
+      { if (nass == 1)
+          fprintf(stderr,"%s: Expression does not refer ta all the tables\n",Prog_Name);
+        else
+          fprintf(stderr,"%s: Expressions do not refer ta all the tables\n",Prog_Name);
+        exit (1);
+      }
+
+    for (c = 0; c < nass; c++)
+      { int *logic = compile_expression(A[c]->expr,narg);
+        A[c]->logic = logic;
+#ifdef DEBUG
+        for (int i = 0; i < (1<<narg); i++)
+          printf(" %0*x: %d\n",(narg-1)/4+1,i,logic[i]);
+#endif
+       }
+  }
+
+  { int   i;
+    int64 p;
+
+    for (i = 1; i < NTHREADS; i++)
+      { p = (S[0]->nels*i)/NTHREADS; 
+        GoTo_Kmer_Index(S[0],p);
+        printf(" %lld: %s\n",p,Current_Kmer(S[0]));
+      }
+    First_Kmer_Entry(S[0]);
+    printf(" %dll: %s\n",0,Current_Kmer(S[0]));
+
+    if (narg > 1)
+      { for (i = 1; i < NTHREADS; i++)
+          { p = (S[0]->nels*i)/NTHREADS; 
+            GoTo_Kmer_Index(S[0],p);
+            GoTo_Kmer_String(S[1],S[0]->celm);
+            printf(" %lld: %s\n",S[1]->cidx,Current_Kmer(S[1]));
+          }
+      }
+  }
+
+  Merge(S,narg,A,nass);
 
   { int c;
 
-    T = Malloc(sizeof(Kmer_Stream *)*ntabs,"Allocating streams");
-    if (T == NULL)
-      exit (1);
+    for (c = 0; c < narg; c++)
+      Free_Kmer_Stream(S[c]);
+    free(S);
 
-    for (c = 0; c < ntabs; c++)
-      T[c] = Open_Kmer_Stream(argv[c+2],1);
-
-    Merge(T,ntabs,E);
-
-    for (c = 0; c < ntabs; c++)
-      Free_Kmer_Stream(T[c]);
-    free(T);
+    for (c = 0; c < nass; c++)
+      free_assignment(A[c]);
+    free(A);
   }
-
-  free_tree(E);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

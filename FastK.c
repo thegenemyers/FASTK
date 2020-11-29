@@ -31,7 +31,7 @@ int    DO_STAGE;   //  Which step to perform
 
 #endif
 
-static char *Usage[] = { "[-k<int(40)>] [-h[<int(1)>:]<int>] [-t[<int(4)>]] [-cp] [-bc<int(0)>]",
+static char *Usage[] = { "[-k<int(40)>] -t[<int(4)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int(0)>]",
                          "  [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]",
                          "    <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz] ..."
                        };
@@ -45,10 +45,10 @@ int64  SORT_MEMORY;  //  GB of memory for downstream KMcount sorts
 char  *SORT_PATH;    //  where to put external files
 
 int    KMER;         //  desired K-mer length
-int    HIST_LOW;     // Start count for histogram
-int       HIST_HGH;  // End count for histogram
 int    DO_TABLE;     // Zero or table cutoff
 int    DO_PROFILE;   // Do or not
+int      PRO_THREADS;  //  If > 0, # of threads in .ktab for profile
+char    *PRO_HIDDEN;   //  Root of .ktab hidden files for profile
 int    BC_PREFIX;    // Ignore prefix of each sequence of this length
 char  *OUT_NAME;     // Prefix root for all output file names
 int    COMPRESS;     // Homopoloymer compress input
@@ -159,8 +159,8 @@ int main(int argc, char *argv[])
 
   { int    i, j, k;
     int    flags[128];
-    int    memory; 
-    char  *eptr, *fptr;
+    int    memory, promer; 
+    char  *eptr;
 
     ARG_INIT("FastK")
 
@@ -168,9 +168,9 @@ int main(int argc, char *argv[])
     SORT_MEMORY = 12000000000ll;
     NTHREADS    = 4;
     SORT_PATH   = "/tmp";
-    HIST_LOW    = 0;
-    HIST_HGH    = 0x7fff;
     DO_TABLE    = 0;
+    DO_PROFILE  = 0;
+    PRO_THREADS = 0;
     BC_PREFIX   = 0;
     OUT_NAME    = NULL;
 #ifdef DEVELOPER
@@ -196,34 +196,33 @@ int main(int argc, char *argv[])
           case 'k':
             ARG_POSITIVE(KMER,"K-mer length")
             break;
-          case 'h':
-            HIST_LOW = strtol(argv[i]+2,&eptr,10);
-            if (eptr > argv[i]+2)
-              { if (HIST_LOW < 1 || HIST_LOW > 0x7fff)
-                  { fprintf(stderr,"\n%s: Histogram count %d is out of range\n",
-                                   Prog_Name,HIST_LOW);
-                    exit (1);
-                  }
-                if (*eptr == ':')
-                  { HIST_HGH = strtol(eptr+1,&fptr,10);
-                    if (fptr > eptr+1 && *fptr == '\0')
-                      { if (HIST_LOW > HIST_HGH)
-                          { fprintf(stderr,"\n%s: Histogram range is invalid\n",Prog_Name);
-                            exit (1);
-                          }
-                        break;
-                      }
-                  }
-                else if (*eptr == '\0')
-                  { HIST_HGH = HIST_LOW;
-                    HIST_LOW = 1;
-                    break;
-                  }
+          case 'p':
+            if (argv[i][2] == '\0' || isalpha(argv[i][2]))
+              { ARG_FLAGS("vcpt");
+                break;
               }
-            fprintf(stderr,"\n%s: Syntax of -h option invalid -h[<int(1)>:]<int>\n",Prog_Name);
-            exit (1);
-          case 'N':
-            OUT_NAME = argv[i]+2;
+            { char *d, *r;
+              FILE *f;
+
+              d = PathTo(argv[i]+2);
+              r = Root(argv[i]+2,".ktab");
+              PRO_HIDDEN = Strdup(Catenate(d,"/.",r,""),NULL);
+              f = fopen(Catenate(d,"/",r,".ktab"),"r");
+              if (f == NULL)
+                { fprintf(stderr,"%s: Cannot find stub file %s.ktab\n",Prog_Name,r);
+                  exit (1);
+                }
+              free(r);
+              free(d);
+              fread(&promer,sizeof(int),1,f);
+              fread(&PRO_THREADS,sizeof(int),1,f);
+              if (PRO_THREADS <= 0)
+                { fprintf(stderr,"%s: %s.ktab has no hidden files?\n",Prog_Name,r);
+                  exit (1);
+                }
+              fclose(f);
+              DO_PROFILE = 1;
+            }
             break;
           case 't':
             if (argv[i][2] == '\0' || isalpha(argv[i][2]))
@@ -235,6 +234,9 @@ int main(int argc, char *argv[])
           case 'M':
             ARG_POSITIVE(memory,"GB of memory for sorting step")
             SORT_MEMORY = memory * 1000000000ll;
+            break;
+          case 'N':
+            OUT_NAME = argv[i]+2;
             break;
           case 'P':
             SORT_PATH = argv[i]+2;
@@ -262,10 +264,21 @@ int main(int argc, char *argv[])
     argc = j;
 
     VERBOSE    = flags['v'];   //  Globally declared in filter.h
-    DO_PROFILE = flags['p'];
     COMPRESS   = flags['c'];
-    if (flags['t'] && DO_TABLE == 0)
+    if (flags['t'])
       DO_TABLE = 4;
+    if (flags['p'])
+      DO_PROFILE = 1;
+
+    if (PRO_THREADS > 0)
+      { if (promer != KMER)
+          { fprintf(stderr,"%s: -p table k-mer size (%d) != k-mer specified (%d)\n",
+                           Prog_Name,promer,KMER);
+            exit (1);
+          }
+        fprintf(stderr,"%s: Sorry this feature not yet functional\n",Prog_Name);
+        exit (1);
+      }
 
     if (argc < 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage[0]);
@@ -279,9 +292,8 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -M: Use -M GB of memory in downstream sorting steps of KMcount.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -k: k-mer size.\n");
-        fprintf(stderr,"      -h: Output histogram of counts in range given\n");
         fprintf(stderr,"      -t: Produce table of sorted k-mer & counts >= level specified\n");
-        fprintf(stderr,"      -p: Produce sequence count profiles\n");
+        fprintf(stderr,"      -p: Produce sequence count profiles (w.r.t. table if given)\n");
         fprintf(stderr,"     -bc: Ignore prefix of each read of given length (e.g. bar code)\n");
         fprintf(stderr,"      -c: Homopolymer compress every sequence\n");
         exit (1);
@@ -451,6 +463,9 @@ int main(int argc, char *argv[])
   free(pwd);
   free(root);
   free(SORT_PATH);
+
+  if (PRO_THREADS > 0)
+    free(PRO_HIDDEN);
 
   Catenate(NULL,NULL,NULL,NULL);  //  frees internal buffers of these routines
   Numbered_Suffix(NULL,0,NULL);

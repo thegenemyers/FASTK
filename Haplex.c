@@ -189,11 +189,11 @@ void Find_Haplo_Pairs(Kmer_Stream *T)
         flimit[i-1] = finger[i];
       flimit[f-1] = cptr;
 
-#define ADD(i)				\
-{ int cn = COUNT_OF(finger[i]);		\
-  advn[a++] = i;			\
-  if (cn <= HAPLO_HGH)			\
-    good[c++] = i;			\
+#define ADD(i)					\
+{ int cn = COUNT_OF(finger[i]);			\
+  advn[a++] = i;				\
+  if (HAPLO_LOW <= cn && cn <= HAPLO_HGH)	\
+    good[c++] = i;				\
 }
 
 #define SET(i)	\
@@ -329,7 +329,7 @@ int main(int argc, char *argv[])
       }
   }
 
-  T = Open_Kmer_Stream(argv[1],HAPLO_LOW);
+  T = Open_Kmer_Stream(argv[1]);
 
   Find_Haplo_Pairs(T);
 

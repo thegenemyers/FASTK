@@ -117,7 +117,7 @@ static void *padded_minimizer_thread(void *arg)
   int64         *count   = data->count;
 
   char          *bases   = block->bases;
-  int64         *boff    = block->boff+1;
+  int           *boff    = block->boff+1;
 
   int   P2M2 = PAD2-2;
 
@@ -993,7 +993,7 @@ static int        short_read;  //   There was at least one read < KMER (after pr
 void Distribute_Block(DATA_BLOCK *block, int tid)
 { int    nreads  = block->nreads;
   char  *bases   = block->bases;
-  int64 *boff    = block->boff+1;
+  int   *boff    = block->boff+1;
 
   Min_File *out   = ogroup[tid];
   int64     nidx  = nfirst[tid];

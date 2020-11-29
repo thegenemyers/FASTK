@@ -38,10 +38,9 @@ extern int    NTHREADS;    //  # of threads to run with
 extern int      ITHREADS;    //  # of threads possible for input
 extern char  *SORT_PATH;   //  where to put external files
 
-extern int    HIST_LOW;    // Zero or start count for histogram
-extern int       HIST_HGH; // End count for histogram
 extern int    DO_TABLE;    // Zero or table cutoff
 extern int    DO_PROFILE;  // Do or not
+extern int      PRO_THREADS;  //  If > 0, # of threads in .ktab for profile  
 extern int    BC_PREFIX;   // Ignore prefix of each read of this length
 extern int    COMPRESS;    // Homopolymer compress the input
 
@@ -90,7 +89,7 @@ typedef struct
     int64       maxbps;   //  size of bases array
     int         maxrds;   //  size of boff array
     char       *bases;    //  concatenation of 0-terminated read strings
-    int64      *boff;     //  read i is at bases+boff[i], boff[n] = total bytes
+    int        *boff;     //  read i is at bases+boff[i], boff[n] = total bytes
     int         rem;      //  Length of remainder of current sequence to process
     char       *next;     //  Remainder of current input sequence (overlaps by KMER-1) with last
                           //     sequence in this block buffer now.

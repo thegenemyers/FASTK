@@ -1646,28 +1646,6 @@ void Sorting(char *dpwd, char *dbrt)
   //  Output histogram
 
   { int   i, f;
-    int64 stotal, ssum; 
-
-    if (HIST_LOW > 0)
-      { printf("\nHistogram of %d-mers:\n",KMER);
-
-        stotal = 0;
-        for (i = 0; i <= 0x7fff; i++)
-          stotal += counts[i];
-
-        ssum = 0;
-        for (i = 0x7fff; i > HIST_LOW; i--)
-          { ssum += counts[i];
-            if (i == HIST_HGH)
-              printf(" >= %5d: %12lld\n",i,ssum);
-            else if (i < HIST_HGH && counts[i] > 0)
-              printf("    %5d: %12lld\n",i,counts[i]);
-          }
-        if (HIST_LOW > 1)
-          printf(" <= %5d: %12lld\n",i,stotal-ssum);
-        else
-          printf("    %5d: %12lld\n",i,stotal-ssum);
-      }
 
     sprintf(fname,"%s/%s.hist",dpwd,dbrt);
     f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);

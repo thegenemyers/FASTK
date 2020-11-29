@@ -7,6 +7,13 @@
 - [Command Line](#command-line)
 
 - [Sample Applications](#sample-applications)
+  - [Histex](#histex): Display a FastK histogram
+  - [Tabex](#tabex): List, Check, or find a k-mer in a FastK table
+  - [Profex](#profex): Display a FastK profile
+  - [Haplex](#haplex): Find k-mer pairs with a SNP in the middle
+  - [Homex](#homex): Estimate homopolymer error rates
+  - [Logex](#logex): Combine and filter kmer,count tables according to logical expressions
+  - [Vennex](#vennex): Produce histograms for the Venn diagram of 2 or more tables
 
 - [C-Library Interface](#c-library-interface)
   - [K-mer Histogram Class](#k-mer-histogram-class)
@@ -15,9 +22,9 @@
   - [K-mer Profile Class](#k-mer-profile-class)
  
 - [File Encodings](#file-encodings)
-  - [<code>.hist</code>: K-mer Histogram File](#k-mer-histogram-file)
-  - [<code>.ktab</code>: K-mer Table Files](#k-mer-table-files)
-  - [<code>.prof</code>: K-mer Profile Files](#k-mer-profile-files)
+  - [`.hist`: K-mer Histogram File](#k-mer-histogram-file)
+  - [`.ktab`: K-mer Table Files](#k-mer-table-files)
+  - [`.prof`: K-mer Profile Files](#k-mer-profile-files)
 
 
 ## Command Line
@@ -35,7 +42,7 @@ FastK can produce the following outputs:
 
 1. a histogram of the frequency with which each k-mer in the data set occurs.
 2. a table of k-mer/count pairs sorted lexicographically on the k-mer where a < c < g < t.
-3. a k-mer count profile of every sequence in the data set.  A **profile** is the sequence of counts of the n-(k-1) consecutive k-mers of a sequence of length n. 
+3. a k-mer count profile of every sequence in the data set.  A **profile** is the sequence of counts of the n-(k-1) consecutive k-mers of a sequence of length n.
 
 Note carefully, that in order to accommodate the unknown orientation of a sequencing read,
 a k-mer and its Watson Crick complement are considered to be the same k-mer by FastK, where the
@@ -46,7 +53,7 @@ line options.  The table (2.) is over just the *canonical* k-mers present in the
 about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 
 ```
-1. FastK [-k<int(40)] [-h[<int(1)>:]<int>] [-t[<int(4)>]] [-cp] [-bc<int>]
+1. FastK [-k<int(40)>] [-t[<int(4)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int>]
           [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
             <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz]] ...
 ```
@@ -69,10 +76,6 @@ as \<source>.
 One can select any value of k &ge; 5 with the &#8209;k option.
 FastK always outputs a file <code>\<source>.hist</code> that contains a histogram of the k-mer frequency
 distribution where the highest possible count is 2<sup>15</sup>-1 = 32,767 -- FastK clips all higher values to this upper limit.  Its exact format is described in the section on Data Encodings.
-If the &#8209;h option is specified then the histogram is displayed by FastK on the standard output as 
-soon as it is computed.
-This option allows you to specify the interval of frequencies to display, where the lower limit
-is 1 if ommitted.
 
 One can optionally request, by specifying the &#8209;t option, that FastK produce a sorted table of
 all canonical k&#8209;mers that occur &#8209;t or more times along with their counts, where the default
@@ -89,6 +92,14 @@ along with 2N roughly equal-sized pairs of *hidden* files with the names
 <code>.\<base>.pidx.#</code> and <code>.\<base>.prof.#</code> in the order of the sequences in the input.  Here \<base> is the base name part of \<source> = \<dir>/\<base>.
 The profiles are individually compressed and the exact format of these
 files is described in the section on Data Encodings.
+
+The -p option can contain an optional reference to a k-mer table such as produced by the
+-t option.  If so, then FastK produces profiles of every read where the k-mer counts
+are those found in the referenced table, or zero if a k-mer in a read is not in the
+table.  This *relative* profile is often useful to see how the k-mers from one source
+are reflected in another by tools such as [merfin](https://github.com/arangrhie/merfin).
+If this version of the -p option is specified then only profiles are produced -- the
+-t option is ignored and the defualt histogram is not produced.
 
 The &#8209;c option asks FastK to first homopolymer compress the input sequences before analyzing
 the k-mer content.  In a homopolymer compressed sequence, every substring of 2 or more a's
@@ -136,6 +147,7 @@ or cram.  This restriction is not fundamental and could be removed with some cod
 
 ## Sample Applications
 
+<a name="histex"></a>
 ```
 1. Histex [-h[<int(1)>:]<int(100)>] <source>[.hist]
 ```
@@ -149,6 +161,7 @@ Given a histogram file \<source>.hist produced by FastK,
 one can view the histogram of k&#8209;mer counts with **Histex** where the &#8209;h specifies the 
 interval of frequencies to be displayed where 1 is assumed if the lower bound is not given.
 
+<a name="tabex"></a>
 ```
 2. Tabex [-t<int>] <source>[.ktab]  (LIST|CHECK|(<k-mer:string>) ...
 ```
@@ -160,6 +173,7 @@ of the table in radix order.  CHECK checks that the table is indeed sorted.  Oth
 argument is interpreted as a k-mer and it is looked up in the table and its count returned
 if found.  If the &#8209;t option is given than only those k&#8209;mers with counts greater or equal to the given value are operated upon.
 
+<a name="profex"></a>
 ```
 3. Profex <source>[.prof] <read:int> ...
 ```
@@ -168,9 +182,11 @@ Given that a set of profile files have been generated and are represented by stu
 and gives a display of each sequence profile whose ordinal id is given on
 the remainder of the command line.  The index of the first read is 1 (not 0).
 
+<a name="haplex"></a>
 ```
 4. Haplex [-g<int>:<int>] <source>[.ktab]
 ```
+
 In a scan of \<source> identify all bundles of 2&#8209;4 k&#8209;mers that differ only in their
 middle base, i.e. the &lfloor;k/2&rfloor;<sup>th</sup> base.  If the &#8209;g option is
 given then only bundles where the count of each k&#8209;mer is in the specified integer
@@ -201,6 +217,7 @@ cgatcctcacactttttcgaTgctttttcggtactcgccc 26
 in response to <code>Haplex -h7:36 CB.ktab</code> where CB is a 50X HiFi data set of
 Cabernet Sauvignon.
 
+<a name="homex"></a>
 ```
 5. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
 ```
@@ -237,30 +254,36 @@ Cabernet Sauvignon, the following table is output (in about a minute).
 
 &nbsp;
 
-
+<a name="logex"></a>
 ```
-6. Logex [-T<int(4)] [-[hH][<int(1)>:]<int>] <name[:=]expr> ... <source>[.ktab] ...
+6. Logex [-T<int(4)>] [-[hH][<int(1)>:]<int>] <name=expr> ... <source>[.ktab] ...
 ```
 
 *UNDER CONSTRUCTION*
 
-Logex takes one or more k-mer table "assignments" as its first arguments and applies it to the ordered merge of the k-mer count tables that follow, yielding new k-mer tables with the assigned names, of the k-mers satisfying the logic of the associated expression along with counts computed per the "modulators" of the expression.  For example,
-<code>Logex 'AnB = A &. B' Tab1 Tab2</code> would produce a new table stub file AnB.ktab
+Logex takes one or more k-mer table "assignments" as its initial arguments and applies these to the ordered merge of the k-mer count tables that follow, each yielding a new k-mer tables with the assigned names, of the k-mers satisfying the logic of the associated expression along with counts computed per the "modulators" of the expression.  For example,
+`Logex 'AnB = A &. B' Tab1 Tab2` would produce a new table stub file AnB.ktab
 and associated hidden files, of the k-mers common to the tables represented by the
-stub files Tab1.ktab and Tab2.ktab.  If the -h option is given then a histogram over
-the given range is generated for each asssignment, and if the -H option is given then
-only the histograms are generated and not the tables.  The -T option can be used to
+stub files Tab1.ktab and Tab2.ktab.  If the &#8209;h option is given then a histogram over
+the given range is generated for each asssignment, and if the &#8209;H option is given then
+only the histograms are generated and not the tables.  The &#8209;T option can be used to
 specify the number of threads used.
 
-A k-mer table expression has as its basis a logical predicate made up from the binary
+Each assignment arguments is a path name followed by an =-sign and then a "k-mer-count"
+expression.  The path name specifies the location and name of the table that will be
+produced in response to the application of the k-mer-count expresssion to the input
+tables.
+
+A k-mer-count expression has as its basis a logical predicate made up from the binary
 operators '|' (or), '&' (and), '^' (xor), and '-' (minus) over arguments that are alphabetic letters from a-h or A-H where case does not matter.
-So for example, the logical predicate <code>(A^B)-C</code> would select those k-mers that occur in either the first or second table, but not both, and that do not occur in the third table.  The order of precedence of the operators is '&' (highest), then '^' then '-' then '|' (lowest).  Parenthesis can be used to override precedence and spaces may be freely interspersed in the expression.
+So for example, the logical predicate `(A^B)-C` would select those k-mers that occur in either the first or second table, but not both, and that do not occur in the third table.  The order of precedence of the operators is '&' (highest), then '^' then '-' then '|' (lowest).  Parenthesis can be used to override precedence and spaces may be freely interspersed in the expression.
 If there are k &le; 8 table arguments after the assignments, then the assignment expressions in toto are expected to involve the k-consecutive letters starting with 'a'.
 
-The tables are not just an ordered list of k-mers, but an ordered list of k-mers *with a
-count for each*, i.e. k-mer,count pairs.  So a k-mer table expression is a logical expression augmented with "modulators" that specify how to compute the count associated
-with a logically accepted k-mer and further whether to accept the k-mer based on the
-input counts.  Specifically
+FastK tables are not just ordered lists of k-mers, but ordered lists of k-mers *with a
+count for each*, i.e. k-mer,count pairs.  So a k-mer-count expression must also specify
+how to combine the counts of the k-mers that satisfy the logical operations.
+This is accomplished by adding two new unary operators, '[]' and '#', and adding a
+"modulator" character to the logical operators.  Specifically:
 
 * Any sub-expression can be followed by a post-fix modulation operator consisting of a
 comma separated list of integer ranges in square brackets, i.e.
@@ -268,14 +291,21 @@ comma separated list of integer ranges in square brackets, i.e.
 the upper or lower bound (or both) can be missing, i.e. [\<int>] '-' [\<int>].
 Only those k-mer,count pairs produced by the filter's sub-expression whose counts are
 in one of the supplied ranges is accepted by this modulator expression.  For example,
-<code>A[5-10]</code> accepts all k-mers in the first table with count between 5 and
-10 (inclusive), and <code>(A-B)[7-]</code> accepts all k-mer that are in the first
-table but not the second and have a count of 7 or more.
+`A[5-10]` accepts all k-mers in the first table with count between 5 and
+10 (inclusive), and `(A-B)[7-]` accepts all k-mer that are in the first
+table but not the second and have a count of 7 or more.  With regard to precedence,
+this operator binds more tightly than any of the logical operators.
 
-* When the same k-mer is in several of the tables and so accepted by the logical
+* Any sub-expression can be preceded by the prefix modulation operator #, which
+returns the k-mer of its subexpression with a count of 1 (if the sub-expression
+produces a k-mer).  For example, `#A |+ #B |+ #C` will produce the union of
+all the k-mers in the tables where the count will be the number of tables the k-mer
+occurred in.  This operator binds the most tightly with regard to precedence.
+
+* When the same k-mer is in several of the tables and so accepted by a logical
 expression, e.g. it is in both the first and second table and the operator is & or |,
 then the question arises as to what the count of the accepted k-mer should be.
-At this moment we provide 6 "modulators" that immediately follow the logical operator
+At this time we provide 6 "modulators" that immediately follow the logical operator
 as follows:
 
 	* '+' takes the sum of the k-mers
@@ -285,35 +315,42 @@ as follows:
 	* '*' takes the average of the two counts
 	* '.' takes the count of the left-kmer whenever it is available, the right otherwise
 
-So A &+ B will produce a k-mer, count pair when a k-mer is in both the first and second
+So for example, A &+ B will produce a k-mer, count pair when a k-mer is in both the first and second
 tables and give the k-mer the sum of the counts of the two instances.
 A |+ B will produce a k-mer, count pair when a k-mer is in one or both of the first
 and second tables and give the k-mer the sum of the counts of the instances available.
-(A |> B |> C |> D)[-3] will output any k-mer that has a count of 3 or less in the
+The operators ^ and - do not require modulators as only one k-mer satisfies the operator
+which then uses that count as the count for its result.  As a final example,
+`(A |> B |> C |> D)[-3]` will output any k-mer that has a count of 3 or less in the
 first four tables along with its smallest count.
 
+In summary, k-mer-count expressions permit all the typical filtration and logical combination operators provided in the post-count framework of most other k-mer counter software suites.  Some efficiency may be lost due to the interpretive realization
+of the expressions but this is hopefully compensated for by the expressiveness of
+the concept which unifies most of the desired manipulations in a single program.
+
+<a name="vennex"></a>
 ```
 7. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...
 ```
 *UNDER CONSTRUCTION*
 
 Vennex takes two or more, say k, tables, and produces histograms of the counts for each
-region in the k-way Venn diagram.  That is <code>Vennex Alpha Beta</code> where
-<code>Alpha</code> and <code>Beta</code> are .ktab's will produce histograms of the
+region in the k-way Venn diagram.  That is `Vennex Alpha Beta` where
+`Alpha` and `Beta` are .ktab's will produce histograms of the
 counts of:
 
-* the k-mers in both Alpha and Beta, i.e. Alpha & Beta, in file <code>ALPHA.BETA.hist</code>
-* the k-mers in Alpha but not Beta, i.e. Alpha-Beta, in file <code>ALPHA.beta.hist</code>, and
-* the k-mers in Beta but not Alpha, i.e. Beta-Alpha, in file <code>alpha.BETA.hist</code>.
+* the k-mers in both Alpha and Beta, i.e. Alpha & Beta, in file `ALPHA.BETA.hist`
+* the k-mers in Alpha but not Beta, i.e. Alpha-Beta, in file `ALPHA.beta.hist`, and
+* the k-mers in Beta but not Alpha, i.e. Beta-Alpha, in file `alpha.BETA.hist`.
 
 Generalizing,
-<code>Vennex A B C</code>, produces 7 ( = 2<sup>k</sup>-1) histograms with the names, a.b.C, a.B.c, a.B.C.,
+`Vennex A B C`, produces 7 ( = 2<sup>k</sup>-1) histograms with the names, a.b.C, a.B.c, a.B.C.,
 A.b.c, A.b.C, A.B.c, and A.B.C where the convention is that a table name is in upper case if it is in, and the name is in
 lower case if it is out.  For example, a.B.c is a histogram of the counts of the k-mers  that are in B but not A and not C, i.e. B-A-C.  The range of the histograms is 1 to 100 (inclusive) by
 default but may be specified with the -h option.
 
-The astute reader will not that <code>Vennex Alpha Beta</code> is basiscally a tailored
-version of the command <code>Logex -H100 'ALPHA.BETA:A&B' 'ALPHA.beta:A-B' 'alpha.BETA:B-A' Alpha Beta</code>
+It may interest one to observe that the command `Vennex Alpha Beta` is equivalent to the command
+`Logex -H100 'ALPHA.BETA=#A&B' 'ALPHA.beta=#A-B' 'alpha.BETA=#B-A' Alpha Beta` further illustrating the flexibility of the Logex command.
 
 &nbsp;
 
@@ -324,7 +361,7 @@ version of the command <code>Logex -H100 'ALPHA.BETA:A&B' 'ALPHA.beta:A-B' 'alph
 
 For each of the 3 distinct outputs of FastK, we have suppled a simple C library
 that gives a user access to the data therein.  The library is simply embodied in
-the C&#8209;file, <code>libfastk.c</code>, and associated include file <code>libfastk.h</code>.
+the C&#8209;file, `libfastk.c`, and associated include file `libfastk.h`.
 The makefile commands for building Histex, Tabex, and Profex illustrate how to
 easily incorporate the library into your C or C++ code.
 
@@ -343,29 +380,29 @@ typedef struct
   } Histogram;
 ```
 
-The frequencies are stored in the array pointed at by the field <code>hist</code>
-where indexing said with any value between <code>low</code> and <code>high</code>,
+The frequencies are stored in the array pointed at by the field `hist`
+where indexing said with any value between `low` and `high`,
 inclusive will deliver a valid frequency.  But caution: indexing with any frequency outside this range may result in an out-of-bounds memory access and possible segfault.
-By convention, the lowest and highest frequencies always contain the number of k&#8209;mers with the given frequency **plus** the number of k&#8209;mers with lower or higher frequencies, respectively.  This is to ensure the convention that the total sum of the k&#8209;mers in a histogram is equal to the number in the source sequence data set.
+By convention, the lowest and highest frequencies always contain the number of k&#8209;mers with the given frequency **plus** the number of k&#8209;mers with lower or higher frequencies, respectively.  This is to ensure the convention that the total sum of the k&#8209;mers in a histogram is equal to the number in the originating source sequence data set.
 
 ```
 Histogram *Load_Histogram(char *name);
 void       Subrange_Histogram(Histogram *H, int low, int high);
 void       Free_Histogram(Histogram *H);
 ```
-<code>Load\_Histogram</code> opens the FastK histogram at path name <code>name</code>
+`Load_Histogram` opens the FastK histogram at path name <code>name</code>
 adding the .hist extension if it is not present.  It returns a pointer to a
 newly allocated <code>Histogram</code> object for the data encoded in the specified
 file.  The routine returns NULL if it cannot open the file, and if there is
 insufficient memory available (very unlikely given its size), it prints a message
 to standard error and exits.
 
-<code>Subrange\_Histogram</code> modifies a given histogram so it is over the given
+`Subrange_Histogram` modifies a given histogram so it is over the given
 range.  The routine does nothing if the supplied subrange is not a subset of the range
 of the supplied histogram.  The lowest and highest frequencies have the cumulative
 counts of the frequencies below and above them, per our convention.
 
-<code>Free\_Histogram</code> removes all memory encoding the input histogram.
+`Free_Histogram` removes all memory encoding the input histogram.
 
 &nbsp;
 
@@ -385,54 +422,54 @@ typedef struct
   } Kmer_Table;
 ```
 
-The field <code>table</code> is a pointer to an array of <code>nels</code> entries of
-size <code>tbyte</code> bytes where each item encodes a k-mer, count pair and the
+The field `table` is a pointer to an array of <code>nels</code> entries of
+size `tbyte` bytes where each item encodes a k-mer, count pair and the
 entries are **sorted** in lexicographical order of the k-mers.
-The k-mer of a table entry is encoded in the first <code>kbyte</code> = (kmer+3)/4 bytes where each base is compressed into 2-bits so that each byte contains up to four bases, in order of high bits to low bits.  The
+The k-mer of a table entry is encoded in the first `kbyte` = (kmer+3)/4 bytes where each base is compressed into 2-bits so that each byte contains up to four bases, in order of high bits to low bits.  The
 bases a,c,g,t are assigned to the values 0,1,2,3, respectively.  As an example, 0xc6 encodes
 tacg.  The last byte is partially filled if kmer is not a multiple of 4, and the remainder is guaranteed to be zeroed.  The byte sequence for a k-mer is then followed by a 2-byte 
 unsigned integer count with a maximum value of 32,767 (implying tbytes = kbytes+2) and
-a minimum value of <code>minval</code>.  This later value is the maximum of (a) the cutoff
-given in the stub file (from the -t option of the FastK run producing the file) and (b) the <code>cutoff</code> parameter given to <code>Load\_Kmer\_Table</code>.
+a minimum value of `minval`.  This later value is the maximum of (a) the cutoff
+given in the stub file (from the -t option of the FastK run producing the file) and (b) the `cut_off` parameter given to `Load_Kmer_Table`.
 The number of bytes in the count may change in a future version.  
 
 ```
 Kmer_Table *Load_Kmer_Table(char *name, int cut_off);
 void        Free_Kmer_Table(Kmer_Table *T);
 
-char       *Fetch_Kmer(Kmer_Table *T, int i);
-int         Fetch_Count(Kmer_Table *T, int i);
+char       *Fetch_Kmer(Kmer_Table *T, int64 i);
+int         Fetch_Count(Kmer_Table *T, int64 i);
 
-int         Find_Kmer(Kmer_Table *T, char *kseq);
+int64       Find_Kmer(Kmer_Table *T, char *kseq);
 void        List_Kmer_Table(Kmer_Table *T, FILE *out);
 int         Check_Kmer_Table(Kmer_Table *T);
 ```
 
-<code>Load\_Kmer\_Table</code> opens the FastK k-mer table represented by the stub file
-at path name <code>name</code>, adding the .ktab extension if it is not present.  It returns a pointer to a newly allocated <code>Kmer\_Table</code> object for
+`Load_Kmer_Table` opens the FastK k-mer table represented by the stub file
+at path name `name`, adding the .ktab extension if it is not present.  It returns a pointer to a newly allocated `Kmer_Table` object for
 the data encoded in the relevant files.  The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with
-the stub file, it prints an informative message to standard error and exits.  Unless the <code>cut\_off</code> parameter implies the table should be trimmed, this routine attempts to load the entire table into memory and so may fail as these tables can be very large.  For example, if FastK is run on a human genome data set with -t4 the table can require as much as 40-50GB.*  In the cases where one wants the table of only those k-mers
-whose counts are not less than <code>cut\_off</code> and this threshold is greater than
+the stub file, it prints an informative message to standard error and exits.  Unless the `cut_off` parameter implies the table should be trimmed, this routine attempts to load the entire table into memory and so may fail as these tables can be very large.  For example, if FastK is run on a human genome data set with -t4 the table can require as much as 40-50GB.*  In the cases where one wants the table of only those k-mers
+whose counts are not less than `cut_off` and this threshold is greater than
 that recorded in the stub file, then the load actually reads the table
-twice with a <code>Kmer_Stream</code> to use only the memory required for exactly those
+twice with a `Kmer_Stream` to use only the memory required for exactly those
 k-mers.  This can save significant space at the expense of taking more time to load.
 
-<code>Free\_Kmer\_Table</code> removes all memory encoding the table object.
+`Free_Kmer_Table` removes all memory encoding the table object.
 
-The two <code>Fetch</code> routines return the k-mer and count, respectively, of the
-<code>i</code><sup>th</sup> entry in the given table.  <code>Fetch_Kmer</code> in particular returns a pointer to an ascii, 0-terminated string giving the k-mer in lower-case
+The two `Fetch` routines return the k-mer and count, respectively, of the
+`i`<sup>th</sup> entry in the given table.  `Fetch_Kmer` in particular returns a pointer to an ascii, 0-terminated string giving the k-mer in lower-case
 a, c, g, t.  This string is local to the routine and is reset with a new value on
 each call, so if you need a k-mer to persist you must copy the result.  Moreover, if
-you call <code>Fetch\_Kmer</code> with T = NULL it will free the space occupied by this
+you call `Fetch_Kmer` with T = NULL it will free the space occupied by this
 local buffer and return NULL.
 
-<code>Find\_Kmer</code> searches the table for the supplied k-mer string and returns the
-count of the k-mer if found, or 0 if not found.  The string <code>kseq</code> must be
+`Find_Kmer` searches the table for the supplied k-mer string and returns the
+index of the k-mer if found, or -1 if not found.  The string `kseq` must be
 at least kmer bases long, and if longer, the trailing bases are ignored.  The string
 may use either upper- or lower-case Ascii letters.
 
-<code>List\_Kmer\_Table</code> prints out the contents of the table in an Ascii format
-to the indicated output and <code>Check\_Kmer\_Table</code> checks that the k-mers of a
+`List_Kmer_Table` prints out the contents of the table in an Ascii format
+to the indicated output and `Check_Kmer_Table` checks that the k-mers of a
 table are actually sorted, return 1 if so, and return 0 after printing a diagnostic to the standard error if not.
 
 The sample code below opens a table for "foo.ktab", prints out the contents of the table, and ends by freeing all memory involved.
@@ -451,7 +488,7 @@ Fetch_Kmer(NULL,0);
 
 K-mer tables can be truly large so that when loaded in memory 10's of gigabytes of main
 memory are required.  On the other hand many operations can be arranged as sweeps of
-one or more tables especially given that they are sorted, e.g finding the k-mers common to two tables.  The FastK library therefore also contains a <code>Kmer_Stream</code> class
+one or more tables especially given that they are sorted, e.g finding the k-mers common to two tables.  The FastK library therefore also contains a `Kmer_Stream` class
 that allows one to iterate over the elements of a table:
 
 ```
@@ -461,14 +498,20 @@ typedef struct
     int     kbyte;       //  Kmer encoding in bytes
     int     tbyte;       //  Kmer,count entry in bytes
     int64   nels;        //  # of unique, sorted k-mers in the stream
-    void   *private[8];  //  Private fields
+    uint8  *celm;        //  Current entry (in buffer)
+    int64   cidx;        //  Index of current entry (in table as a whole)
+    void   *private[7];  //  Private fields
   } Kmer_Stream;
 ```
-Unlike a Kmer_Table object almost all of the fields for a Kmer_Stream are hidden from
-the user who is expected to use the table through the following operators:
+Unlike a Kmer\_Table object almost all of the fields for a Kmer\_Stream are hidden from
+the user who is expected to manipulate the table through the operators below.  A
+Kmer\_Stream always has a current position that one generally initializes and then
+advances sequentially through the table.  One can directly access the bit-coded current
+entry via the field `celm` and the absolute index of this element in the table is
+available in `cidx`.  The operators for manipulating a table as as follows:
 
 ```
-Kmer_Stream *Open_Kmer_Stream(char *name, int cut_off);
+Kmer_Stream *Open_Kmer_Stream(char *name);
 void         Free_Kmer_Stream(Kmer_Stream *S);
 
 uint8       *First_Kmer_Entry(Kmer_Stream *S);
@@ -476,26 +519,35 @@ uint8       *Next_Kmer_Entry(Kmer_Stream *S);
 
 char       *Current_Kmer(Kmer_Streaam *S);
 int         Current_Count(Kmer_Streaam *S);
+
+uint8      *GoTo_Kmer_Index(Kmer_Stream *S, int64 i);
+uint8      *GoTo_Kmer_String(Kmer_Stream *S, uint8 *entry);
 ```
 
-<code>Open\_Kmer\_Stream</code> opens a k-mer table for a scan that will iterate over those
-entries whose count is not less than <code>cut_off</code>.  As it iterates over the
-entries it uses only a small input buffer of several KB.  Note carefully that the routine
-conceptually **opens** the table for reading, but does not **load** it (into memory).
-The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with the stub file, it prints an informative message to standard error and exits.
+`Open_Kmer_Stream` opens a k-mer table as a stremable object that scans efficiently, but
+trades off efficient random access for efficent memory utilization.  Specifically, As it iterates over the entries it uses only a small input buffer of several KB.  Note carefully that the routine conceptually **opens** the table for reading, but does not **load** it (into memory).  The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with the stub file, it prints an informative message to standard error and exits.  The current position or cursor
+is set to be the start of the table.
 
-<code>Free\_Kmer\_Stream</code> removes all memory encoding the stream object.
+`Free_Kmer_Stream` removes all memory encoding the stream object.
 
-<code>First\_Kmer\_Entry</code> sets the iterator for the stream to the first entry of
-the table and <code>Next\_Kmer\_Entry</code> advance the stream to the next entry.
+`First_Kmer_Entry` sets the iterator for the stream to the first entry of
+the table and `Next_Kmer_Entry` advance the stream to the next entry.
 The routines return NULL when the end of the table is reached, but normally
-return a <code>uint8</code> pointer to the current entry so that the
+return a `uint8` pointer to the current entry so that the
 sophisticated user can directly work with the 2-bit packed k-mer sequence described
 at the start of the [K-mer Table Class](#k-mer-table-class) description or the [K-mer Table Files](#k-mer-table-files) section.    Otherwise, one can extract the count and k-mer of
-the current entry with <code>Current\_Count</code> and <code>Current\_Kmer</code> routines,
-respectively. 
-<code>Current_Kmer</code> in particular returns a pointer to an ascii, 0-terminated string giving the k-mer in lower-case a, c, g, t.  This string is local to the routine and is reset with a new value on each call, so if you need a k-mer to persist you must copy the result.  Moreover, if you call <code>Current\_Kmer</code> with S = NULL it will free the space
+the current entry with `Current_Count` and `Current_Kmer` routines,
+respectively.
+ 
+`Current_Kmer` returns a pointer to an ascii, 0-terminated string giving the k-mer in lower-case a, c, g, t.  This string is local to the routine and is reset with a new value on each call, so if you need a k-mer to persist you must copy the result.  Moreover, if you call `Current_Kmer` with S = NULL it will free the space
 occupied by this local buffer and return NULL. 
+
+`GoTo_Kmer_Index` sets the current cursor to the `i`<sup>th</sup> element of the
+stream, and `GoTo_Kmer_String` sets the cursor to the first entry in the table whose
+k-mer is not less than the k-mer encoded in `entry` encoded as a `kbyte` 2-bit packed k-mer.
+These routines are not efficient, especially `GoTo_Kmer_String` which must do a binary search for the desired position.  They are intended for the expert who wishes
+to use them for partitioning a table for simultaneous processing by multiple threads.
+
 As an example, the code below opens a stream for "foo.ktab", prints out the contents of the table, and ends
 by freeing all memory involved.
 
@@ -527,10 +579,10 @@ typedef struct
 
 Like the k-mer stream class, the set of all profiles is not **loaded** into memory,
 but rather only **opened** so that individual profiles for a sequence
-can be read in and uncompressed on demand.  So <code>nparts</code> indicates how many
-hidden part files constitute the set of all profiles and <code>nfile</code> is an open
+can be read in and uncompressed on demand.  So `nparts`> indicates how many
+hidden part files constitute the set of all profiles and `>nfile<` is an open
 file stream to each of the npart hidden .prof files containing the compressed profiles.
-On the otherhand, all the .pidx files are loaded into an array of <code>nreads+1</code> offsets into the hidden files pointed at by <code>index</code> where the small nparts element table <code>nbase</code> is used to resolve which part file a read is in.
+On the otherhand, all the .pidx files are loaded into an array of <code>nreads+1</code> offsets into the hidden files pointed at by `index` where the small nparts element table `nbase<` is used to resolve which part file a read is in.
 Specificaly, the reads whose compressed profile are found in part p, are those in [x,nbase[p]] where x is 0 if p = 0 and nbase[p-1] otherwise.
 For those reads whose compressed profile is in part p, the profile is at [y,index[i])
 in the stream nfile[p] where y is 0 if i = x and index[i-1] otherwise.
@@ -543,18 +595,18 @@ void Free_Profiles(Profile_Index *P);
 int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile);
 ```
 
-<code>Open\_Profiles</code> opens the FastK profile files represented by the stub file
-at path name <code>name</code>, adding the .prof extension if it is not present.  It returns a pointer to a newly allocated <code>Profile_Index</code> object that facilitates access
+`Open_Profiles` opens the FastK profile files represented by the stub file
+at path name `name`, adding the .prof extension if it is not present.  It returns a pointer to a newly allocated `Profile_Index` object that facilitates access
 to individual compressed profiles in the hidden .prof data files.
 The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with
 the stub file, it prints an informative message to standard error and exits.
 
-<code>Free\_Profiles</code> removes all memory encoding the profile index object.
+`Free_Profiles` removes all memory encoding the profile index object.
 
-<code>Fetch\_Profile</code> uses the index <code>P</code> to fetch the compressed profile
-for the sequence with ordinal index <code>id</code> in the data set (starting with 0),
+`Fetch_Profile` uses the index `P` to fetch the compressed profile
+for the sequence with ordinal index `id` in the data set (starting with 0),
 and attempts to decompress it into the 2-byte integer array presumed to be pointed at
-by <code>profile</code> of presumed length <code>plen</code>.  It always returns the
+by `profile` of presumed length `plen`.  It always returns the
 length of the indicated profile.  If this is greater than plen, then only the first
 plen values of the profile are placed in profile, otherwise the entire profile of the
 given length is placed at the start of the array.
@@ -567,7 +619,7 @@ given length is placed at the start of the array.
 
 ### K-mer Histogram File
 
-The histogram file has a name of the form <code>\<source>.hist</code> where \<source> is the
+The histogram file has a name of the form `<source>.hist` where \<source> is the
 output path name used by FastK.  It contains an initial integer
 giving the k-mer size <k>, followed by two integers giving the range \[l,h] (inclusive) of frequencies in the histogram, followed by (h-l)+1 64-bit counts for frequencies l, l+1, ..., h.
 Formally,
@@ -590,11 +642,11 @@ times.
 ### K-mer Table Files
 
 A table of canonical k-mers and their counts is produced in N parts, where N is the number of threads FastK was run with.
-A single *stub* file <code>\<source>.ktab</code> where \<source> is the output path name used by
+A single *stub* file `<source>.ktab` where \<source> is the output path name used by
 FastK.
 This stub file contains (1) the k-mer length, followed by (2) the number of threads FastK was run with, followed by (3) the frequency cutoff (-t option) used to prune the table, as three integers.
 The table file parts are in N hidden files in the same directory as the stub
-file with the names <code>.\<base>.ktab.[1,N]</code> assuming that \<source> = \<dir>/\<base>.
+file with the names `.\<base>.ktab.[1,N]` assuming that \<source> = \<dir>/\<base>.
 The k-mers in each part are lexicographically ordered and the k-mers in Ti are all less than the k-mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
 
 The data in each table file is as follows:
@@ -618,13 +670,13 @@ unsigned integer count with a maximum value of 32,767.
 ### K-mer Profile Files
 
 The read profiles are stored in N pairs of file, an index and a data pair, that are hidden
-and identified by a single *stub* file <code>\<source>.prof</code>.
+and identified by a single *stub* file `<source>.prof`.
 This stub file contains just the k-mer length followed by the number of threads FastK was
 run with as two integers.
-The hidden data files, <code>.\<base>.prof.[1,N]</code>, contain the compressed profiles for
+The hidden data files, `.\<base>.prof.[1,N]`, contain the compressed profiles for
 each read
 in their order in the input data set, and the hidden index files,
-<code>.\<base>.pidx.[1,N]</code>, 
+`.\<base>.pidx.[1,N]`, 
 contain arrays of offsets into the P-files giving the start of each compressed profile,
 assuming the path name \<source> = \<dir>/\<base>.
 An A-file contains a brief header followed by an array of offsets.

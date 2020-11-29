@@ -245,7 +245,7 @@ int main(int argc, char *argv[])
 
       kmer = 0;
       for (c = 0; c < nway; c++)
-        { T[c] = Open_Kmer_Stream(argv[c+1],1);
+        { T[c] = Open_Kmer_Stream(argv[c+1]);
           if (T[c] == NULL)
             { fprintf(stderr,"%s: Cannot open k-mer table %s\n",Prog_Name,argv[c+1]);
               exit (1);

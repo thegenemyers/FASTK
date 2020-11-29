@@ -760,6 +760,7 @@ static void *fast_output_thread(void *arg)
                             exit (1);
                         }
                       line[olen++] = c;
+                      state = ASEQ;
                     }
                   break;
 

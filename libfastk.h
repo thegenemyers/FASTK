@@ -54,10 +54,10 @@ typedef struct
 Kmer_Table *Load_Kmer_Table(char *name, int cut_off);
 void        Free_Kmer_Table(Kmer_Table *T);
 
-char       *Fetch_Kmer(Kmer_Table *T, int i);
-int         Fetch_Count(Kmer_Table *T, int i);
+char       *Fetch_Kmer(Kmer_Table *T, int64 i);
+int         Fetch_Count(Kmer_Table *T, int64 i);
 
-int         Find_Kmer(Kmer_Table *T, char *kseq);
+int64       Find_Kmer(Kmer_Table *T, char *kseq);
 
 void        List_Kmer_Table(Kmer_Table *T, FILE *out);
 int         Check_Kmer_Table(Kmer_Table *T);
@@ -71,10 +71,12 @@ typedef struct
     int    kbyte;      //  Kmer encoding in bytes
     int    tbyte;      //  Kmer+count entry in bytes
     int64  nels;       //  # of elements in entire table
-    void  *private[8]; //  Private fields
+    uint8 *celm;       //  Current entry (in buffer)
+    int64  cidx;       //  Index of current entry (in table as a whole)
+    void  *private[7]; //  Private fields
   } Kmer_Stream;
 
-Kmer_Stream *Open_Kmer_Stream(char *name, int cut_freq);
+Kmer_Stream *Open_Kmer_Stream(char *name);
 void         Free_Kmer_Stream(Kmer_Stream *S);
 
 uint8       *First_Kmer_Entry(Kmer_Stream *S);
@@ -82,6 +84,9 @@ uint8       *Next_Kmer_Entry(Kmer_Stream *S);
 
 char        *Current_Kmer(Kmer_Stream *entry);
 int          Current_Count(Kmer_Stream *entry);
+
+uint8       *GoTo_Kmer_Index(Kmer_Stream *S, int64 idx);
+uint8       *GoTo_Kmer_String(Kmer_Stream *S, uint8 *entry);
 
 
   //  PROFILES
