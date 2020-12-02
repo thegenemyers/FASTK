@@ -72,7 +72,6 @@ int main(int argc, char **argv)
         root = Root(argv[c],NULL);
         alen = strlen(argv[c]);
         rlen = strlen(root);
-        any  = 0;
         if (alen == rlen)
           doh = dot = dop = 1;
         else
@@ -84,9 +83,9 @@ int main(int argc, char **argv)
                 root = Strdup(argv[c],NULL);
                 doh = dot = dop = 1;
               }
-            else
-              any = 1;
           }
+
+        any  = 0;
         if (doh && stat(Catenate(dir,"/",root,".hist"),&B) == 0)
           { yes = 1;
             any = 1;
@@ -102,6 +101,7 @@ int main(int argc, char **argv)
             if (yes)
               unlink(Catenate(dir,"/",root,".hist"));
           }
+
         if (dot && stat(Catenate(dir,"/",root,".ktab"),&B) == 0)
           { yes = 1;
             any = 1;
@@ -119,6 +119,7 @@ int main(int argc, char **argv)
                 system(command);
               }
           }
+
         if (dop && stat(Catenate(dir,"/",root,".prof"),&B) == 0)
           { yes = 1;
             any = 1;
@@ -137,8 +138,14 @@ int main(int argc, char **argv)
                 system(command);
               }
           }
+
         if (any == 0)
-          fprintf(stderr,"%s: Warning, no FastK output files with root %s\n",Prog_Name,root);
+          { if (doh+dot+dop == 3)
+              fprintf(stderr,"%s: no FastK output files with root %s\n",Prog_Name,root);
+            else
+              fprintf(stderr,"%s: %s does not exist\n",Prog_Name,argv[1]);
+          }
+
         free(root);
         free(dir);
       }

@@ -82,7 +82,6 @@ int main(int argc, char **argv)
 
     alen = strlen(argv[1]);
     rlen = strlen(root);
-    any  = 0;
     if (alen == rlen)
       doh = dot = dop = 1;
     else
@@ -94,8 +93,21 @@ int main(int argc, char **argv)
             root = Strdup(argv[1],NULL);
             doh = dot = dop = 1;
           }
+      }
+
+    any = 0;
+    if (doh && stat(Catenate(dir,"/",root,".hist"),&B) == 0)
+      any = 1;
+    if (dot && stat(Catenate(dir,"/",root,".ktab"),&B) == 0)
+      any = 1;
+    if (dot && stat(Catenate(dir,"/",root,".prof"),&B) == 0)
+      any = 1;
+    if (any == 0)
+      { if (doh+dot+dop == 3)
+          fprintf(stderr,"%s: no FastK output files with root %s\n",Prog_Name,root);
         else
-          any = 1;
+          fprintf(stderr,"%s: %s does not exist\n",Prog_Name,argv[1]);
+        exit (1);
       }
 
     if (stat(argv[2],&B) == 0 && (B.st_mode & S_IFMT) == S_IFDIR)
@@ -109,8 +121,7 @@ int main(int argc, char **argv)
 
     yes = doh;
     if (doh && stat(Catenate(DIR,"/",ROOT,".hist"),&B) == 0)
-      { any = 1;
-        if (NO_OVERWRITE)
+      { if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
           { printf("overwrite %s/%s.hist? ",DIR,ROOT);
@@ -122,15 +133,15 @@ int main(int argc, char **argv)
                 yes = 0;
 	  }
       } 
-    if (yes)
-      { sprintf(command,"%s -f %s/%s.hist %s/%s.hist",op,dir,root,DIR,ROOT);
+    if (yes && stat(Catenate(dir,"/",root,".hist"),&B) == 0)
+      { any = 1;
+        sprintf(command,"%s -f %s/%s.hist %s/%s.hist",op,dir,root,DIR,ROOT);
         system(command);
       }
 
     yes = dot;
     if (dot && stat(Catenate(DIR,"/",ROOT,".ktab"),&B) == 0)
-      { any = 1;
-        if (NO_OVERWRITE)
+      { if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
           { printf("overwrite %s/%s.ktab? ",DIR,ROOT);
@@ -159,8 +170,7 @@ int main(int argc, char **argv)
 
     yes = dop;
     if (dop && stat(Catenate(DIR,"/",ROOT,".prof"),&B) == 0)
-      { any = 1;
-        if (NO_OVERWRITE)
+      { if (NO_OVERWRITE)
           yes = 0;
         else if (QUERY)
           { printf("overwrite %s/%s.prof? ",DIR,ROOT);
@@ -188,9 +198,6 @@ int main(int argc, char **argv)
             system(command);
           }
       }
-
-    if (any == 0)
-      fprintf(stderr,"%s: Warning, no FastK output files with root %s\n",Prog_Name,root);
 
     free(root);
     free(dir);

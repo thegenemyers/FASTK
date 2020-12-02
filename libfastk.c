@@ -21,14 +21,19 @@ Histogram *Load_Histogram(char *name)
 { Histogram *H;
   int        kmer, low, high;
   int64     *hist;
-  char      *dir, *root;
+  char      *dir, *root, *full;
   int        f;
 
   dir  = PathTo(name);
   root = Root(name,".hist");
-  f = open(Catenate(dir,"/",root,".hist"),O_RDONLY);
+  full = Malloc(strlen(dir)+strlen(root)+10,"Histogram name allocation");
+  if (full == NULL)
+    exit (1);
+  sprintf(full,"%s/%s.hist",dir,root);
+  f = open(full,O_RDONLY);
   if (f < 0)
     return (NULL);
+  free(full);
   free(root);
   free(dir);
 
@@ -195,18 +200,23 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
   int64        nels;
   uint8       *table;
 
-  int    f;
-  char  *dir, *root, *hidden;
+  int    f, x;
+  char  *dir, *root, *full;
   int    smer, nthreads;
 
   setup_fmer_table();
 
   //  Open stub file and get # of parts
 
-  dir    = PathTo(name);
-  root   = Root(name,".ktab");
-  hidden = Strdup(Catenate(dir,"/.",root,""),NULL);
-  f = open(Catenate(dir,"/",root,".ktab"),O_RDONLY);
+  dir  = PathTo(name);
+  root = Root(name,".ktab");
+  full = Malloc(strlen(dir)+strlen(root)+20,"Histogram name allocation");
+  if (full == NULL)
+    exit (1);
+  sprintf(full,"%s/%s.ktab",dir,root);
+  f = open(full,O_RDONLY);
+  sprintf(full,"%s/.%s.ktab.",dir,root);
+  x = strlen(full);
   free(root);
   free(dir);
   if (f < 0)
@@ -239,17 +249,18 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
       int64  n;
  
       for (p = 1; p <= nthreads; p++)
-        { f = open(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
+        { sprintf(full+x,"%d",p);
+          f = open(full,O_RDONLY);
           if (f < 0)
-            { fprintf(stderr,"Table part %s.ktab.%d is misssing ?\n",hidden,p);
+            { fprintf(stderr,"Table part %s is missing ?\n",full);
               exit (1);
             }
           read(f,&kmer,sizeof(int));
           read(f,&n,sizeof(int64));
           nels += n;
           if (kmer != smer)
-            { fprintf(stderr,"Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
-                             hidden,p);
+            { fprintf(stderr,"Table part %s does not have k-mer length matching stub ?\n",
+                             full);
               exit (1);
             }
           close(f);
@@ -287,7 +298,8 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
  
       nels = 0;
       for (p = 1; p <= nthreads; p++)
-        { f = open(Catenate(hidden,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
+        { sprintf(full+x,"%d",p);
+          f = open(full,O_RDONLY);
           read(f,&kmer,sizeof(int));
           read(f,&n,sizeof(int64));
           big_read(f,KMER(nels),n*tbyte);
@@ -296,7 +308,7 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
         }
     }
 
-  free(hidden);
+  free(full);
 
   T->kmer   = kmer;
   T->minval = minval;
@@ -402,15 +414,17 @@ void List_Kmer_Table(Kmer_Table *T, FILE *out)
 
   fprintf(out,"\nElement Bytes = %d  Kmer Bytes = %d\n",tbyte,kbyte);
 
-  fprintf(out," %9d: ",0);
-  print_seq(out,KMER(0),kmer);
-  fprintf(out," = %4d\n",COUNT(0));
+  if (nels > 0)
+    { fprintf(out," %9d: ",0);
+      print_seq(out,KMER(0),kmer);
+      fprintf(out," = %5d\n",COUNT(0));
+    }
   for (i = 1; i < nels; i++)
     { if (mycmp(KMER(i-1),KMER(i),kbyte) >= 0)
         fprintf(out,"Out of Order\n");
       fprintf(out," %9d: ",i);
       print_seq(out,KMER(i),kmer);
-      fprintf(out," = %4d\n",COUNT(i));
+      fprintf(out," = %5d\n",COUNT(i));
     }
 }
 
@@ -610,7 +624,8 @@ typedef struct
     int    copn;    //  File currently open
     int    part;    //  Thread # of file currently open
     int    nthr;    //  # of thread parts
-    char  *name;    //  Root name for table
+    char  *name;    //  Path name for table parts (only # missing)
+    int    nlen;    //  length of path name
     uint8 *table;   //  The table memory buffer
     uint8 *ctop;    //  Ptr top of current table block in buffer
     int64 *neps;    //  Size of each thread part in elements
@@ -644,7 +659,8 @@ static void More_Kmer_Stream(_Kmer_Stream *S)
         { S->celm = NULL;
           return;
         }
-      copn = open(Catenate(S->name,Numbered_Suffix(".ktab.",S->part,""),"",""),O_RDONLY);
+      sprintf(S->name+S->nlen,"%d",S->part);
+      copn = open(S->name,O_RDONLY);
       read(copn,&kmer,sizeof(int));
       read(copn,&rels,sizeof(int64));
     }
@@ -660,7 +676,7 @@ Kmer_Stream *Open_Kmer_Stream(char *name)
   int           copn;
 
   int    f;
-  char  *dir, *root, *hidden;
+  char  *dir, *root, *full;
   int    smer, nthreads;
   int    p;
   int64  n;
@@ -669,10 +685,14 @@ Kmer_Stream *Open_Kmer_Stream(char *name)
 
   //  Open stub file and get # of parts
 
-  dir    = PathTo(name);
-  root   = Root(name,".ktab");
-  f = open(Catenate(dir,"/",root,".ktab"),O_RDONLY);
-  hidden = Catenate(dir,"/.",root,"");
+  dir  = PathTo(name);
+  root = Root(name,".ktab");
+  full = Malloc(strlen(dir)+strlen(root)+20,"Histogram name allocation");
+  if (full == NULL)
+    exit (1);
+  sprintf(full,"%s/%s.ktab",dir,root);
+  f = open(full,O_RDONLY);
+  sprintf(full,"%s/.%s.ktab.",dir,root);
   free(root);
   free(dir);
   if (f < 0)
@@ -688,17 +708,19 @@ Kmer_Stream *Open_Kmer_Stream(char *name)
   //  Find all parts and accumulate total size
 
   S        = Malloc(sizeof(Kmer_Stream),"Allocating table record");
-  S->name  = Strdup(hidden,"Allocating Kmer_Stream name");
+  S->name  = full;
+  S->nlen  = strlen(full);
   S->table = Malloc(STREAM_BLOCK*tbyte,"Allocating k-mer table\n");
   S->neps  = Malloc(nthreads*sizeof(int64),"Allocating parts table of Kmer_Stream");
-  if (S == NULL || S->name == NULL || S->table == NULL || S->neps == NULL)
+  if (S == NULL || S->table == NULL || S->neps == NULL)
     exit (1);
 
   nels = 0;
   for (p = 1; p <= nthreads; p++)
-    { copn = open(Catenate(S->name,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
+    { sprintf(S->name+S->nlen,"%d",p);
+      copn = open(S->name,O_RDONLY);
       if (copn < 0)
-        { fprintf(stderr,"%s: Table part %s.ktab.%d is misssing ?\n",Prog_Name,S->name,p);
+        { fprintf(stderr,"%s: Table part %s is missing ?\n",Prog_Name,S->name);
           exit (1);
         }
       read(copn,&kmer,sizeof(int));
@@ -706,8 +728,8 @@ Kmer_Stream *Open_Kmer_Stream(char *name)
       nels += n;
       S->neps[p-1] = nels;
       if (kmer != smer)
-        { fprintf(stderr,"%s: Table part %s.ktab.%d does not have k-mer length matching stub ?\n",
-                         Prog_Name,S->name,p);
+        { fprintf(stderr,"%s: Table part %s does not have k-mer length matching stub ?\n",
+                         Prog_Name,S->name);
           exit (1);
         }
       close(copn);
@@ -721,7 +743,8 @@ Kmer_Stream *Open_Kmer_Stream(char *name)
   S->kbyte  = kbyte;
   S->nels   = nels;
 
-  copn = open(Catenate(S->name,".ktab.1","",""),O_RDONLY);
+  sprintf(S->name+S->nlen,"%d",1);
+  copn = open(S->name,O_RDONLY);
   read(copn,&kmer,sizeof(int));
   read(copn,&n,sizeof(int64));
 
@@ -748,7 +771,8 @@ inline uint8 *First_Kmer_Entry(Kmer_Stream *_S)
     { if (S->part != 1)
         { if (S->part <= S->nthr)
             close(S->copn);
-          S->copn = open(Catenate(S->name,".ktab.1","",""),O_RDONLY);
+          sprintf(S->name+S->nlen,"%d",1);
+          S->copn = open(S->name,O_RDONLY);
           S->part = 1;
         }
 
@@ -782,7 +806,8 @@ inline uint8 *GoTo_Kmer_Index(Kmer_Stream *_S, int64 i)
       if (S->part != p)
         { if (S->part <= S->nthr)
             close(S->copn);
-          S->copn = open(Catenate(S->name,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
+          sprintf(S->name+S->nlen,"%d",p);
+          S->copn = open(S->name,O_RDONLY);
           S->part = p;
         }
 
@@ -810,7 +835,8 @@ uint8 *GoTo_Kmer_String(Kmer_Stream *_S, uint8 *entry)
 
   lo = 0;
   for (p = 1; p <= S->nthr; p++)
-    { f = open(Catenate(S->name,Numbered_Suffix(".ktab.",p,""),"",""),O_RDONLY);
+    { sprintf(S->name+S->nlen,"%d",p);
+      f = open(S->name,O_RDONLY);
       lseek(f,proff+((S->neps[p-1]-lo)-1)*tbyte,SEEK_SET);
       read(f,kbuf,kbyte);
       if (mycmp(kbuf,entry,kbyte) >= 0)
@@ -933,8 +959,8 @@ Profile_Index *Open_Profiles(char *name)
   int64          nreads, *nbase, *index;
   int           *nfile;
 
-  int    f;
-  char  *dir, *root, *hidden;
+  int    f, x;
+  char  *dir, *root, *full;
   int    smer, nthreads;
   int64  n;
 
@@ -942,8 +968,11 @@ Profile_Index *Open_Profiles(char *name)
 
   dir    = PathTo(name);
   root   = Root(name,".prof");
-  hidden = Strdup(Catenate(dir,"/.",root,""),NULL);
-  f = open(Catenate(dir,"/",root,".prof"),O_RDONLY);
+  full   = Malloc(strlen(dir)+strlen(root)+20,"Allocating hidden file names\n");
+  sprintf(full,"%s/%.prof",dir,root);
+  f = open(full,O_RDONLY);
+  sprintf(full,"%s/.%s.",dir,root);
+  x = strlen(full);
   free(root);
   free(dir);
   if (f < 0)
@@ -956,9 +985,10 @@ Profile_Index *Open_Profiles(char *name)
 
   nreads = 0;
   for (nparts = 0; nparts < nthreads; nparts++)
-    { f = open(Catenate(hidden,Numbered_Suffix(".pidx.",nparts+1,""),"",""),O_RDONLY);
+    { sprintf(full+x,"pidx.%d",nparts+1);
+      f = open(full,O_RDONLY);
       if (f < 0)
-        { fprintf(stderr,"Profile part %s.pidx.%d is misssing ?\n",hidden,nparts+1);
+        { fprintf(stderr,"Profile part %s is misssing ?\n",full);
           exit (1);
         }
       read(f,&kmer,sizeof(int));
@@ -966,8 +996,7 @@ Profile_Index *Open_Profiles(char *name)
       read(f,&n,sizeof(int64));
       nreads += n;
       if (kmer != smer)
-        { fprintf(stderr,"Profile part %s.pidx.%d does not have k-mer length matching stub ?\n",
-                         hidden,nparts+1);
+        { fprintf(stderr,"Profile part %s does not have k-mer length matching stub ?\n",full);
           exit (1);
         }
       close(f);
@@ -985,7 +1014,8 @@ Profile_Index *Open_Profiles(char *name)
   nreads = 0;
   index[0] = 0;
   for (nparts = 0; nparts < nthreads; nparts++)
-    { f = open(Catenate(hidden,Numbered_Suffix(".pidx.",nparts+1,""),"",""),O_RDONLY);
+    { sprintf(full+x,"pidx.%d",nparts+1);
+      f = open(full,O_RDONLY);
       read(f,&kmer,sizeof(int));
       read(f,&n,sizeof(int64));
       read(f,&n,sizeof(int64));
@@ -994,15 +1024,16 @@ Profile_Index *Open_Profiles(char *name)
       nbase[nparts] = nreads;
       close(f);
 
-      f = open(Catenate(hidden,Numbered_Suffix(".prof.",nparts+1,""),"",""),O_RDONLY);
+      sprintf(full+x,"prof.%d",nparts+1);
+      f = open(full,O_RDONLY);
       if (f < 0)
-        { fprintf(stderr,"Profile part %s.prof.%d is misssing ?\n",hidden,nparts+1);
+        { fprintf(stderr,"Profile part %s is misssing ?\n",full);
           exit (1);
         }
       nfile[nparts] = f;
     }
 
-  free(hidden);
+  free(full);
 
   P->kmer   = kmer;
   P->nparts = nparts;

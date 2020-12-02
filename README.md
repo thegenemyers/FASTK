@@ -136,10 +136,15 @@ the base name of source is used to form a complete destination path for both Fas
 As for the UNIX rm, mv, and cp commands, the &#8209;i option asks the command to query each file as to whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the hidden files corresponding to each stub, which share the same fate as their stub file.
 The &#8209;n option tells Fastmv and Fastcp to not overwrite any files.
 
-### Current Limitations
+### Current Limitations & Known Bugs
 
 Currently if multiple input files are given they must all be of the same type, e.g. fasta
 or cram.  This restriction is not fundamental and could be removed with some coding effort.
+
+FastK is not working when memory exceeds 128GB.  This should generally not be an issue as it is designed specifically to not require large memory, 16GB should always be enough.  It does operate a bit faster with a lot of memory though, so we will track down the 32-bit
+integers(s) that need to be 64-bit.
+
+FastK is not working for k greater than roughly 128.  Again this is an unusually large k for a practical application but in principle it should work for unlimited k and we will address this problem shortly.
 
 &nbsp;
 
