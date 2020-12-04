@@ -409,7 +409,7 @@ static void *kmer_list_thread(void *arg)
               rbx[i] = lptr[i-RUN_BYTES];
             rbx[0] &= 0x7ff;
 #endif
-            printf(" %c%lld",lptr[KMER_WORD]&0x8?'+':' ',ridx);
+            printf(" %c%lld",lptr[-RUN_BYTES]&0x8?'+':' ',ridx);
           }
         while (*lptr == 0);
         printf("\n");

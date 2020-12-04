@@ -969,7 +969,7 @@ Profile_Index *Open_Profiles(char *name)
   dir    = PathTo(name);
   root   = Root(name,".prof");
   full   = Malloc(strlen(dir)+strlen(root)+20,"Allocating hidden file names\n");
-  sprintf(full,"%s/%.prof",dir,root);
+  sprintf(full,"%s/%s.prof",dir,root);
   f = open(full,O_RDONLY);
   sprintf(full,"%s/.%s.",dir,root);
   x = strlen(full);
