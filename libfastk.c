@@ -148,7 +148,7 @@ static void print_seq(FILE *out, uint8 *seq, int len)
     fprintf(out,"%s",fmer[seq[i]]);
   k = 6;
   for (i = b << 2; i < len; i++)
-    { fprintf(out,"%c",dna[seq[b] >> k]);
+    { fprintf(out,"%c",dna[(seq[b] >> k) & 0x3]);
       k -= 2;
     }
 }
@@ -382,17 +382,17 @@ int Check_Kmer_Table(Kmer_Table *T)
   int64  nels  = T->nels;
   uint8 *table = T->table;
   
-  int i;
+  int64 i;
 
   for (i = 1; i < nels; i++)
     { if (mycmp(KMER(i-1),KMER(i),kbyte) >= 0)
         { fprintf(stderr,"\nOut of Order\n");
-          fprintf(stderr," %9d:",i-1);
+          fprintf(stderr," %9lld:",i-1);
           print_pack(stderr,KMER(i-1),kmer);
           fprintf(stderr,"  ");
           print_seq(stderr,KMER(i-1),kmer);
           fprintf(stderr," = %4d\n",COUNT(i-1));
-          fprintf(stderr," %9d:",i);
+          fprintf(stderr," %9lld:",i);
           print_pack(stderr,KMER(i),kmer);
           fprintf(stderr,"  ");
           print_seq(stderr,KMER(i),kmer);
@@ -410,7 +410,7 @@ void List_Kmer_Table(Kmer_Table *T, FILE *out)
   int64  nels  = T->nels;
   uint8 *table = T->table;
 
-  int i;
+  int64 i;
 
   fprintf(out,"\nElement Bytes = %d  Kmer Bytes = %d\n",tbyte,kbyte);
 
@@ -422,7 +422,7 @@ void List_Kmer_Table(Kmer_Table *T, FILE *out)
   for (i = 1; i < nels; i++)
     { if (mycmp(KMER(i-1),KMER(i),kbyte) >= 0)
         fprintf(out,"Out of Order\n");
-      fprintf(out," %9d: ",i);
+      fprintf(out," %9lld: ",i);
       print_seq(out,KMER(i),kmer);
       fprintf(out," = %5d\n",COUNT(i));
     }

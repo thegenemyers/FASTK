@@ -70,7 +70,8 @@ int main(int argc, char *argv[])
   fprintf(stderr," entries\n");
   fflush(stderr);
 
-  { int c, cnt;
+  { int   c;
+    int64 loc;
 
     for (c = 2; c < argc; c++)
       if (strcmp(argv[c],"LIST") == 0)
@@ -83,11 +84,11 @@ int main(int argc, char *argv[])
         { if ((int) strlen(argv[c]) != T->kmer)
             printf("%*s: Not a %d-mer\n",T->kmer,argv[c],T->kmer);
           else
-            { cnt = Find_Kmer(T,argv[c]);
-              if (cnt == 0)
+            { loc = Find_Kmer(T,argv[c]);
+              if (loc < 0)
                 printf("%*s: Not found\n",T->kmer,argv[c]);
               else
-                printf("%*s: %5d\n",T->kmer,argv[c],cnt);
+                printf("%*s: %5d\n",T->kmer,argv[c],Fetch_Count(T,loc));
             }
         }
   }
