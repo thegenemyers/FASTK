@@ -451,6 +451,7 @@ static void *kmer_list_thread(void *arg)
 
         if (ct >= 0x8000)
           { overflow += ((int64) (ct-0x7fff))*(sln+1);
+            // uovercnt += sln+1; // XXX
             ct = 0x7fff;
           }
 
@@ -586,8 +587,8 @@ static void *table_write_thread(void *arg)
                 fill = bufr;
               }
 
-            if (ct >= 0x8000)
-              *((uint16 *) (kptr+KMER_BYTES)) = 0x8000;
+            // if (ct >= 0x8000)
+              // *((uint16 *) (kptr+KMER_BYTES)) = 0x8000;
             *kptr = x;
             memcpy(fill,kptr,TMER_WORD);
 #ifdef DEBUG_TABOUT

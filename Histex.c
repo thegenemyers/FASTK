@@ -15,12 +15,13 @@
 
 #include "libfastk.h"
 
-static char *Usage = " [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
+static char *Usage = " [-u] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
 
 int main(int argc, char *argv[])
 { Histogram *H;
   int    HIST_LOW;
   int    HIST_HGH;
+  int    UNIQUE;
 
   //  Process arguments
 
@@ -40,7 +41,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("")
+            ARG_FLAGS("u")
             break;
           case 'h':
             HIST_LOW = strtol(argv[i]+2,&eptr,10);
@@ -73,6 +74,7 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
+    UNIQUE = flags['u'];
     if (HIST_HGH > 0x7fff)
       HIST_HGH = 0x7fff;
 
@@ -114,6 +116,7 @@ int main(int argc, char *argv[])
     cgram = H->hist;
 
     stotal = 0;
+    
     for (j = HIST_LOW; j <= HIST_HGH; j++)
       stotal += cgram[j];
 

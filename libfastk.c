@@ -522,8 +522,7 @@ static void compress_norm(char *s, int len, uint8 *t)
   c = s0[len];
   d = s1[len];
   e = s2[len];
-  s0[len] = s1[len] = s2[len] = 0;
-
+  s0[len] = s1[len] = s2[len] = 'a';
 
   for (i = 0; i < len; i += 4)
     *t++ = ((code[(int) s0[i]] << 6) | (code[(int) s1[i]] << 4)
@@ -547,15 +546,15 @@ static void compress_comp(char *s, int len, uint8 *t)
   c = s0[0];
   d = s1[0];
   e = s2[0];
-  s0[0] = s1[0] = s2[0] = 3;
+  s1[0] = s2[0] = s3[0] = 't';
 
   for (i = len-1; i >= 0; i -= 4)
     *t++ = ((comp[(int) s0[i]] << 6) | (comp[(int) s1[i]] << 4)
          |  (comp[(int) s2[i]] << 2) | comp[(int) s3[i]] );
 
-  s0[0] = c;
-  s1[0] = d;
-  s2[0] = e;
+  s1[0] = c;
+  s2[0] = d;
+  s3[0] = e;
 }
 
 int64 Find_Kmer(Kmer_Table *T, char *kseq)
