@@ -23,7 +23,7 @@
 
 #include <errno.h>
 
-#include "gene_core.h"
+#include "libfastk.h"
 #include "FastK.h"
 
 #undef    DEBUG

@@ -26,7 +26,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "gene_core.h"
+#include "libfastk.h"
 #include "FastK.h"
 
 #undef  DEBUG_COMPRESS
@@ -451,7 +451,6 @@ static void *kmer_list_thread(void *arg)
 
         if (ct >= 0x8000)
           { overflow += ((int64) (ct-0x7fff))*(sln+1);
-            // uovercnt += sln+1; // XXX
             ct = 0x7fff;
           }
 
@@ -563,8 +562,6 @@ static void *table_write_thread(void *arg)
   int          end    = data->end;
   int64       *part   = data->parts;
   int          kfile  = data->kfile;
-
-  int    TMER_WORD = KMER_BYTES+2;
 
   uint8  bufr[0x10000];
   uint8 *fill, *bend;
@@ -1048,6 +1045,7 @@ static void *profile_write_thread(void *arg)
 void Sorting(char *dpwd, char *dbrt)
 { char  *fname;
   int64  counts[0x8000];
+  int64  max_inst;
   int   *reload;
 
   if (VERBOSE)
@@ -1059,9 +1057,9 @@ void Sorting(char *dpwd, char *dbrt)
   if (fname == NULL)
     exit (1);
 
-  //  Remove any previous results for this DB in this directory with this KMER value
+  //  Remove any previous results with this name at the given path
 
-  sprintf(fname,"rm -f %s/%s.K%d",dpwd,dbrt,KMER);
+  sprintf(fname,"Fastrm -f %s/%s",dpwd,dbrt);
   system(fname);
 
   //  First bundle: initialize all sizes & lookup tables
@@ -1074,6 +1072,7 @@ void Sorting(char *dpwd, char *dbrt)
 
     for (i = 0; i < 0x8000; i++)
       counts[i] = 0;
+    max_inst = 0;
 
     s = reload;
     for (i = 0; i < IO_UBITS; i++)
@@ -1384,7 +1383,7 @@ void Sorting(char *dpwd, char *dbrt)
             { ncnt = Panels[t].count;
               for (x = 1; x < 0x8000; x++)
                 counts[x] += ncnt[x];
-              counts[0x7fff] += parmk[t].overflow;
+              max_inst += Panels[t].max_inst + parmk[t].overflow;
             }
         }
 
@@ -1655,6 +1654,8 @@ void Sorting(char *dpwd, char *dbrt)
     write(f,&i,sizeof(int));
     i = 0x7fff;
     write(f,&i,sizeof(int));
+    write(f,counts+1,sizeof(int64));
+    write(f,&max_inst,sizeof(int64));
     write(f,counts+1,0x7fff*sizeof(int64));
     close(f);
   }

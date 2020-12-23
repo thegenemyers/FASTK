@@ -17,8 +17,8 @@ libhts.a: HTSLIB
 libfastk.c : gene_core.c
 libfastk.h : gene_core.h
 
-FastK: FastK.c FastK.h io.c split.c count.c table.c merge.c io.c gene_core.c gene_core.h MSDsort.c LSDsort.c
-	gcc $(CFLAGS) -o FastK -I./HTSLIB $(HTSLIB_sstatic_LDFLAGS) FastK.c io.c split.c count.c table.c merge.c MSDsort.c LSDsort.c gene_core.c LIBDEFLATE/libdeflate.a HTSLIB/libhts.a -lpthread $(HTSLIB_static_LIBS)
+FastK: FastK.c FastK.h io.c split.c count.c table.c merge.c io.c gene_core.c gene_core.h MSDsort.c LSDsort.c libfastk.c libfastk.h
+	gcc $(CFLAGS) -o FastK -I./HTSLIB $(HTSLIB_sstatic_LDFLAGS) FastK.c io.c split.c count.c table.c merge.c MSDsort.c LSDsort.c libfastk.c LIBDEFLATE/libdeflate.a HTSLIB/libhts.a -lpthread $(HTSLIB_static_LIBS)
 
 Fastrm: Fastrm.c gene_core.c gene_core.h
 	gcc $(CFLAGS) -o Fastrm Fastrm.c gene_core.c -lpthread -lm

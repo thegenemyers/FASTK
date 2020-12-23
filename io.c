@@ -33,7 +33,7 @@
 #include <sys/stat.h>
 #include <stdbool.h>
 
-#include "gene_core.h"
+#include "libfastk.h"
 #include "FastK.h"
 
 #include "LIBDEFLATE/libdeflate.h"

@@ -19,6 +19,7 @@ static char *Usage = " [-u] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
 
 int main(int argc, char *argv[])
 { Histogram *H;
+  int    HIST_SET;
   int    HIST_LOW;
   int    HIST_HGH;
   int    UNIQUE;
@@ -33,6 +34,7 @@ int main(int argc, char *argv[])
 
     ARG_INIT("Histex")
 
+    HIST_SET    = 0;
     HIST_LOW    = 1;
     HIST_HGH    = 100;
 
@@ -44,6 +46,7 @@ int main(int argc, char *argv[])
             ARG_FLAGS("u")
             break;
           case 'h':
+            HIST_SET = 1;
             HIST_LOW = strtol(argv[i]+2,&eptr,10);
             if (eptr > argv[i]+2)
               { if (HIST_LOW < 1 || HIST_LOW > 0x7fff)
@@ -82,11 +85,12 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -h: Output histogram of counts in range given\n");
+        fprintf(stderr,"      -u: Output histogram of unique k-mer counts (vs. instances)\n");
         exit (1);
       }
   }
 
-  //  Load histogram into "cgram"
+  //  Load histogram into "hist"
 
   H = Load_Histogram(argv[1]);
   if (H == NULL)
@@ -94,55 +98,66 @@ int main(int argc, char *argv[])
       exit (1);
     }
 
-  if (HIST_LOW < H->low || HIST_HGH > H->high)
-    { fprintf(stderr,"%s: Range of histogram, [%d,%d], does not superset requested range\n",
-                     Prog_Name,H->low,H->high); 
-      exit (1);
+  if (HIST_SET)
+    { if (HIST_LOW < H->low || HIST_HGH > H->high)
+        { fprintf(stderr,"%s: Range of histogram, [%d,%d], does not superset requested range\n",
+                         Prog_Name,H->low,H->high); 
+          exit (1);
+        }
+    }
+  else
+    { if (H->low > HIST_LOW)
+        HIST_LOW = H->low;
+      if (H->high < HIST_HGH)
+        HIST_HGH = H->high;
     }
 
-  Subrange_Histogram(H,HIST_LOW,HIST_HGH);
+  Modify_Histogram(H,HIST_LOW,HIST_HGH,UNIQUE);
 
   //  Generate display
 
   { char       *root;
     int         j;
     int64       ssum, stotal;
-    int64      *cgram;
+    int64      *hist;
 
     root = Root(argv[1],NULL);
-    printf("\nHistogram of %d-mers of %s\n",H->kmer,root);
+    if (UNIQUE)
+      printf("\nHistogram of unique %d-mers of %s\n",H->kmer,root);
+    else
+      printf("\nHistogram of %d-mer instances of %s\n",H->kmer,root);
     free(root);
 
-    cgram = H->hist;
+    hist = H->hist;
 
     stotal = 0;
     
     for (j = HIST_LOW; j <= HIST_HGH; j++)
-      stotal += cgram[j];
+      stotal += hist[j];
 
     printf("\n  Input: ");
     Print_Number(stotal,0,stdout);
-    printf(" %d-mers\n",H->kmer);
+    if (UNIQUE)
+      printf(" unique %d-mers\n",H->kmer);
+    else
+      printf(" %d-mer instances\n",H->kmer);
 
     printf("\n     Freq:        Count   Cum. %%\n");
-    ssum = 0;
-    for (j = HIST_HGH; j > HIST_LOW; j--)
-      { ssum += cgram[j];
-        if (j == HIST_HGH)
-          { if (ssum > 0)
-              { printf(" >= %5d: %12lld",j,ssum);
-                printf("   %5.1f%%\n",(100.*ssum)/stotal);
-              }
-          }
-        else if (j < HIST_HGH && j > HIST_LOW && cgram[j] > 0)
-          { printf("    %5d: %12lld",j,cgram[j]);
-            printf("   %5.1f%%\n",(100.*ssum)/stotal);
-          }
+
+    ssum = hist[HIST_HGH];
+    if (ssum > 0)
+      printf(" >= %5d: %12lld   %5.1f%%\n",HIST_HGH,ssum,(100.*ssum)/stotal);
+
+    for (j = HIST_HGH-1; j > HIST_LOW; j--)
+      { ssum += hist[j];
+        if (hist[j] > 0)
+          printf("    %5d: %12lld   %5.1f%%\n",j,hist[j],(100.*ssum)/stotal);
       }
-    if (HIST_LOW > 1)
-      printf(" <= %5d: %12lld   100.0%%\n",j,stotal-ssum);
+
+    if (HIST_LOW == 1)
+      printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
     else
-      printf("    %5d: %12lld   100.0%%\n",j,stotal-ssum);
+      printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
   }
 
   Free_Histogram(H);

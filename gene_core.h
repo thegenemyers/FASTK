@@ -87,6 +87,7 @@ extern char *Prog_Name;   //  Name of program, available everywhere
 void *Malloc(int64 size, char *mesg);                    //  Guarded versions of malloc, realloc
 void *Realloc(void *object, int64 size, char *mesg);     //  and strdup, that output "mesg" to
 char *Strdup(char *string, char *mesg);                  //  stderr if out of memory
+char *Strndup(char *string, int len, char *mesg);        //  stderr if out of memory
 
 char *PathTo(char *path);                // Return path portion of file name "path"
 char *Root(char *path, char *suffix);    // Return the root name, excluding suffix, of "path"

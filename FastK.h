@@ -40,7 +40,8 @@ extern char  *SORT_PATH;   //  where to put external files
 
 extern int    DO_TABLE;    // Zero or table cutoff
 extern int    DO_PROFILE;  // Do or not
-extern int      PRO_THREADS;  //  If > 0, # of threads in .ktab for profile  
+extern Kmer_Stream *PRO_TABLE;   //  Kmer stream of profile option (only if relative profile)
+extern char        *PRO_NAME;    //  Name of profile table
 extern int    BC_PREFIX;   // Ignore prefix of each read of this length
 extern int    COMPRESS;    // Homopolymer compress the input
 
@@ -51,6 +52,7 @@ extern int    NPARTS;      //  number of k-mer buckets
 extern int    SMER;        //  max size of a super-mer (= MAX_SUPER + KMER - 1)ZZ
 extern int64  KMAX;        //  max k-mers in any part
 extern int64  NMAX;        //  max super-mers in any part
+extern int64  PMAX;        //  max k-mers in any part of relative k-mer table
 
 extern int    MOD_LEN;     //  length of minimizer buffer (power of 2)
 extern int    MOD_MSK;     //  mask for minimzer buffer
@@ -118,11 +120,13 @@ void Split_Kmers(Input_Partition *io, char *root);
 
   void Distribute_Block(DATA_BLOCK *block, int tid);
 
-void Sorting(char *dpwd, char *dbrt);
+void Split_Table(char *root);
 
-void Merge_Tables(char *dpwd, char *dbrt);
+void Sorting(char *path, char *root);
 
-void Merge_Profiles(char *dpwd, char *dbrt);
+void Merge_Tables(char *path, char *root);
+
+void Merge_Profiles(char *path, char *root);
 
   //  Sorts
 
@@ -132,6 +136,7 @@ typedef struct
     int64  off;
     int64  khist[256];
     int64  count[0x8000];
+    int64  max_inst;
     int    byte1;   //  used internallly by sort
   } Range;
 

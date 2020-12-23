@@ -28,14 +28,16 @@
   //  HISTOGRAM
 
 typedef struct
-  { int    kmer;  //  Histogram is for k-mers of this length
-    int    low;   //  Histogram is for range [low,hgh]
+  { int    kmer;    //  Histogram is for k-mers of this length
+    int    unique;  // 1 => count  of unique k-mers, 0 => count of k-mer instances
+    int    low;     //  Histogram is for range [low,hgh]
     int    high;
-    int64 *hist;  //  hist[i] for i in [low,high] = # of k-mers occuring i times
+    int64 *hist;    //  hist[i] for i in [low,high] = # of k-mers occuring i times
   } Histogram;
 
 Histogram *Load_Histogram(char *name);
-void       Subrange_Histogram(Histogram *H, int low, int high);
+void       Modify_Histogram(Histogram *H, int low, int high, int unique);
+int        Write_Histogram(char *name, Histogram *H);
 void       Free_Histogram(Histogram *H);
 
 

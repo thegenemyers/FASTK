@@ -18,7 +18,7 @@
 #include <math.h>
 #include <pthread.h>
 
-#include "gene_core.h"
+#include "libfastk.h"
 #include "FastK.h"
 
 #define  USE_MAPPING
@@ -1065,7 +1065,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
           c = ((c << 2) | Tran[x]) & PAD_MSK;
           u = (u >> 2) | Cran[x];
 #ifdef DEBUG_DISTRIBUTE
-          printf(" %5d: %c %0*llx",p,x,P,c);
+          printf(" %5d: %c %0*llx %0*llx",p,x,P,c,P,u);
           fflush(stdout);
 #endif    
           if (p >= PAD_L1)
@@ -1079,7 +1079,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                   mc = mp;
                 }
 #ifdef DEBUG_DISTRIBUTE
-              printf(" %0*llx <%5d:%0*llx>",P,mp,m,P,mc);
+              printf(" <%5d:%0*llx>",m,P,mc);
               fflush(stdout);
 #endif      
             }
@@ -1207,7 +1207,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
 
 #ifdef DEBUG_DISTRIBUTE
           if (p < q)
-            printf(" %5d: %c %0*llx %0*llx <%5d:%0*llx>\n",p,x,P,c,P,mp,m,P,mc);
+            printf(" %5d: %c %0*llx %0*llx <%5d:%0*llx>\n",p,x,P,c,P,u,m,P,mc);
           else
             printf(" <<\n");
           fflush(stdout);
@@ -1240,8 +1240,8 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
  *
  *  SUPER-MER DISTRIBUTION: TOP LEVEL
  *    void Split_Kmers(Input_Partition *io, char *root)
- *       Determine core prefix trie based on frequencies of a first big block, then for all blocks
- *       of the data base, send super-mer packets to partition files.
+ *       Scan entire input sending super-mer packets to their respect part & thread files
+ *       in bit comnpressed form according to the core prefix trie.
  *
  *********************************************************************************************/
 
@@ -1385,7 +1385,7 @@ void Split_Kmers(Input_Partition *io, char *root)
   //    and set file headers
 
   { int   t, n, p;
-    int   val;
+    int64 val;
     int64 s, m;
     int64 kmin, ktot, ntot;
     int   kwide, nwide, awide;
@@ -1505,6 +1505,299 @@ void Split_Kmers(Input_Partition *io, char *root)
 #else
   NUM_RID = nfirst;
 #endif
+  free(buffers);
+  free(out);
+  free(Min_Part);
+}
+
+
+ /********************************************************************************************
+ *
+ *  KMER-STREAM DISTRIBUTION: TOP LEVEL
+ *    void Split_Table(char *path, char *root)
+ *       Distribute the contents of PRO_TABLE to block + thread specific files for merge
+ *       with input k-mers in the sorting module.
+ *
+ *********************************************************************************************/
+
+typedef struct
+  { int       stream;     //  Open stream
+    int64     kmers;      //  Number of k-mers
+    uint8    *ptr;        //  Current entry being stuffered in buffer
+    uint8    *data;       //  Start of buffer
+    uint8    *end;        //  End of buffer
+  } Pro_File;
+
+static char *fmer[256], _fmer[1280];
+
+typedef struct
+  { Kmer_Stream *stm;
+    int64        beg;
+    int64        end;
+    Pro_File    *out;
+  } Table_Arg;
+
+  //  Thread to distribute table entries to block based on core prefix assignments
+
+static void *distribute_table(void *arg)
+{ Table_Arg *data = (Table_Arg *) arg;
+  int64      beg  = data->beg;
+  int64      end  = data->end;
+  Pro_File  *out  = data->out;
+
+  int   P2M2 = PAD2-2;
+
+  Kmer_Stream *S;
+  uint8       *e;
+  int64        i;
+  Pro_File    *trg;
+  uint8       *ptr;
+
+  if (data->stm == NULL)
+    { S = Open_Kmer_Stream(PRO_NAME);
+      e = GoTo_Kmer_Index(S,beg);
+    }
+  else
+    { S = data->stm;
+      e = GoTo_Kmer_Index(S,0);
+    }
+
+  for (i = beg; i < end; i++)
+    { uint64 mc, mp;
+      uint64 c, u;
+      int    x, k, j, p;
+      int    o, b, y;
+      char  *s;
+
+      mc = PAD_TOT;
+      c = u = 0;
+      p = 0;
+      for (k = 0; k <= (KMER>>2); k++)
+        { s = fmer[e[k]];
+          for (j = 0; j < 4 && p < KMER; j++, p++)
+            { x = s[j];
+              c = ((c << 2) | Tran[x]) & PAD_MSK;
+              u = (u >> 2) | Cran[x];
+#ifdef DEBUG_DISTRIBUTE
+              printf(" %5d: %c %0*llx %0*llx",p,x,P,c,P,u);
+              fflush(stdout);
+#endif    
+              if (p >= PAD_L1)
+                { if (u < c)
+                    mp = u;
+                  else
+                    mp = c;
+                  if (mp < mc)
+                    mc = mp;
+#ifdef DEBUG_DISTRIBUTE
+                  printf(" <%5d:%0*llx>",m,P,mc);
+                  fflush(stdout);
+#endif      
+                }
+#ifdef DEBUG_DISTRIBUTE
+              printf("\n"); fflush(stdout);
+              fflush(stdout);
+#endif  
+            }
+        }
+
+      o = (mc >> PAD2);
+      b = Min_Part[o];
+      y = P2M2;
+      while (b < 0)
+        { o = ((mc >> y) & 0x3) - b; 
+          b = Min_Part[o];
+          y -= 2;
+        }
+
+#ifdef DEBUG_DISTRIBUTE
+      printf(" ----->   %d\n",b);
+      fflush(stdout);
+#endif      
+
+      trg = out + b;
+      ptr = trg->ptr;
+      if (ptr >= trg->end)
+        { write(trg->stream,trg->data,trg->end-trg->data);
+          ptr = trg->data;
+        }
+      memcpy(ptr,e,TMER_WORD);
+      trg->ptr    = ptr + TMER_WORD;
+      trg->kmers += 1;
+
+      e = Next_Kmer_Entry(S);
+    }
+
+  if (data->stm == NULL)
+    Free_Kmer_Stream(S);
+
+  return (NULL);
+}
+
+void Split_Table(char *root)
+{ int       bufsize;
+  uint64    nfiles;
+
+  Pro_File *out;
+  uint8    *buffers;
+
+  //  Setup bit to ascii table "fmer"
+
+  { char *t;
+    int   i, l0, l1, l2, l3;
+
+    i = 0;
+    t = _fmer;
+    for (l3 = 0; l3 < 4; l3++)
+     for (l2 = 0; l2 < 4; l2++)
+      for (l1 = 0; l1 < 4; l1++)
+       for (l0 = 0; l0 < 4; l0++)
+         { fmer[i] = t;
+           *t++ = DNA[l3];
+           *t++ = DNA[l2];
+           *t++ = DNA[l1];
+           *t++ = DNA[l0];
+           *t++ = 0;
+           i += 1;
+         }
+  }
+
+  //  Allocate output data structures
+
+  nfiles  = NPARTS*NTHREADS;
+  bufsize = IO_BUF_LEN*TMER_WORD;
+
+  out     = (Pro_File *) Malloc(nfiles*sizeof(Pro_File),"Allocating buffers");
+  buffers = (uint8 *) Malloc(nfiles*bufsize,"Allocating buffers");
+  if (out == NULL || buffers == NULL)
+    exit (1);
+
+  if (VERBOSE)
+    { fprintf(stderr,"\nPhase 1a: Partitioning K-mer table %s.tab into %lld files\n",root,nfiles);
+      fflush(stderr);
+    }
+
+  //  Setup output data structures
+
+  { int    t, p, n;
+    char  *fname;
+    int64 _zero = 0, *zero = &_zero;
+
+    fname = (char *) Malloc(strlen(SORT_PATH)+strlen(root)+100,"Allocating file names");
+    if (fname == NULL)
+      exit (1);
+
+    //  Remove any files that might still exist from a previous run of FastK in the
+    //    same directory and same DB
+  
+    sprintf(fname,"rm -f %s/%s.*.U*",SORT_PATH,root);
+    system(fname);
+
+    p = 0;
+    for (t = 0; t < NTHREADS; t++)
+      for (n = 0; n < NPARTS; n++)
+        { int f;
+
+          sprintf(fname,"%s/%s.%d.U%d",SORT_PATH,root,n,t);
+          f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+          if (f == -1)
+            { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
+                             Prog_Name,SORT_PATH);
+              exit (1);
+            }
+
+          out[p].stream = f;
+          out[p].kmers  = 0;
+          out[p].data   = buffers + p*bufsize;
+          out[p].ptr    = out[p].data;
+          out[p].end    = out[p].data + bufsize;
+
+#ifdef DEVELOPER
+          write(f,zero,sizeof(int64));
+#endif
+          write(f,zero,sizeof(int64));
+          p += 1;
+        }
+
+    free(fname);
+  }
+
+  //  Ready to send k-mers to distribution/thread specific files
+
+  { uint8      bstring[KMER_BYTES];
+    int64     *points;
+    THREAD    *threads;
+    Table_Arg *parmt;
+    int        i, x;
+
+    points  = Malloc(sizeof(int64)*NTHREADS,"Allocating distribution globals");
+    parmt   = Malloc(sizeof(Table_Arg)*NTHREADS,"Allocating distribution globals");
+    threads = Malloc(sizeof(THREAD)*NTHREADS,"Allocating distribution globals");
+    if (points == NULL || parmt == NULL || threads == NULL)
+      exit (1);
+
+    for (i = 0; i < KMER_BYTES; i++)
+      bstring[i] = 0;
+    for (i = 1; i < NTHREADS; i++)
+      { x = (256*i)/NTHREADS; 
+        bstring[0] = x;
+        GoTo_Kmer_String(PRO_TABLE,bstring);
+        points[i] = PRO_TABLE->cidx;
+      }
+
+    parmt[0].stm = PRO_TABLE;
+    parmt[0].beg = 0;
+    for (i = 1; i < NTHREADS; i++)
+      { parmt[i].beg = parmt[i-1].end = points[i];
+        parmt[i].stm = NULL;
+      }
+    parmt[NTHREADS-1].end = PRO_TABLE->nels;
+
+    for (i = 0; i < NTHREADS; i++)
+      parmt[i].out = out + i*NPARTS;
+
+    for (i = 1; i < NTHREADS; i++)
+      pthread_create(threads+i,NULL,distribute_table,parmt+i);
+    distribute_table(parmt);
+
+    free(threads);
+    free(parmt);
+    free(points);
+  }
+
+  { int   p, t, n;
+    int64 s;
+
+    PMAX = 0;
+    for (n = 0; n < NPARTS; n++)
+      { p = n;
+        s = 0;
+        for (t = 0; t < NTHREADS; t++)
+          { s += out[p].kmers;
+            p += NPARTS;
+          }
+        if (PMAX < s)
+          PMAX = s;
+      }
+
+    p = 0;
+    for (t = 0; t < ITHREADS; t++)
+      for (n = 0; n < NPARTS; n++)
+        { int f = out[p].stream;
+
+          if (out[p].ptr > out[p].data)
+            write(f,out[p].data,out[p].ptr-out[p].data);
+
+          lseek(f,0,SEEK_SET);
+#ifdef DEVELOPER
+          write(f,&PMAX,sizeof(int64));
+#endif
+          write(f,&(out[p].kmers),sizeof(int64));
+          close(f);
+          p += 1;
+        }
+  }
+
   free(buffers);
   free(out);
   free(Min_Part);

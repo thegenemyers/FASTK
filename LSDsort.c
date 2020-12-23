@@ -18,7 +18,7 @@
 #include <math.h>
 #include <pthread.h>
 
-#include "gene_core.h"
+#include "libfastk.h"
 #include "FastK.h"
 
 typedef unsigned char uint8;

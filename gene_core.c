@@ -54,16 +54,27 @@ char *Strdup(char *name, char *mesg)
   return (s);
 }
 
+char *Strndup(char *name, int len, char *mesg)
+{ char *s;
+
+  if (name == NULL)
+    return (NULL);
+  if ((s = strndup(name,len)) == NULL)
+    { if (mesg == NULL)
+        fprintf(stderr,"%s: Out of memory\n",Prog_Name);
+      else
+        fprintf(stderr,"%s: Out of memory (%s)\n",Prog_Name,mesg);
+    }
+  return (s);
+}
+
 char *PathTo(char *name)
 { char *path, *find;
 
   if (name == NULL)
     return (NULL);
   if ((find = rindex(name,'/')) != NULL)
-    { *find = '\0';
-      path = Strdup(name,"Extracting path from");
-      *find = '/';
-    }
+    path = Strndup(name,name-find,"Extracting path from");
   else
     path = Strdup(".","Allocating default path");
   return (path);
@@ -82,20 +93,13 @@ char *Root(char *name, char *suffix)
     find += 1;
   if (suffix == NULL)
     { dot = strrchr(find,'.');
-      if (dot != NULL)
-        *dot = '\0';
-      path = Strdup(find,"Extracting root from");
-      if (dot != NULL)
-        *dot = '.';
+      path = Strndup(find,dot-find,"Extracting root from");
     }
   else
     { epos  = strlen(find);
       epos -= strlen(suffix);
       if (epos > 0 && strcasecmp(find+epos,suffix) == 0)
-        { find[epos] = '\0';
-          path = Strdup(find,"Extracting root from");
-          find[epos] = suffix[0];
-        }
+        path = Strndup(find,epos,"Extracting root from");
       else
         path = Strdup(find,"Allocating root");
     }

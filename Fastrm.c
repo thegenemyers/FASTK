@@ -21,10 +21,11 @@
 
 #include "gene_core.h"
 
-static char *Usage = "[-i] <source> ...";
+static char *Usage = "[-if] <source> ...";
 
 int main(int argc, char **argv)
 { int QUERY;
+  int QUIET;
 
   { int    i, j, k;
     int    flags[128];
@@ -36,7 +37,7 @@ int main(int argc, char **argv)
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("i")
+            ARG_FLAGS("if")
             break;
         }
       else
@@ -44,6 +45,9 @@ int main(int argc, char **argv)
     argc = j;
 
     QUERY = flags['i'];
+    QUIET = flags['f'];
+    if (QUIET)
+      QUERY = 0;
 
     if (argc < 2)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage);
@@ -139,7 +143,7 @@ int main(int argc, char **argv)
               }
           }
 
-        if (any == 0)
+        if (any == 0 && !QUIET)
           { if (doh+dot+dop == 3)
               fprintf(stderr,"%s: no FastK output files with root %s\n",Prog_Name,root);
             else

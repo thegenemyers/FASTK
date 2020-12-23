@@ -24,10 +24,11 @@
 
 #include "gene_core.h"
 
-static char *Usage = "[-in] <source> <dest>";
+static char *Usage = "[-inf] <source> <dest>";
 
 int main(int argc, char **argv)
 { int   QUERY;
+  int   QUIET;
   int   NO_OVERWRITE;
   char *op;
 
@@ -47,7 +48,7 @@ int main(int argc, char **argv)
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("in")
+            ARG_FLAGS("inf")
             break;
         }
       else
@@ -55,7 +56,10 @@ int main(int argc, char **argv)
     argc = j;
 
     QUERY        = flags['i'];
+    QUIET        = flags['f'];
     NO_OVERWRITE = flags['n'];
+    if (QUIET)
+      QUERY = NO_OVERWRITE = 0;
 
     if (argc != 3)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage);
@@ -102,7 +106,7 @@ int main(int argc, char **argv)
       any = 1;
     if (dot && stat(Catenate(dir,"/",root,".prof"),&B) == 0)
       any = 1;
-    if (any == 0)
+    if (any == 0 && !QUIET)
       { if (doh+dot+dop == 3)
           fprintf(stderr,"%s: no FastK output files with root %s\n",Prog_Name,root);
         else

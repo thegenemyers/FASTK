@@ -22,7 +22,7 @@
 #include <math.h>
 #include <time.h>
 
-#include "gene_core.h"
+#include "libfastk.h"
 #include "FastK.h"
 
 #ifdef DEVELOPER
@@ -47,8 +47,8 @@ char  *SORT_PATH;    //  where to put external files
 int    KMER;         //  desired K-mer length
 int    DO_TABLE;     // Zero or table cutoff
 int    DO_PROFILE;   // Do or not
-int      PRO_THREADS;  //  If > 0, # of threads in .ktab for profile
-char    *PRO_HIDDEN;   //  Root of .ktab hidden files for profile
+Kmer_Stream *PRO_TABLE;   //  Kmer stream of profile option (only if relative profile)
+char        *PRO_NAME;    //  Name of profile table
 int    BC_PREFIX;    // Ignore prefix of each sequence of this length
 char  *OUT_NAME;     // Prefix root for all output file names
 int    COMPRESS;     // Homopoloymer compress input
@@ -59,6 +59,7 @@ int    NPARTS;       //  # of k-mer buckets to use
 int    SMER;         //  size of a super-mer for sorts
 int64  KMAX;         //  max k-mers in any part
 int64  NMAX;         //  max super-mers in any part
+int64  PMAX;         //  max k-mers in any part of relative k-mer table
 int64  RMAX;         //  max run index for any thread
 
 int    MOD_LEN;     //  length of minimizer buffer (power of 2)
@@ -159,7 +160,7 @@ int main(int argc, char *argv[])
 
   { int    i, j, k;
     int    flags[128];
-    int    memory, promer; 
+    int    memory; 
     char  *eptr;
 
     ARG_INIT("FastK")
@@ -170,7 +171,8 @@ int main(int argc, char *argv[])
     SORT_PATH   = "/tmp";
     DO_TABLE    = 0;
     DO_PROFILE  = 0;
-    PRO_THREADS = 0;
+      PRO_TABLE   = NULL;
+      PRO_NAME    = NULL;
     BC_PREFIX   = 0;
     OUT_NAME    = NULL;
 #ifdef DEVELOPER
@@ -201,28 +203,17 @@ int main(int argc, char *argv[])
               { ARG_FLAGS("vcpt");
                 break;
               }
-            { char *d, *r;
-              FILE *f;
+            PRO_NAME  = argv[i]+3;
+            PRO_TABLE = Open_Kmer_Stream(PRO_NAME);
+            if (PRO_TABLE == NULL)
+              { fprintf(stderr,"%s: Cannot open FastK table %s\n",Prog_Name,PRO_NAME);
+                exit (1);
+              }
+            DO_PROFILE = 1;
 
-              d = PathTo(argv[i]+3);
-              r = Root(argv[i]+3,".ktab");
-              PRO_HIDDEN = Strdup(Catenate(d,"/.",r,""),NULL);
-              f = fopen(Catenate(d,"/",r,".ktab"),"r");
-              if (f == NULL)
-                { fprintf(stderr,"%s: Cannot find stub file %s.ktab\n",Prog_Name,r);
-                  exit (1);
-                }
-              free(r);
-              free(d);
-              fread(&promer,sizeof(int),1,f);
-              fread(&PRO_THREADS,sizeof(int),1,f);
-              if (PRO_THREADS <= 0)
-                { fprintf(stderr,"%s: %s.ktab has no hidden files?\n",Prog_Name,r);
-                  exit (1);
-                }
-              fclose(f);
-              DO_PROFILE = 1;
-            }
+            fprintf(stderr,"%s: The relative profile option is not yet functional\n",Prog_Name);
+            exit (1);
+
             break;
           case 't':
             if (argv[i][2] == '\0' || isalpha(argv[i][2]))
@@ -270,10 +261,10 @@ int main(int argc, char *argv[])
     if (flags['p'])
       DO_PROFILE = 1;
 
-    if (PRO_THREADS > 0)
-      { if (promer != KMER)
+    if (PRO_TABLE != NULL)
+      { if (PRO_TABLE->kmer != KMER)
           { fprintf(stderr,"%s: -p table k-mer size (%d) != k-mer specified (%d)\n",
-                           Prog_Name,promer,KMER);
+                           Prog_Name,PRO_TABLE->kmer,KMER);
             exit (1);
           }
         fprintf(stderr,"%s: Sorry -p:ktab feature not yet functional\n",Prog_Name);
@@ -364,7 +355,10 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"\n%s: Sequences are on average smaller than 1.5x k-mer size!\n",Prog_Name);
         exit (1);
       }
-    gsize  = gsize*block->ratio*rsize;
+    if (PRO_TABLE != NULL)
+      gsize = (gsize*block->ratio + PRO_TABLE->nels)*rsize;
+    else
+      gsize = gsize*block->ratio*rsize;
     NPARTS = (gsize-1)/SORT_MEMORY + 1;
 
     if (VERBOSE)
@@ -430,7 +424,10 @@ int main(int argc, char *argv[])
 #ifdef DEVELOPER
     if (DO_STAGE == 1)
 #endif
-      Split_Kmers(io,root);
+      { Split_Kmers(io,root);
+        if (PRO_TABLE != NULL)
+          Split_Table(root);
+      }
 
     Free_Input_Partition(io);
   }
@@ -464,8 +461,8 @@ int main(int argc, char *argv[])
   free(root);
   free(SORT_PATH);
 
-  if (PRO_THREADS > 0)
-    free(PRO_HIDDEN);
+  if (PRO_TABLE != NULL)
+    Free_Kmer_Stream(PRO_TABLE);
 
   Catenate(NULL,NULL,NULL,NULL);  //  frees internal buffers of these routines
   Numbered_Suffix(NULL,0,NULL);

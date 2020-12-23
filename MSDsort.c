@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#include "gene_core.h"
+#include "libfastk.h"
 #include "FastK.h"
 
 #undef  IS_SORTED
@@ -159,12 +159,13 @@ static inline void hist_kmers(uint8 *array, int64 asize, Range *rng)
   for (k = KMER_BYTES; k < asize; k += RSIZE)
     cnt += *((uint16 *) (array + k));
 
-  if (cnt >= 0x8000)
-    { rng->count[0x7fff] += cnt;
+  if (cnt >= 0x7fff)
+    { rng->count[0x7fff] += 1;
+      rng->max_inst += cnt;
       cnt = 0x7fff;
     }
   else
-    rng->count[cnt] += cnt;
+    rng->count[cnt] += 1;
 
   *((uint16 *) (array + KMER_BYTES)) = cnt;
 
@@ -179,12 +180,13 @@ static inline void invert_kmers(uint8 *array, int64 asize, Range *rng)
   for (k = KMER_BYTES; k < asize; k += RSIZE)
     cnt += *((uint16 *) (array + k));
 
-  if (cnt >= 0x8000)
-    { rng->count[0x7fff] += cnt;
+  if (cnt >= 0x7fff)
+    { rng->count[0x7fff] += 1;
+      rng->max_inst += cnt;
       cnt = 0x7fff;
     }
   else
-    rng->count[cnt] += cnt;
+    rng->count[cnt] += 1;
 
   for (k = KMER_BYTES; k < asize; k += RSIZE)
     *((uint16 *) (array + k)) = cnt;
@@ -346,8 +348,10 @@ static void *sort_thread(void *arg)
     alive[x] = khist[x] = 0;
 
   if (COUNT != count_smers)
-    for (x = 0; x < 0x8000; x++)
-      count[x] = 0;
+    { for (x = 0; x < 0x8000; x++)
+        count[x] = 0;
+      param->max_inst = 0;
+    }
 
   for (x = beg; x < end; x++)
     { if (PARTS[x] == 0)
