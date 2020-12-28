@@ -35,6 +35,7 @@
 #undef  DEBUG_CANONICAL
 #undef  DEBUG_TABOUT
 #undef  DEBUG_CLIST
+#define  DEBUG_CMERGE
 #undef  DEBUG_PLIST
 #undef    SHOW_RUN
 #undef  DEBUG_PWRITE
@@ -55,7 +56,8 @@
 
 uint8 Comp[256];
 
-#if defined(DEBUG_CANONICAL)||defined(DEBUG_KLIST)||defined(DEBUG_SLIST)||defined(DEBUG_TABOUT)
+#if defined(DEBUG_CANONICAL) || defined(DEBUG_KLIST) || defined(DEBUG_SLIST) \
+      || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE)
 
 static char DNA[4] = { 'a', 'c', 'g', 't' };
 
@@ -63,7 +65,7 @@ static char *fmer[256], _fmer[1280];
 
 #endif
 
-#if defined(DEBUG_SLIST) || defined(DEBUG_TABOUT)
+#if defined(DEBUG_SLIST) || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE)
 
 static void write_Ascii(uint8 *bytes, int len)
 { int i;
@@ -584,8 +586,6 @@ static void *table_write_thread(void *arg)
                 fill = bufr;
               }
 
-            // if (ct >= 0x8000)
-              // *((uint16 *) (kptr+KMER_BYTES)) = 0x8000;
             *kptr = x;
             memcpy(fill,kptr,TMER_WORD);
 #ifdef DEBUG_TABOUT
@@ -617,6 +617,8 @@ typedef struct
     int       end;
     int64     off;
     uint8    *fours[256];
+
+    Kmer_Stream *stm; //  used only by cmer_merge_thread
   } Clist_Arg;
 
 static void *cmer_list_thread(void *arg)
@@ -641,6 +643,97 @@ static void *cmer_list_thread(void *arg)
           *fill++ = kptr[k];
         fours[d] = fill;
       } 
+
+  return (NULL);
+}
+
+
+/*******************************************************************************************
+ *
+ * static void *cmer_merge_thread(Clist_Arg *arg)
+ *     Each thread takes the now sorted weighted k-mers entries and reduces each to
+ *     an entry containg the count and k-mer ordinal index, in preparation for the
+ *     first of two "inverting" sorts to realize the -p option.
+ *
+ ********************************************************************************************/
+
+static void *cmer_merge_thread(void *arg)
+{ Clist_Arg   *data   = (Clist_Arg *) arg;
+  int          beg    = data->beg;
+  int          end    = data->end;
+  int64       *part   = data->parts;
+  uint8      **fours  = data->fours;
+  Kmer_Stream *S      = data->stm;
+
+  int KM1 = KMER_WORD-1;
+
+  int    x, d, k, c;
+  uint8 *kptr, *lptr, *kend;
+  uint8 *fill, *e;
+  int    ct;
+
+  kptr = data->sort + data->off;
+  *kptr = beg;
+  e = GoTo_Kmer_String(S,kptr);
+#ifdef DEBUG_CMERGE
+  printf("\n\nx = %s  k = ",fmer[beg]);
+  write_Ascii(kptr,KMER);
+  printf(" e = ");
+  write_Ascii(e,KMER);
+  printf(" %lld\n",S->cidx);
+#endif
+  for (x = beg; x < end; x++)
+    for (kend = kptr + part[x]; kptr < kend; )
+      { lptr = kptr+KMER_WORD;
+        while (*lptr == 0)
+          lptr += KMER_WORD;
+
+        *kptr = x;
+        c = memcmp(e,kptr,KMER_BYTES);
+        while (c < 0)
+          { e = Next_Kmer_Entry(S);
+            c = memcmp(kptr,e,KMER_BYTES);
+          }
+#ifdef DEBUG_CMERGE
+// if (beg == 0 && kptr - (data->sort+data->off) > 2535) {
+// if (beg == 161 && kptr - (data->sort+data->off) > 4429200) {
+if (0) {
+        printf("c = %4d k = ",c);
+        write_Ascii(kptr,KMER);
+        printf(" e = ");
+        write_Ascii(e,KMER);
+        printf(" %lld",S->cidx);
+}
+#endif
+        if (c != 0)
+          ct = 0;
+        else // c == 0
+          { ct = *((uint16 *) (e+KMER_BYTES));
+            e = Next_Kmer_Entry(S);
+          }
+#ifdef DEBUG_CMERGE
+// if (beg == 0 && kptr - (data->sort+data->off) > 2535)
+// if (beg == 161 && kptr - (data->sort+data->off) > 4429200)
+if (0)
+        printf(" Cnts: %d vs %d\n",ct,*((uint16 *) (kptr+KMER_BYTES)));
+#endif
+
+if (ct != *((uint16 *) (kptr+KMER_BYTES)))
+  printf("NE NE NE %d %ld %d\n",beg,kptr-(data->sort+data->off),c);
+
+        while (kptr < lptr)
+          { d = kptr[KM1];
+            fill = fours[d];
+            *((uint16 *) fill) = ct;
+            fill += 2;
+            for (k = TMER_WORD; k < KM1; k++)
+              *fill++ = kptr[k];
+            fours[d] = fill;
+            kptr += KMER_WORD;
+          }
+      } 
+
+  Free_Kmer_Stream(S);
 
   return (NULL);
 }
@@ -1026,7 +1119,7 @@ static void *profile_write_thread(void *arg)
 
 /*********************************************************************************************\
  *
- *  Sorting(char *dpwd, char *dbrt)
+ *  Sorting(char *path, char *root)
  *
  *     For each set of the NTHREADS files for a each partition bucket produced
  *     by the split.c module, do the following:
@@ -1042,7 +1135,7 @@ static void *profile_write_thread(void *arg)
  *
  *********************************************************************************************/
 
-void Sorting(char *dpwd, char *dbrt)
+void Sorting(char *path, char *root)
 { char  *fname;
   int64  counts[0x8000];
   int64  max_inst;
@@ -1053,14 +1146,9 @@ void Sorting(char *dpwd, char *dbrt)
       fflush(stderr);
     }
 
-  fname = Malloc(strlen(SORT_PATH) + strlen(dpwd) + strlen(dbrt) + 100,"File name buffer");
+  fname = Malloc(2*(strlen(SORT_PATH) + strlen(path) + strlen(root)) + 100,"File name buffer");
   if (fname == NULL)
     exit (1);
-
-  //  Remove any previous results with this name at the given path
-
-  sprintf(fname,"Fastrm -f %s/%s",dpwd,dbrt);
-  system(fname);
 
   //  First bundle: initialize all sizes & lookup tables
 
@@ -1090,7 +1178,8 @@ void Sorting(char *dpwd, char *dbrt)
        for (l3 = 192; l3 >= 0; l3 -= 64)
          Comp[i++] = (l3 | l2 | l1 | l0);
 
-#if defined(DEBUG_CANONICAL)||defined(DEBUG_KLIST)||defined(DEBUG_SLIST)||defined(DEBUG_TABOUT)
+#if defined(DEBUG_CANONICAL) || defined(DEBUG_KLIST) || defined(DEBUG_SLIST) \
+      || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE)
     { char *t;
 
       i = 0;
@@ -1186,7 +1275,7 @@ void Sorting(char *dpwd, char *dbrt)
           { int64 k, n;
             int   f;
 
-            sprintf(fname,"%s/%s.%d.T%d",SORT_PATH,dbrt,p,t);
+            sprintf(fname,"%s/%s.%d.T%d",SORT_PATH,root,p,t);
             f = open(fname,O_RDONLY);
             if (f < 0)
               { fprintf(stderr,"\n%s: File %s should exist but doesn't?\n",Prog_Name,fname); 
@@ -1235,7 +1324,7 @@ void Sorting(char *dpwd, char *dbrt)
         //  Build super-mer list
 
         if (VERBOSE)
-          { fprintf(stderr,"\r  Processing part %d: Sorting super-mers     ",p); 
+          { fprintf(stderr,"\r  Processing block %d: Sorting super-mers     ",p+1); 
             fflush(stderr);
           }
 
@@ -1273,7 +1362,7 @@ void Sorting(char *dpwd, char *dbrt)
 
 #ifndef DEVELOPER
         for (t = 0; t < ITHREADS; t++)
-          { sprintf(fname,"%s/%s.%d.T%d",SORT_PATH,dbrt,p,t);
+          { sprintf(fname,"%s/%s.%d.T%d",SORT_PATH,root,p,t);
             unlink(fname);
           }
 #endif
@@ -1318,7 +1407,7 @@ void Sorting(char *dpwd, char *dbrt)
         }
 
         if (VERBOSE)
-          { fprintf(stderr,"\r  Processing part %d: Sorting weighted k-mers",p); 
+          { fprintf(stderr,"\r  Processing block %d: Sorting weighted k-mers",p+1); 
             Wkmers[p] = skmers;
             Ukmers[p] = kmers;
             fflush(stderr);
@@ -1374,18 +1463,19 @@ void Sorting(char *dpwd, char *dbrt)
 
         Weighted_Kmer_Sort(k_sort,skmers,KMER_WORD,KMER_BYTES,Kparts,NTHREADS,Panels);
 
-        //  Accumulate accross threads the frequency histogram
+        //  Accumulate frequency histogram across threads
 
-        { int64 *ncnt;
-          int    x;
+        if (PRO_TABLE == NULL)
+          { int64 *ncnt;
+            int    x;
 
-          for (t = 0; t < NTHREADS; t++)
-            { ncnt = Panels[t].count;
-              for (x = 1; x < 0x8000; x++)
-                counts[x] += ncnt[x];
-              max_inst += Panels[t].max_inst + parmk[t].overflow;
-            }
-        }
+            for (t = 0; t < NTHREADS; t++)
+              { ncnt = Panels[t].count;
+                for (x = 1; x < 0x8000; x++)
+                  counts[x] += ncnt[x];
+                max_inst += Panels[t].max_inst + parmk[t].overflow;
+              }
+          }
 
         if (DO_TABLE > 0)
           {
@@ -1421,7 +1511,7 @@ void Sorting(char *dpwd, char *dbrt)
                   parmt[t].end  = Table_Split[t+1];
                 else
                   parmt[t].end = 256;
-                sprintf(fname,"%s/%s.%d.L%d",SORT_PATH,dbrt,p,t);
+                sprintf(fname,"%s/%s.%d.L%d",SORT_PATH,root,p,t);
                 parmt[t].kfile = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
               }
 
@@ -1445,6 +1535,11 @@ void Sorting(char *dpwd, char *dbrt)
             continue;
           }
 
+        if (VERBOSE)
+          { fprintf(stderr,"\r  Processing block %d: Inverse profile sorting",p+1); 
+            fflush(stderr);
+          }
+
         //  Fill in count/index list from sorted k-mer list, pre-sorted on
         //    LSD byte of index.
 
@@ -1460,14 +1555,9 @@ void Sorting(char *dpwd, char *dbrt)
               }
         }
 
-        if (VERBOSE)
-          { fprintf(stderr,"\r  Processing part %d: Inverse profile sorting",p); 
-            fflush(stderr);
-          }
-
         for (t = 0; t < NTHREADS; t++)
           { int j;
-
+   
             parmc[t].sort   = k_sort;
             parmc[t].parts  = Kparts;
             parmc[t].beg    = Panels[t].beg;
@@ -1477,16 +1567,47 @@ void Sorting(char *dpwd, char *dbrt)
               parmc[t].fours[j] = i_sort + Panels[t].khist[j]*CMER_WORD;
           }
 
-#ifdef DEBUG_CLIST
-        for (t = 0; t < NTHREADS; t++)
-          cmer_list_thread(parmc+t);
+        if (PRO_TABLE != NULL)
+          {
+            // Relative profile: also set up table file for merges
+
+            sprintf(fname,"%s/%s.U%d",SORT_PATH,root,p);
+            for (t = 0; t < NTHREADS; t++)
+              { parmc[t].stm = Open_Kmer_Stream(fname);
+                if (parmc[t].stm == NULL)
+                  { fprintf(stderr,"\n%s: Table %s should exist but doesn't?\n",Prog_Name,fname); 
+                    exit (1);
+                  }
+              }
+
+#ifdef DEBUG_CMERGE
+            for (t = 0; t < NTHREADS; t++)
+              cmer_merge_thread(parmc+t);
 #else
-        for (t = 1; t < NTHREADS; t++)
-          pthread_create(threads+t,NULL,cmer_list_thread,parmc+t);
-        cmer_list_thread(parmc);
-        for (t = 1; t < NTHREADS; t++)
-          pthread_join(threads[t],NULL);
+            for (t = 1; t < NTHREADS; t++)
+              pthread_create(threads+t,NULL,cmer_merge_thread,parmc+t);
+            cmer_merge_thread(parmc);
+            for (t = 1; t < NTHREADS; t++)
+              pthread_join(threads[t],NULL);
 #endif
+
+            sprintf(fname,"rm -f %s/%s.U%d.ktab %s/.%s.U%d.ktab.*",path,root,p,path,root,p);
+            system(fname);
+          }
+
+        else // PRO_TABLE == 0
+          {
+#ifdef DEBUG_CLIST
+            for (t = 0; t < NTHREADS; t++)
+              cmer_list_thread(parmc+t);
+#else
+            for (t = 1; t < NTHREADS; t++)
+              pthread_create(threads+t,NULL,cmer_list_thread,parmc+t);
+            cmer_list_thread(parmc);
+            for (t = 1; t < NTHREADS; t++)
+              pthread_join(threads[t],NULL);
+#endif
+          }
 
         //  LSD sort count/index list on index and then tidy up memory
 
@@ -1550,7 +1671,7 @@ void Sorting(char *dpwd, char *dbrt)
 
         { int64 o;
 
-          sprintf(fname,"%s/%s.%d.P",SORT_PATH,dbrt,p);
+          sprintf(fname,"%s/%s.%d.P",SORT_PATH,root,p);
           o = 0;
           for (t = 0; t < ITHREADS; t++)
             { parmw[t].sort  = a_sort;
@@ -1642,23 +1763,23 @@ void Sorting(char *dpwd, char *dbrt)
     free(parms);
   }
 
-
   //  Output histogram
 
-  { int   i, f;
+  if (PRO_TABLE == NULL)
+    { int   i, f;
 
-    sprintf(fname,"%s/%s.hist",dpwd,dbrt);
-    f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
-    write(f,&KMER,sizeof(int));
-    i = 1;
-    write(f,&i,sizeof(int));
-    i = 0x7fff;
-    write(f,&i,sizeof(int));
-    write(f,counts+1,sizeof(int64));
-    write(f,&max_inst,sizeof(int64));
-    write(f,counts+1,0x7fff*sizeof(int64));
-    close(f);
-  }
+      sprintf(fname,"%s/%s.hist",path,root);
+      f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
+      write(f,&KMER,sizeof(int));
+      i = 1;
+      write(f,&i,sizeof(int));
+      i = 0x7fff;
+      write(f,&i,sizeof(int));
+      write(f,counts+1,sizeof(int64));
+      write(f,&max_inst,sizeof(int64));
+      write(f,counts+1,0x7fff*sizeof(int64));
+      close(f);
+    }
 
   free(reload);
   free(fname);

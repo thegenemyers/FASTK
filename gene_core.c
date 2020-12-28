@@ -74,7 +74,7 @@ char *PathTo(char *name)
   if (name == NULL)
     return (NULL);
   if ((find = rindex(name,'/')) != NULL)
-    path = Strndup(name,name-find,"Extracting path from");
+    path = Strndup(name,find-name,"Extracting path from");
   else
     path = Strdup(".","Allocating default path");
   return (path);

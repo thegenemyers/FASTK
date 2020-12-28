@@ -518,16 +518,9 @@ void Merge_Profiles(char *dpwd, char *dbrt)
   //  Chek that input files are at sort path and determine the number of panels,
   //     threads, and partitions
 
-  fname = Malloc(strlen(dpwd) + strlen(SORT_PATH) + strlen(dbrt) + 100,"File name buffer");
+  fname = Malloc(3*(strlen(dpwd) + strlen(SORT_PATH) + strlen(dbrt)) + 100,"File name buffer");
   if (fname == NULL)
     exit (1);
-
-  //  Get rid of any previous results for this DB in this directory with this KMER
-
-  sprintf(fname,"rm -f %s/%s.K%d.A*",dpwd,dpwd,KMER);
-  system(fname);
-  sprintf(fname,"rm -f %s/%s.K%d.P*",dpwd,dpwd,KMER);
-  system(fname);
 
   //  Allocate all working data structures
 
@@ -601,6 +594,26 @@ void Merge_Profiles(char *dpwd, char *dbrt)
   if (io == NULL || blocks == NULL || chord == NULL || _chord == NULL)
     exit (1);
 
+  //  Remove previous profile result if any
+
+  sprintf(fname,"rm -f %s/%s.prof %s/.%s.pidx.* %s/.%s.prof.*",dpwd,dbrt,dpwd,dbrt,dpwd,dbrt);
+  system(fname);
+
+  //  Create new stub file
+
+  { int f;
+
+    sprintf(fname,"%s/%s.prof",dpwd,dbrt);
+    f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
+    if (f == -1)
+      { fprintf(stderr,"%s: Cannot open external file %s for writing\n",Prog_Name,fname);
+        exit (1);
+      }
+    write(f,&KMER,sizeof(int));
+    write(f,&ITHREADS,sizeof(int));
+    close(f);
+  }
+
   //  Open up A- and D-files, assign blocks for the inputs, and setup thread params 
 
   { char *root;
@@ -610,19 +623,6 @@ void Merge_Profiles(char *dpwd, char *dbrt)
     if (root == NULL)
       exit (1);
     sprintf(root,"%s/%s",SORT_PATH,dbrt);
-
-    { int f;
-
-      sprintf(fname,"%s/%s.prof",dpwd,dbrt);
-      f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
-      if (f == -1)
-        { fprintf(stderr,"%s: Cannot open external file %s for writing\n",Prog_Name,fname);
-          exit (1);
-        }
-      write(f,&KMER,sizeof(int));
-      write(f,&ITHREADS,sizeof(int));
-      close(f);
-    }
 
     p = 0;
     for (t = 0; t < ITHREADS; t++)

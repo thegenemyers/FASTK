@@ -72,7 +72,7 @@ int main(int argc, char **argv)
   { int   p, len, a, yes, any, nthreads;
     int   alen, rlen;
     int   doh, dot, dop;
-    char *dir, *root;
+    char *dir, *root, *fname;
     char *DIR, *ROOT;
     char *command;
     struct stat B;
@@ -82,19 +82,24 @@ int main(int argc, char **argv)
     command = Malloc(len+50,"Allocating command buffer");
 
     dir  = PathTo(argv[1]);
-    root = Root(argv[1],NULL);
+    fname = rindex(argv[1],'/');
+    if (fname == NULL)
+      fname = argv[1];
+    else
+      fname = fname + 1;
+    root = Root(fname,NULL);
 
-    alen = strlen(argv[1]);
+    alen = strlen(fname);
     rlen = strlen(root);
     if (alen == rlen)
       doh = dot = dop = 1;
     else
-      { doh = (strcmp(argv[1] + rlen,".hist") == 0);
-        dot = (strcmp(argv[1] + rlen,".ktab") == 0);
-        dop = (strcmp(argv[1] + rlen,".prof") == 0);
+      { doh = (strcmp(fname + rlen,".hist") == 0);
+        dot = (strcmp(fname + rlen,".ktab") == 0);
+        dop = (strcmp(fname + rlen,".prof") == 0);
         if (doh + dot + dop == 0)
           { free(root);
-            root = Strdup(argv[1],NULL);
+            root = Strdup(fname,NULL);
             doh = dot = dop = 1;
           }
       }

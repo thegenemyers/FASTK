@@ -43,13 +43,14 @@ FastK can produce the following outputs:
 1. a histogram of the frequency with which each k&#8209;mer in the data set occurs.
 2. a table of k&#8209;mer/count pairs sorted lexicographically on the k&#8209;mer where a < c < g < t.
 3. a k&#8209;mer count profile of every sequence in the data set.  A **profile** is the sequence of counts of the n-(k-1) consecutive k&#8209;mers of a sequence of length n.
+4. a **relative profile** of every ssequence in the data set against a FastK table produced for another data set.
 
 Note carefully, that in order to accommodate the unknown orientation of a sequencing read,
 a k&#8209;mer and its Watson Crick complement are considered to be the same k&#8209;mer by FastK, where the
 lexicograpahically smaller of the two alternatives is termed **canonical**.
-The histogram is always produced whereas the production of a k&#8209;mer table (2.) and profiles (3.)
+The histogram is always produced whereas the production of a k&#8209;mer table (2.) and profiles (3.&4.)
 are controlled by command
-line options.  The table (2.) is over just the *canonical* k&#8209;mers present in the data set.  Producing profiles (3.) as part of the underlying sort is much more efficient than producing them after the fact using a table or hash of all k&#8209;mers such as is necessitated when using other k&#8209;mer counter programs.  The profiles are recorded in a space-efficient compressed form, e.g.
+line options.  The table (2.) is over just the *canonical* k&#8209;mers present in the data set.  Producing profiles (3.&4.) as part of the underlying sort is much more efficient than producing them after the fact using a table or hash of all k&#8209;mers such as is necessitated when using other k&#8209;mer counter programs.  The profiles are recorded in a space-efficient compressed form, e.g.
 about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 
 ```
@@ -98,6 +99,8 @@ The -p option can contain an optional reference to a k&#8209;mer table such as p
 are those found in the referenced table, or zero if a k&#8209;mer in a read is not in the
 table.  This *relative* profile is often useful to see how the k&#8209;mers from one source
 are reflected in another by tools such as [merfin](https://github.com/arangrhie/merfin).
+They could also be used to distinguish haplotypes in a trio-based project, by producing
+relative profiles with respect to the k&#8209;mers of the father and mother sequencing data sets.
 If this version of the -p option is specified then only profiles are produced -- the
 -t option is ignored and the default histogram is not produced.
 
@@ -569,7 +572,7 @@ occupied by this local buffer and return NULL.
 
 `GoTo_Kmer_Index` sets the current cursor to the `i`<sup>th</sup> element of the
 stream, and `GoTo_Kmer_String` sets the cursor to the first entry in the table whose
-k&#8209;mer is not less than the k&#8209;mer encoded in `entry` encoded as a `kbyte` 2&#8209;bit packed k&#8209;mer.
+k&#8209;mer is not less than the k&#8209;mer `entry` encoded as a `kbyte` 2&#8209;bit packed k&#8209;mer.
 These routines are not efficient, especially `GoTo_Kmer_String` which must do a binary search for the desired position.  They are intended for the expert who wishes
 to use them for partitioning a table for simultaneous processing by multiple threads.
 
@@ -678,7 +681,7 @@ A single *stub* file `<source>.ktab` where \<source> is the output path name use
 FastK.
 This stub file contains (1) the k&#8209;mer length, followed by (2) the number of threads FastK was run with, followed by (3) the frequency cutoff (&#8209;t option) used to prune the table, as three integers.
 The table file parts are in N hidden files in the same directory as the stub
-file with the names `.\<base>.ktab.[1,N]` assuming that \<source> = \<dir>/\<base>.
+file with the names `.<base>.ktab.[1,N]` assuming that \<source> = \<dir>/\<base>.
 The k&#8209;mers in each part are lexicographically ordered and the k&#8209;mers in Ti are all less than the k&#8209;mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
 
 The data in each table file is as follows:

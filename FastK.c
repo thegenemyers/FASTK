@@ -211,8 +211,8 @@ int main(int argc, char *argv[])
               }
             DO_PROFILE = 1;
 
-            fprintf(stderr,"%s: The relative profile option is not yet functional\n",Prog_Name);
-            exit (1);
+            // fprintf(stderr,"%s: The relative profile option is not yet functional\n",Prog_Name);
+            // exit (1);
 
             break;
           case 't':
@@ -267,8 +267,9 @@ int main(int argc, char *argv[])
                            Prog_Name,PRO_TABLE->kmer,KMER);
             exit (1);
           }
-        fprintf(stderr,"%s: Sorry -p:ktab feature not yet functional\n",Prog_Name);
-        exit (1);
+        if (DO_TABLE && VERBOSE)
+          fprintf(stderr,"%s: Warning: -p:%s overides -t option\n",Prog_Name,PRO_NAME);
+        DO_TABLE = 0;
       }
 
     if (argc < 2)
@@ -355,10 +356,7 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"\n%s: Sequences are on average smaller than 1.5x k-mer size!\n",Prog_Name);
         exit (1);
       }
-    if (PRO_TABLE != NULL)
-      gsize = (gsize*block->ratio + PRO_TABLE->nels)*rsize;
-    else
-      gsize = gsize*block->ratio*rsize;
+    gsize = gsize*block->ratio*rsize;
     NPARTS = (gsize-1)/SORT_MEMORY + 1;
 
     if (VERBOSE)
@@ -371,9 +369,9 @@ int main(int argc, char *argv[])
           fprintf(stderr,"  Estimate %.3fK",est/1.e3);
         fprintf(stderr," %d-%smers\n",KMER,COMPRESS?"hoco-":"");
         if (NPARTS > 1)
-          fprintf(stderr,"  Dividing data into %d buckets\n",NPARTS);
+          fprintf(stderr,"  Dividing data into %d blocks\n",NPARTS);
         else
-          fprintf(stderr,"  Handling data in a single bucket\n");
+          fprintf(stderr,"  Handling data in a single block\n");
       }
 
     MOD_LEN = 1;

@@ -33,9 +33,8 @@
 #undef   SHOW_PACKETS
 #define    PACKET 0
 #undef   DEBUG_COMPRESS
-
-#define  SKIP_SPLIT
-#define  SHOW_DISTRIBUTION
+#undef   DEBUG_KMER_SPLIT
+#undef   CHECK_KMER_SPLIT
 
 #define THREAD pthread_t
 
@@ -1285,12 +1284,6 @@ void Split_Kmers(Input_Partition *io, char *root)
     if (fname == NULL)
       exit (1);
 
-    //  Remove any files that might still exist from a previous run of KMsplit in the
-    //    same directory and same DB
-  
-    sprintf(fname,"rm -f %s/%s.*.T*",SORT_PATH,root);
-    system(fname);
-
     p = 0;
     for (t = 0; t < ITHREADS; t++)
       for (n = 0; n < NPARTS; n++)
@@ -1507,7 +1500,9 @@ void Split_Kmers(Input_Partition *io, char *root)
 #endif
   free(buffers);
   free(out);
-  free(Min_Part);
+
+  if (PRO_TABLE == NULL)
+    free(Min_Part);
 }
 
 
@@ -1522,10 +1517,10 @@ void Split_Kmers(Input_Partition *io, char *root)
 
 typedef struct
   { int       stream;     //  Open stream
-    int64     kmers;      //  Number of k-mers
-    uint8    *ptr;        //  Current entry being stuffered in buffer
     uint8    *data;       //  Start of buffer
+    uint8    *ptr;        //  Current buffer fill pointer
     uint8    *end;        //  End of buffer
+    int64     kmers;      //  # of k-mers put in this bucket
   } Pro_File;
 
 static char *fmer[256], _fmer[1280];
@@ -1545,7 +1540,10 @@ static void *distribute_table(void *arg)
   int64      end  = data->end;
   Pro_File  *out  = data->out;
 
-  int   P2M2 = PAD2-2;
+  int P2M2 = PAD2-2;
+#ifdef DEBUG_KMER_SPLIT
+  int   P = (PAD_LEN-1)/2 + 1;
+#endif
 
   Kmer_Stream *S;
   uint8       *e;
@@ -1553,13 +1551,23 @@ static void *distribute_table(void *arg)
   Pro_File    *trg;
   uint8       *ptr;
 
-  if (data->stm == NULL)
-    { S = Open_Kmer_Stream(PRO_NAME);
-      e = GoTo_Kmer_Index(S,beg);
+  int64 nxtkmr, pct1;
+  int   CLOCK;
+
+  CLOCK = 0;
+  if (data->stm != NULL)
+    { S = PRO_TABLE;
+      e = GoTo_Kmer_Index(S,0);
+      if (VERBOSE)
+        { nxtkmr = pct1 = end/100;
+          fprintf(stderr,"\n    0%%");
+          fflush(stderr);
+          CLOCK = 1;
+        }
     }
   else
-    { S = data->stm;
-      e = GoTo_Kmer_Index(S,0);
+    { S = Open_Kmer_Stream(PRO_NAME);
+      e = GoTo_Kmer_Index(S,beg);
     }
 
   for (i = beg; i < end; i++)
@@ -1568,6 +1576,10 @@ static void *distribute_table(void *arg)
       int    x, k, j, p;
       int    o, b, y;
       char  *s;
+
+#ifdef DEBUG_KMER_SPLIT
+      printf("KMER %lld\n",i);
+#endif
 
       mc = PAD_TOT;
       c = u = 0;
@@ -1578,7 +1590,7 @@ static void *distribute_table(void *arg)
             { x = s[j];
               c = ((c << 2) | Tran[x]) & PAD_MSK;
               u = (u >> 2) | Cran[x];
-#ifdef DEBUG_DISTRIBUTE
+#ifdef DEBUG_KMER_SPLIT
               printf(" %5d: %c %0*llx %0*llx",p,x,P,c,P,u);
               fflush(stdout);
 #endif    
@@ -1589,12 +1601,12 @@ static void *distribute_table(void *arg)
                     mp = c;
                   if (mp < mc)
                     mc = mp;
-#ifdef DEBUG_DISTRIBUTE
-                  printf(" <%5d:%0*llx>",m,P,mc);
+#ifdef DEBUG_KMER_SPLIT
+                  printf(" <%0*llx>",P,mc);
                   fflush(stdout);
 #endif      
                 }
-#ifdef DEBUG_DISTRIBUTE
+#ifdef DEBUG_KMER_SPLIT
               printf("\n"); fflush(stdout);
               fflush(stdout);
 #endif  
@@ -1610,26 +1622,35 @@ static void *distribute_table(void *arg)
           y -= 2;
         }
 
-#ifdef DEBUG_DISTRIBUTE
-      printf(" ----->   %d\n",b);
+#ifdef DEBUG_KMER_SPLIT
+      printf(" -----> %d [%d] >> %d\n",b,o,(y>>1)+1);
       fflush(stdout);
 #endif      
 
       trg = out + b;
       ptr = trg->ptr;
       if (ptr >= trg->end)
-        { write(trg->stream,trg->data,trg->end-trg->data);
+        { write(trg->stream,trg->data,ptr-trg->data);
           ptr = trg->data;
         }
       memcpy(ptr,e,TMER_WORD);
-      trg->ptr    = ptr + TMER_WORD;
+      trg->ptr = ptr + TMER_WORD;
       trg->kmers += 1;
 
       e = Next_Kmer_Entry(S);
+
+      if (CLOCK && i >= nxtkmr)
+        { fprintf(stderr,"\r  %3d%%",(int) ((100.*i)/end));
+          fflush(stderr);
+	  nxtkmr = i+pct1;
+        }
     }
 
   if (data->stm == NULL)
     Free_Kmer_Stream(S);
+
+  if (CLOCK)
+    fprintf(stderr,"\r         \r");
 
   return (NULL);
 }
@@ -1638,8 +1659,9 @@ void Split_Table(char *root)
 { int       bufsize;
   uint64    nfiles;
 
-  Pro_File *out;
-  uint8    *buffers;
+  Pro_File  *out;
+  uint8     *buffers;
+  Table_Arg *parmt;
 
   //  Setup bit to ascii table "fmer"
 
@@ -1673,7 +1695,8 @@ void Split_Table(char *root)
     exit (1);
 
   if (VERBOSE)
-    { fprintf(stderr,"\nPhase 1a: Partitioning K-mer table %s.tab into %lld files\n",root,nfiles);
+    { fprintf(stderr,"\nPhase 1a: Partitioning K-mer table %s.ktab into %d block tables\n",
+                     PRO_NAME,NPARTS);
       fflush(stderr);
     }
 
@@ -1687,18 +1710,28 @@ void Split_Table(char *root)
     if (fname == NULL)
       exit (1);
 
-    //  Remove any files that might still exist from a previous run of FastK in the
-    //    same directory and same DB
-  
-    sprintf(fname,"rm -f %s/%s.*.U*",SORT_PATH,root);
-    system(fname);
+    for (n = 0; n < NPARTS; n++)
+      { int f;
+
+        sprintf(fname,"%s/%s.U%d.ktab",SORT_PATH,root,n);
+        f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+        if (f == -1)
+          { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
+                           Prog_Name,SORT_PATH);
+            exit (1);
+          }
+        write(f,&PRO_TABLE->kmer,sizeof(int));
+        write(f,&NTHREADS,sizeof(int));
+        write(f,&PRO_TABLE->minval,sizeof(int));
+        close(f);
+      }
 
     p = 0;
     for (t = 0; t < NTHREADS; t++)
       for (n = 0; n < NPARTS; n++)
         { int f;
 
-          sprintf(fname,"%s/%s.%d.U%d",SORT_PATH,root,n,t);
+          sprintf(fname,"%s/.%s.U%d.ktab.%d",SORT_PATH,root,n,t+1);
           f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
           if (f == -1)
             { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
@@ -1707,14 +1740,12 @@ void Split_Table(char *root)
             }
 
           out[p].stream = f;
-          out[p].kmers  = 0;
           out[p].data   = buffers + p*bufsize;
           out[p].ptr    = out[p].data;
           out[p].end    = out[p].data + bufsize;
+          out[p].kmers  = 0;
 
-#ifdef DEVELOPER
-          write(f,zero,sizeof(int64));
-#endif
+          write(f,zero,sizeof(int));
           write(f,zero,sizeof(int64));
           p += 1;
         }
@@ -1724,61 +1755,49 @@ void Split_Table(char *root)
 
   //  Ready to send k-mers to distribution/thread specific files
 
-  { uint8      bstring[KMER_BYTES];
-    int64     *points;
-    THREAD    *threads;
-    Table_Arg *parmt;
-    int        i, x;
+  { THREAD    *threads;
+    int64      nels;
+    int        i;
 
-    points  = Malloc(sizeof(int64)*NTHREADS,"Allocating distribution globals");
-    parmt   = Malloc(sizeof(Table_Arg)*NTHREADS,"Allocating distribution globals");
-    threads = Malloc(sizeof(THREAD)*NTHREADS,"Allocating distribution globals");
-    if (points == NULL || parmt == NULL || threads == NULL)
+    parmt   = Malloc(sizeof(Table_Arg)*NTHREADS,"Allocating k-mer distribution controls");
+    threads = Malloc(sizeof(THREAD)*NTHREADS,"Allocating k-mer distribution controls");
+    if (parmt == NULL || threads == NULL)
       exit (1);
 
-    for (i = 0; i < KMER_BYTES; i++)
-      bstring[i] = 0;
+    nels = PRO_TABLE->nels;
     for (i = 1; i < NTHREADS; i++)
-      { x = (256*i)/NTHREADS; 
-        bstring[0] = x;
-        GoTo_Kmer_String(PRO_TABLE,bstring);
-        points[i] = PRO_TABLE->cidx;
+      { GoTo_Kmer_Index(PRO_TABLE,(i*nels)/NTHREADS);
+        parmt[i].beg = PRO_TABLE->cidx;
       }
 
     parmt[0].stm = PRO_TABLE;
     parmt[0].beg = 0;
+    parmt[0].out = out;
     for (i = 1; i < NTHREADS; i++)
-      { parmt[i].beg = parmt[i-1].end = points[i];
+      { parmt[i-1].end = parmt[i].beg;
         parmt[i].stm = NULL;
+        parmt[i].out = out + i*NPARTS;
       }
-    parmt[NTHREADS-1].end = PRO_TABLE->nels;
+    parmt[NTHREADS-1].end = nels;
 
+#if defined(DEBUG_KMER_SPLIT) || defined(CHECK_KMER_SPLIT)
     for (i = 0; i < NTHREADS; i++)
-      parmt[i].out = out + i*NPARTS;
-
+      printf(" %2d:  %10lld - %10lld\n",i,parmt[i].beg,parmt[i].end);
+    for (i = 0; i < NTHREADS; i++)
+      distribute_table(parmt+i);
+#else
     for (i = 1; i < NTHREADS; i++)
       pthread_create(threads+i,NULL,distribute_table,parmt+i);
     distribute_table(parmt);
+    for (i = 1; i < NTHREADS; i++)
+      pthread_join(threads[i],NULL);
+#endif
 
     free(threads);
     free(parmt);
-    free(points);
   }
 
   { int   p, t, n;
-    int64 s;
-
-    PMAX = 0;
-    for (n = 0; n < NPARTS; n++)
-      { p = n;
-        s = 0;
-        for (t = 0; t < NTHREADS; t++)
-          { s += out[p].kmers;
-            p += NPARTS;
-          }
-        if (PMAX < s)
-          PMAX = s;
-      }
 
     p = 0;
     for (t = 0; t < ITHREADS; t++)
@@ -1789,9 +1808,7 @@ void Split_Table(char *root)
             write(f,out[p].data,out[p].ptr-out[p].data);
 
           lseek(f,0,SEEK_SET);
-#ifdef DEVELOPER
-          write(f,&PMAX,sizeof(int64));
-#endif
+          write(f,&PRO_TABLE->kmer,sizeof(int));
           write(f,&(out[p].kmers),sizeof(int64));
           close(f);
           p += 1;

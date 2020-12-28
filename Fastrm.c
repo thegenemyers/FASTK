@@ -60,7 +60,7 @@ int main(int argc, char **argv)
   { int   c, len, yes, any, a;
     int   alen, rlen;
     int   doh, dot, dop;
-    char *dir, *root;
+    char *dir, *root, *fname;
     char *command;
     struct stat B;
 
@@ -73,18 +73,23 @@ int main(int argc, char **argv)
 
     for (c = 1; c < argc; c++)
       { dir  = PathTo(argv[c]);
-        root = Root(argv[c],NULL);
-        alen = strlen(argv[c]);
+        fname = rindex(argv[c],'/');
+        if (fname == NULL)
+          fname = argv[c];
+        else
+          fname += 1;
+        root = Root(fname,NULL);
+        alen = strlen(fname);
         rlen = strlen(root);
         if (alen == rlen)
           doh = dot = dop = 1;
         else
-          { doh = (strcmp(argv[c] + rlen,".hist") == 0);
-            dot = (strcmp(argv[c] + rlen,".ktab") == 0);
-            dop = (strcmp(argv[c] + rlen,".prof") == 0);
+          { doh = (strcmp(fname + rlen,".hist") == 0);
+            dot = (strcmp(fname + rlen,".ktab") == 0);
+            dop = (strcmp(fname + rlen,".prof") == 0);
             if (doh + dot + dop == 0)
               { free(root);
-                root = Strdup(argv[c],NULL);
+                root = Strdup(fname,NULL);
                 doh = dot = dop = 1;
               }
           }

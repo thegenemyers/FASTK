@@ -322,14 +322,9 @@ void Merge_Tables(char *path, char *root)
       fflush(stderr);
     }
 
-  fname = Malloc(strlen(SORT_PATH) + strlen(path) + strlen(root) + 100,"File name buffer");
+  fname = Malloc(2*(strlen(SORT_PATH) + strlen(path) + strlen(root)) + 100,"File name buffer");
   if (fname == NULL)
     exit (1);
-
-  //  Get rid of any previous results for this DB in this directory with this KMER
-
-  sprintf(fname,"rm -f %s/%s.K%d.T*",path,root,KMER);
-  system(fname);
 
   //  Allocate all working data structures
  
@@ -369,6 +364,11 @@ void Merge_Tables(char *path, char *root)
           totin += info.st_size;
         }
     }
+
+  //  Remove previous table result if any
+
+  sprintf(fname,"rm -f %s/%s.ktab %s/.%s.ktab.*",path,root,path,root);
+  system(fname);
 
   //  Setup thread params and open output file
 
