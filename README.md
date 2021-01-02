@@ -276,7 +276,8 @@ the concept which unifies most of the desired manipulations in a single program.
 
 <a name="vennex"></a>
 ```
-5. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...```
+5. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...
+```
 
 *UNDER CONSTRUCTION*
 
