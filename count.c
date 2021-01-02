@@ -35,7 +35,7 @@
 #undef  DEBUG_CANONICAL
 #undef  DEBUG_TABOUT
 #undef  DEBUG_CLIST
-#define  DEBUG_CMERGE
+#undef  DEBUG_CMERGE
 #undef  DEBUG_PLIST
 #undef    SHOW_RUN
 #undef  DEBUG_PWRITE
@@ -695,15 +695,11 @@ static void *cmer_merge_thread(void *arg)
             c = memcmp(kptr,e,KMER_BYTES);
           }
 #ifdef DEBUG_CMERGE
-// if (beg == 0 && kptr - (data->sort+data->off) > 2535) {
-// if (beg == 161 && kptr - (data->sort+data->off) > 4429200) {
-if (0) {
         printf("c = %4d k = ",c);
         write_Ascii(kptr,KMER);
         printf(" e = ");
         write_Ascii(e,KMER);
         printf(" %lld",S->cidx);
-}
 #endif
         if (c != 0)
           ct = 0;
@@ -712,14 +708,8 @@ if (0) {
             e = Next_Kmer_Entry(S);
           }
 #ifdef DEBUG_CMERGE
-// if (beg == 0 && kptr - (data->sort+data->off) > 2535)
-// if (beg == 161 && kptr - (data->sort+data->off) > 4429200)
-if (0)
         printf(" Cnts: %d vs %d\n",ct,*((uint16 *) (kptr+KMER_BYTES)));
 #endif
-
-if (ct != *((uint16 *) (kptr+KMER_BYTES)))
-  printf("NE NE NE %d %ld %d\n",beg,kptr-(data->sort+data->off),c);
 
         while (kptr < lptr)
           { d = kptr[KM1];
@@ -1591,7 +1581,8 @@ void Sorting(char *path, char *root)
               pthread_join(threads[t],NULL);
 #endif
 
-            sprintf(fname,"rm -f %s/%s.U%d.ktab %s/.%s.U%d.ktab.*",path,root,p,path,root,p);
+            sprintf(fname,"rm -f %s/%s.U%d.ktab %s/.%s.U%d.ktab.*",
+                          SORT_PATH,root,p,SORT_PATH,root,p);
             system(fname);
           }
 

@@ -59,7 +59,6 @@ int    NPARTS;       //  # of k-mer buckets to use
 int    SMER;         //  size of a super-mer for sorts
 int64  KMAX;         //  max k-mers in any part
 int64  NMAX;         //  max super-mers in any part
-int64  PMAX;         //  max k-mers in any part of relative k-mer table
 int64  RMAX;         //  max run index for any thread
 
 int    MOD_LEN;     //  length of minimizer buffer (power of 2)

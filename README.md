@@ -10,10 +10,10 @@
   - [Histex](#histex): Display a FastK histogram
   - [Tabex](#tabex): List, Check, or find a k&#8209;mer in a FastK table
   - [Profex](#profex): Display a FastK profile
+  - [Logex](#logex): Combine kmer,count tables with logical expressions & filter with count cutoffs
+  - [Vennex](#vennex): Produce histograms for the Venn diagram of 2 or more tables
   - [Haplex](#haplex): Find k&#8209;mer pairs with a SNP in the middle
   - [Homex](#homex): Estimate homopolymer error rates
-  - [Logex](#logex): Combine and filter kmer,count tables according to logical expressions
-  - [Vennex](#vennex): Produce histograms for the Venn diagram of 2 or more tables
 
 - [C-Library Interface](#c-library-interface)
   - [K-mer Histogram Class](#k-mer-histogram-class)
@@ -43,7 +43,7 @@ FastK can produce the following outputs:
 1. a histogram of the frequency with which each k&#8209;mer in the data set occurs.
 2. a table of k&#8209;mer/count pairs sorted lexicographically on the k&#8209;mer where a < c < g < t.
 3. a k&#8209;mer count profile of every sequence in the data set.  A **profile** is the sequence of counts of the n-(k-1) consecutive k&#8209;mers of a sequence of length n.
-4. a **relative profile** of every ssequence in the data set against a FastK table produced for another data set.
+4. a **relative profile** of every sequence in the data set against a FastK table produced for another data set.
 
 Note carefully, that in order to accommodate the unknown orientation of a sequencing read,
 a k&#8209;mer and its Watson Crick complement are considered to be the same k&#8209;mer by FastK, where the
@@ -75,22 +75,22 @@ outputs will be placed in directory <code>../BLUE</code>, and all result file na
 as \<source>.
 
 One can select any value of k &ge; 5 with the &#8209;k option.
-FastK always outputs a file <code>\<source>.hist</code> that contains a histogram of the k&#8209;mer frequency
+FastK always outputs a file with path name `<source>.hist` that contains a histogram of the k&#8209;mer frequency
 distribution where the highest possible count is 2<sup>15</sup>-1 = 32,767 -- FastK clips all higher values to this upper limit.  Its exact format is described in the section on Data Encodings.
 
 One can optionally request, by specifying the &#8209;t option, that FastK produce a sorted table of
 all canonical k&#8209;mers that occur &#8209;t or more times along with their counts, where the default
-for the threshold is 3.
-The output is placed in a single *stub* file with the name <code>\<source>.ktab</code> and N
-roughly equal-sized *hidden* files with the names <code>.\<base>.ktab.#</code> assuming
+for the threshold is 4.
+The output is placed in a single *stub* file with path name `<source>.ktab` and N
+roughly equal-sized *hidden* files with the path names `<dir>/.<base>.ktab.#` assuming
 \<source> = \<dir>/\<base> and
 where # is a thread number between 1 and N where N is the number of threads used by FastK (4 by default).
 The exact format of the N&#8209;part table is described in the section on Data Encodings.
 
 One can also ask FastK to produce a k&#8209;mer count profile of each sequence in the input data set
-by specifying the &#8209;p option.  A single *stub* file with the name <code>\<source>.prof</code> is output
-along with 2N roughly equal-sized pairs of *hidden* files with the names
-<code>.\<base>.pidx.#</code> and <code>.\<base>.prof.#</code> in the order of the sequences in the input.  Here \<base> is the base name part of \<source> = \<dir>/\<base>.
+by specifying the &#8209;p option.  A single *stub* file with path name `<source>.prof` is output
+along with 2N roughly equal-sized pairs of *hidden* files with path names
+`<dir>/.<base>.pidx.#` and `<dir>/.<base>.prof.#` in the order of the sequences in the input assuming \<source> = \<dir>/\<base>.
 The profiles are individually compressed and the exact format of these
 files is described in the section on Data Encodings.
 
@@ -194,86 +194,15 @@ if found.  If the &#8209;t option is given than only those k&#8209;mers with cou
 ```
 3. Profex <source>[.prof] <read:int> ...
 ```
+
 Given that a set of profile files have been generated and are represented by stub file
 \<source>.prof, ***Profex*** opens the corresonding hidden profile files (two per thread)
 and gives a display of each sequence profile whose ordinal id is given on
 the remainder of the command line.  The index of the first read is 1 (not 0).
 
-<a name="haplex"></a>
-```
-4. Haplex [-g<int>:<int>] <source>[.ktab]
-```
-
-In a scan of \<source> identify all bundles of 2&#8209;4 k&#8209;mers that differ only in their
-middle base, i.e. the &lfloor;k/2&rfloor;<sup>th</sup> base.  If the &#8209;g option is
-given then only bundles where the count of each k&#8209;mer is in the specified integer
-range (inclusively) are reported.  Each bundle is output to the standard output with
-each k&#8209;mer followed by its count on a line and a blank line between bundles.  For example,
-
-```
-...
-
-cgatcctatcacttctaggaCccccatatgaatatagata 21
-cgatcctatcacttctaggaTccccatatgaatatagata 12
-
-cgatcctatctgtgcagattCccagcagcaccaataagaa 7
-cgatcctatctgtgcagattTccagcagcaccaataagaa 19
-
-cgatcctcaaccccggtgtgAgggtttgtttggccccgca 17
-cgatcctcaaccccggtgtgGgggtttgtttggccccgca 19
-
-cgatcctcacacttattcgaAcgctttttcggtactcgcc 18
-cgatcctcacacttattcgaCcgctttttcggtactcgcc 21
-cgatcctcacacttattcgaGcgctttttcggtactcgcc 8
-
-cgatcctcacactttttcgaCgctttttcggtactcgccc 30
-cgatcctcacactttttcgaTgctttttcggtactcgccc 26
-
-...
-```
-in response to <code>Haplex -h7:36 CB.ktab</code> where CB is a 50X HiFi data set of
-Cabernet Sauvignon.
-
-<a name="homex"></a>
-```
-5. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
-```
-In a scan of \<source> identify all k&#8209;mers that contain a homopolymer straddling the
-mid-point with count in the range given by the &#8209;g parameter.  Consider the k&#8209;mers with
-one extra or one less homopolymer base aded to the right end of the homopolymer.  If
-those k&#8209;mers have count no more than &#8209;e they they are considered homopolymer errors.
-The total # of correct and erroneous homopolymer instances for each puridine and pyrimidine and of each length up to 10 is collected and reported.  For example,
-<code>Homex -e6 -g10:60 CB.ktab</code> where CB is a 50X HiFi data set of
-Cabernet Sauvignon, the following table is output (in about a minute).
-
-```
-              -1      Good          +1      Error Rate
-  2 at:    1083037 1444004873    1354886 -> 0.2%
-  3 at:    2280582  544204150    1342588 -> 0.7%
-  4 at:    2967419  231095068    1234288 -> 1.8%
-  5 at:    2376973   87922494    1025822 -> 3.7%
-  6 at:    1290169   29863257     587888 -> 5.9%
-  7 at:     704839   11839930     368393 -> 8.3%
-  8 at:     411238    5250289     217606 -> 10.7%
-  9 at:     244298    2493850     129673 -> 13.0%
- 10 at:     189475    1603996      98766 -> 15.2%
-
-  2 cg:    1023595  764923391     626469 -> 0.2%
-  3 cg:    1092236  168190300     307076 -> 0.8%
-  4 cg:     608471   33793608     115702 -> 2.1%
-  5 cg:     257885    7252509      45142 -> 4.0%
-  6 cg:      84391    1570406      16852 -> 6.1%
-  7 cg:      22940     351055       6788 -> 7.8%
-  8 cg:       3655      49731       1563 -> 9.5%
-  9 cg:       1369      15226        719 -> 12.1%
- 10 cg:       1167      11200        751 -> 14.6%
-```
-
-&nbsp;
-
 <a name="logex"></a>
 ```
-6. Logex [-T<int(4)>] [-[hH][<int(1)>:]<int>] <name=expr> ... <source>[.ktab] ...
+4. Logex [-T<int(4)>] [-[hH][<int(1)>:]<int>] <name=expr> ... <source>[.ktab] ...
 ```
 
 *UNDER CONSTRUCTION*
@@ -347,8 +276,8 @@ the concept which unifies most of the desired manipulations in a single program.
 
 <a name="vennex"></a>
 ```
-7. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...
-```
+5. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...```
+
 *UNDER CONSTRUCTION*
 
 Vennex takes two or more, say k, tables, and produces histograms of the counts for each
@@ -368,6 +297,76 @@ default but may be specified with the -h option.
 
 It may interest one to observe that the command `Vennex Alpha Beta` is equivalent to the command
 `Logex -H100 'ALPHA.BETA=#A&B' 'ALPHA.beta=#A-B' 'alpha.BETA=#B-A' Alpha Beta` further illustrating the flexibility of the Logex command.
+
+<a name="haplex"></a>
+```
+6. Haplex [-g<int>:<int>] <source>[.ktab]
+```
+
+In a scan of \<source> identify all bundles of 2&#8209;4 k&#8209;mers that differ only in their
+middle base, i.e. the &lfloor;k/2&rfloor;<sup>th</sup> base.  If the &#8209;g option is
+given then only bundles where the count of each k&#8209;mer is in the specified integer
+range (inclusively) are reported.  Each bundle is output to the standard output with
+each k&#8209;mer followed by its count on a line and a blank line between bundles.  For example,
+
+```
+...
+
+cgatcctatcacttctaggaCccccatatgaatatagata 21
+cgatcctatcacttctaggaTccccatatgaatatagata 12
+
+cgatcctatctgtgcagattCccagcagcaccaataagaa 7
+cgatcctatctgtgcagattTccagcagcaccaataagaa 19
+
+cgatcctcaaccccggtgtgAgggtttgtttggccccgca 17
+cgatcctcaaccccggtgtgGgggtttgtttggccccgca 19
+
+cgatcctcacacttattcgaAcgctttttcggtactcgcc 18
+cgatcctcacacttattcgaCcgctttttcggtactcgcc 21
+cgatcctcacacttattcgaGcgctttttcggtactcgcc 8
+
+cgatcctcacactttttcgaCgctttttcggtactcgccc 30
+cgatcctcacactttttcgaTgctttttcggtactcgccc 26
+
+...
+```
+in response to <code>Haplex -h7:36 CB.ktab</code> where CB is a 50X HiFi data set of
+Cabernet Sauvignon.
+
+<a name="homex"></a>
+```
+7. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
+```
+In a scan of \<source> identify all k&#8209;mers that contain a homopolymer straddling the
+mid-point with count in the range given by the &#8209;g parameter.  Consider the k&#8209;mers with
+one extra or one less homopolymer base aded to the right end of the homopolymer.  If
+those k&#8209;mers have count no more than &#8209;e they they are considered homopolymer errors.
+The total # of correct and erroneous homopolymer instances for each puridine and pyrimidine and of each length up to 10 is collected and reported.  For example,
+<code>Homex -e6 -g10:60 CB.ktab</code> where CB is a 50X HiFi data set of
+Cabernet Sauvignon, the following table is output (in about a minute).
+
+```
+              -1      Good          +1      Error Rate
+  2 at:    1083037 1444004873    1354886 -> 0.2%
+  3 at:    2280582  544204150    1342588 -> 0.7%
+  4 at:    2967419  231095068    1234288 -> 1.8%
+  5 at:    2376973   87922494    1025822 -> 3.7%
+  6 at:    1290169   29863257     587888 -> 5.9%
+  7 at:     704839   11839930     368393 -> 8.3%
+  8 at:     411238    5250289     217606 -> 10.7%
+  9 at:     244298    2493850     129673 -> 13.0%
+ 10 at:     189475    1603996      98766 -> 15.2%
+
+  2 cg:    1023595  764923391     626469 -> 0.2%
+  3 cg:    1092236  168190300     307076 -> 0.8%
+  4 cg:     608471   33793608     115702 -> 2.1%
+  5 cg:     257885    7252509      45142 -> 4.0%
+  6 cg:      84391    1570406      16852 -> 6.1%
+  7 cg:      22940     351055       6788 -> 7.8%
+  8 cg:       3655      49731       1563 -> 9.5%
+  9 cg:       1369      15226        719 -> 12.1%
+ 10 cg:       1167      11200        751 -> 14.6%
+```
 
 &nbsp;
 

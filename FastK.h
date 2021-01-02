@@ -52,7 +52,6 @@ extern int    NPARTS;      //  number of k-mer buckets
 extern int    SMER;        //  max size of a super-mer (= MAX_SUPER + KMER - 1)ZZ
 extern int64  KMAX;        //  max k-mers in any part
 extern int64  NMAX;        //  max super-mers in any part
-extern int64  PMAX;        //  max k-mers in any part of relative k-mer table
 
 extern int    MOD_LEN;     //  length of minimizer buffer (power of 2)
 extern int    MOD_MSK;     //  mask for minimzer buffer

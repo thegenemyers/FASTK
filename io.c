@@ -59,15 +59,9 @@
 
 #define IO_BLOCK 10000000ll
 
-#define DT_BLOCK  10000ll
-#define DT_MINIM   2000ll
-#define DT_READS    10000
-
-/*
 #define DT_BLOCK  1000000ll
 #define DT_MINIM   100000ll
 #define DT_READS    10000
-*/
 
 typedef struct libdeflate_decompressor DEPRESS;
 
@@ -2663,10 +2657,10 @@ void Scan_All_Input(Input_Partition *parts)
 
   parm[0].block.ratio = cust.block.ratio * cust.block.totlen;
 
-  bases = Malloc(sizeof(char)*(DT_BLOCK+1)*ITHREADS,"Allocating data blocks");
+  bases = Malloc(sizeof(char)*(DT_BLOCK+3)*ITHREADS,"Allocating data blocks");
   boff  = Malloc(sizeof(int)*(DT_READS+1)*ITHREADS,"Allocating data blocks");
   for (i = 0; i < ITHREADS; i++)
-    { parm[i].block.bases  = bases + (DT_BLOCK+1)*i;
+    { parm[i].block.bases  = bases + (DT_BLOCK+3)*i;
       parm[i].block.boff   = boff  + (DT_READS+1)*i;
       parm[i].block.maxbps = DT_BLOCK;
       parm[i].block.maxrds = DT_READS;
