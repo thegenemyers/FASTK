@@ -556,6 +556,7 @@ typedef struct
     int       end;
     int64     off;
     int       kfile;        // used by table_write_threaad
+    int64     tmers;
   } Twrite_Arg;
 
 static void *table_write_thread(void *arg)
@@ -569,9 +570,11 @@ static void *table_write_thread(void *arg)
   uint8 *fill, *bend;
   int    x, ct;
   uint8 *kptr, *lptr, *kend;
+  int64  tmer;
 
   fill = bufr;
   bend = bufr + (0x10000 - TMER_WORD);
+  tmer = 0;
 
   kptr = data->sort + data->off;
   for (x = beg; x < end; x++)
@@ -593,10 +596,12 @@ static void *table_write_thread(void *arg)
             printf(" %hd\n",*((uint16 *) (kptr+KMER_BYTES)));
 #endif
             fill += TMER_WORD;
+            tmer += 1;
           }
       }
   write(kfile,bufr,fill-bufr);
 
+  data->tmers = tmer;
   return (NULL);
 }
 
@@ -1222,6 +1227,7 @@ void Sorting(char *path, char *root)
     int64  kmers;
     int64  nmers;
     int64  skmers;
+    int64  tmers;
     int    t, p;
 
     s_sort = NULL;
@@ -1255,6 +1261,7 @@ void Sorting(char *path, char *root)
     *s_sort++ = 0;
 #endif
 
+    tmers = 0;
     for (p = 0; p < NPARTS; p++)
       {
         //  Open and reada headers of super-mer files for part p
@@ -1517,7 +1524,9 @@ void Sorting(char *path, char *root)
 #endif
 
             for (t = 0; t < NTHREADS; t++)
-              close(parmt[t].kfile);
+              { close(parmt[t].kfile);
+                tmers += parmt[t].tmers;
+              }
           }
 
         if (! DO_PROFILE)
@@ -1733,6 +1742,12 @@ void Sorting(char *path, char *root)
         Print_Number(wtot,wwide,stderr);
         fprintf(stderr,"  %*.1f\n",awide,(1.*utot)/wtot);
         fflush(stderr);
+
+        if (DO_TABLE > 0)
+          { fprintf(stderr,"\n       There are ");
+            Print_Number(tmers,0,stderr);
+            fprintf(stderr," %d-mers that occur %d-or-more times\n",KMER,DO_TABLE);
+          }
       }
 
 #if !defined(DEBUG) || !defined(SHOW_RUN)

@@ -56,13 +56,10 @@ typedef struct
 Kmer_Table *Load_Kmer_Table(char *name, int cut_off);
 void        Free_Kmer_Table(Kmer_Table *T);
 
-char       *Fetch_Kmer(Kmer_Table *T, int64 i);
+char       *Fetch_Kmer(Kmer_Table *T, int64 i, char *seq);
 int         Fetch_Count(Kmer_Table *T, int64 i);
 
 int64       Find_Kmer(Kmer_Table *T, char *kseq);
-
-void        List_Kmer_Table(Kmer_Table *T, FILE *out);
-int         Check_Kmer_Table(Kmer_Table *T);
 
 
   //  K-MER STREAM
@@ -84,7 +81,7 @@ void         Free_Kmer_Stream(Kmer_Stream *S);
 uint8       *First_Kmer_Entry(Kmer_Stream *S);
 uint8       *Next_Kmer_Entry(Kmer_Stream *S);
 
-char        *Current_Kmer(Kmer_Stream *entry);
+char        *Current_Kmer(Kmer_Stream *entry, char *seq);
 int          Current_Count(Kmer_Stream *entry);
 
 uint8       *GoTo_Kmer_Index(Kmer_Stream *S, int64 idx);

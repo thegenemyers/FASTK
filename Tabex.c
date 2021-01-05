@@ -24,6 +24,37 @@ static char *Usage = "[-t<int>] <source_root>[.ktab] (LIST|CHECK|(k-mer:string>)
  *
  *****************************************************************************************/
 
+static int Check_Kmer_Table(Kmer_Table *T)
+{ char *curs, *last;
+  int64 i;
+
+  curs = NULL;
+  last = Fetch_Kmer(T,0,NULL);
+  for (i = 1; i < T->nels; i++)
+    { curs = Fetch_Kmer(T,i,curs);
+      if (strcmp(last,curs) >= 0)
+        { fprintf(stderr,"\nOut of Order\n");
+          fprintf(stderr," %9lld: %s = %5d\n",i-1,last,Fetch_Count(T,i-1));
+          fprintf(stderr," %9lld: %s = %5d\n",i,curs,Fetch_Count(T,i));
+          break;
+        }
+    }
+  free(curs);
+  free(last);
+  return (i >= T->nels);
+}
+
+void List_Kmer_Table(Kmer_Table *T, FILE *out)
+{ char *seq;
+  int64 i;
+
+  seq = NULL;
+  for (i = 0; i < T->nels; i++)
+    { seq = Fetch_Kmer(T,i,seq);
+      fprintf(out," %9lld: %s = %5d\n",i,seq,Fetch_Count(T,i));
+    }
+}
+
 int main(int argc, char *argv[])
 { Kmer_Table *T;
   int         CUT;

@@ -465,12 +465,10 @@ The number of bytes in the count may change in a future version.
 Kmer_Table *Load_Kmer_Table(char *name, int cut_off);
 void        Free_Kmer_Table(Kmer_Table *T);
 
-char       *Fetch_Kmer(Kmer_Table *T, int64 i);
+char       *Fetch_Kmer(Kmer_Table *T, int64 i, char *seq);
 int         Fetch_Count(Kmer_Table *T, int64 i);
 
 int64       Find_Kmer(Kmer_Table *T, char *kseq);
-void        List_Kmer_Table(Kmer_Table *T, FILE *out);
-int         Check_Kmer_Table(Kmer_Table *T);
 ```
 
 `Load_Kmer_Table` opens the FastK k&#8209;mer table represented by the stub file
@@ -486,28 +484,25 @@ k&#8209;mers.  This can save significant space at the expense of taking more tim
 
 The two `Fetch` routines return the k&#8209;mer and count, respectively, of the
 `i`<sup>th</sup> entry in the given table.  `Fetch_Kmer` in particular returns a pointer to an ascii, 0-terminated string giving the k&#8209;mer in lower-case
-a, c, g, t.  This string is local to the routine and is reset with a new value on
-each call, so if you need a k&#8209;mer to persist you must copy the result.  Moreover, if
-you call `Fetch_Kmer` with T = NULL it will free the space occupied by this
-local buffer and return NULL.
+a, c, g, t.  If the parameter `seq` is not NULL then the string is placed there and
+the pointer returned is to `seq` which much be of length at least `kmer+3`.  If `seq`
+is NULL then an array of the appropriate size is allocated and returned as the value
+of the routine.
 
 `Find_Kmer` searches the table for the supplied k&#8209;mer string and returns the
 index of the k&#8209;mer if found, or -1 if not found.  The string `kseq` must be
 at least `kmer` bases long, and if longer, the trailing bases are ignored.  The string
 may use either upper- or lower-case Ascii letters.
 
-`List_Kmer_Table` prints out the contents of the table in an Ascii format
-to the indicated output and `Check_Kmer_Table` checks that the k&#8209;mers of a
-table are actually sorted, return 1 if so, and return 0 after printing a diagnostic to the standard error if not.
-
 The sample code below opens a table for "foo.ktab", prints out the contents of the table, and ends by freeing all memory involved.
 
 ```
 Kmer_Table *T = Open_Kmer_Table("foo",0);
+char       *s = Fetch_Kmer(T,0,NULL);
 for (int i = 0; i < T->nels; i++)
-  printf("%s : %d\n",Fetch_Kmer(T,i),Fetch_Count(T,i));
+  printf("%s : %d\n",Fetch_Kmer(T,i,s),Fetch_Count(T,i));
 Free_Kmer_Table(T);
-Fetch_Kmer(NULL,0);
+free(s);
 ```
 
 &nbsp;
@@ -545,11 +540,11 @@ void         Free_Kmer_Stream(Kmer_Stream *S);
 uint8       *First_Kmer_Entry(Kmer_Stream *S);
 uint8       *Next_Kmer_Entry(Kmer_Stream *S);
 
-char       *Current_Kmer(Kmer_Streaam *S);
-int         Current_Count(Kmer_Streaam *S);
+char        *Current_Kmer(Kmer_Streaam *S, char *seq);
+int          Current_Count(Kmer_Streaam *S);
 
-uint8      *GoTo_Kmer_Index(Kmer_Stream *S, int64 i);
-uint8      *GoTo_Kmer_String(Kmer_Stream *S, uint8 *entry);
+uint8       *GoTo_Kmer_Index(Kmer_Stream *S, int64 i);
+uint8       *GoTo_Kmer_String(Kmer_Stream *S, uint8 *entry);
 ```
 
 `Open_Kmer_Stream` opens a k&#8209;mer table as a stremable object that scans efficiently, but
@@ -567,8 +562,9 @@ at the start of the [K-mer Table Class](#k-mer-table-class) description or the [
 the current entry with `Current_Count` and `Current_Kmer` routines,
 respectively.
  
-`Current_Kmer` returns a pointer to an ascii, 0-terminated string giving the k&#8209;mer in lower-case a, c, g, t.  This string is local to the routine and is reset with a new value on each call, so if you need a k&#8209;mer to persist you must copy the result.  Moreover, if you call `Current_Kmer` with S = NULL it will free the space
-occupied by this local buffer and return NULL. 
+`Current_Kmer` returns a pointer to an ascii, 0-terminated string giving the k&#8209;mer in lower-case a, c, g, t.  If the parameter `seq` is not NULL then the string is placed there and the pointer returned is to `seq` which much be of length at least `kmer+3`.
+If `seq` is NULL then an array of the appropriate size is allocated and returned as
+the value of the routine.
 
 `GoTo_Kmer_Index` sets the current cursor to the `i`<sup>th</sup> element of the
 stream, and `GoTo_Kmer_String` sets the cursor to the first entry in the table whose

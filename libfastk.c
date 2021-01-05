@@ -232,26 +232,6 @@ static void setup_fmer_table()
          i += 1;
        }
 }
-
-static void print_seq(FILE *out, uint8 *seq, int len)
-{ int i, b, k;
-
-  b = len >> 2;
-  for (i = 0; i < b; i++)
-    fprintf(out,"%s",fmer[seq[i]]);
-  k = 6;
-  for (i = b << 2; i < len; i++)
-    { fprintf(out,"%c",dna[(seq[b] >> k) & 0x3]);
-      k -= 2;
-    }
-}
-
-static void print_pack(FILE *out, uint8 *seq, int len)
-{ int i;
-
-  for (i = 0; i < (len+3)/4; i++)
-    fprintf(out," %02x",seq[i]);
-}
   
 static inline int mycmp(uint8 *a, uint8 *b, int n)
 { while (n--)
@@ -421,23 +401,13 @@ Kmer_Table *Load_Kmer_Table(char *name, int cut_off)
  *
  *****************************************************************************************/
 
-char *Fetch_Kmer(Kmer_Table *T, int64 i)
-{ static char *seq = NULL;
-  static int   max = 0;
-
-  int    kmer  = T->kmer;
+char *Fetch_Kmer(Kmer_Table *T, int64 i, char *seq)
+{ int    kmer  = T->kmer;
   int    tbyte = T->tbyte;
   uint8 *table = T->table;
 
-  if (T == NULL)
-    { free(seq);
-      max = 0;
-      return (NULL);
-    }
-
-  if (kmer > max)
-    { max = kmer;
-      seq = Realloc(seq,max+1,"Reallocating k-mer buffer");
+  if (seq == NULL)
+    { seq = Realloc(seq,kmer+3,"Reallocating k-mer buffer");
       if (seq == NULL)
         exit (1);
     }
@@ -466,59 +436,6 @@ void Free_Kmer_Table(Kmer_Table *T)
 { free(T->table);
   free(((_Kmer_Table *) T)->index);
   free(T);
-}
-
-int Check_Kmer_Table(Kmer_Table *T)
-{ int    kmer  = T->kmer;
-  int    tbyte = T->tbyte;
-  int    kbyte = T->kbyte;
-  int64  nels  = T->nels;
-  uint8 *table = T->table;
-  
-  int64 i;
-
-  for (i = 1; i < nels; i++)
-    { if (mycmp(KMER(i-1),KMER(i),kbyte) >= 0)
-        { fprintf(stderr,"\nOut of Order\n");
-          fprintf(stderr," %9lld:",i-1);
-          print_pack(stderr,KMER(i-1),kmer);
-          fprintf(stderr,"  ");
-          print_seq(stderr,KMER(i-1),kmer);
-          fprintf(stderr," = %4d\n",COUNT(i-1));
-          fprintf(stderr," %9lld:",i);
-          print_pack(stderr,KMER(i),kmer);
-          fprintf(stderr,"  ");
-          print_seq(stderr,KMER(i),kmer);
-          fprintf(stderr," = %4d\n",COUNT(i));
-          return (0);
-        }
-    }
-  return (1);
-}
-
-void List_Kmer_Table(Kmer_Table *T, FILE *out)
-{ int    kmer  = T->kmer;
-  int    tbyte = T->tbyte;
-  int    kbyte = T->kbyte;
-  int64  nels  = T->nels;
-  uint8 *table = T->table;
-
-  int64 i;
-
-  fprintf(out,"\nElement Bytes = %d  Kmer Bytes = %d\n",tbyte,kbyte);
-
-  if (nels > 0)
-    { fprintf(out," %9d: ",0);
-      print_seq(out,KMER(0),kmer);
-      fprintf(out," = %5d\n",COUNT(0));
-    }
-  for (i = 1; i < nels; i++)
-    { if (mycmp(KMER(i-1),KMER(i),kbyte) >= 0)
-        fprintf(out,"Out of Order\n");
-      fprintf(out," %9lld: ",i);
-      print_seq(out,KMER(i),kmer);
-      fprintf(out," = %5d\n",COUNT(i));
-    }
 }
 
 
@@ -984,21 +901,11 @@ inline uint8 *Next_Kmer_Entry(Kmer_Stream *S)
   return (REAL(S)->celm);
 }
 
-char *Current_Kmer(Kmer_Stream *S)
-{ static char *seq = NULL;
-  static int   max = 0;
+char *Current_Kmer(Kmer_Stream *S, char *seq)
+{ int kmer = S->kmer;
 
-  int kmer = S->kmer;
-
-  if (S == NULL)
-    { free(seq);
-      max = 0;
-      return (NULL);
-    }
-
-  if (kmer > max)
-    { max = kmer;
-      seq = Realloc(seq,max+1,"Reallocating k-mer buffer");
+  if (seq == NULL)
+    { seq = Realloc(seq,kmer+3,"Reallocating k-mer buffer");
       if (seq == NULL)
         exit (1);
     }

@@ -1195,6 +1195,7 @@ int main(int argc, char *argv[])
   { int64     range[NTHREADS+1][narg];
     pthread_t threads[NTHREADS];
     TP        parm[NTHREADS];
+    char     *seq;
     int       t, a, i;
     int64     p;
 
@@ -1202,17 +1203,19 @@ int main(int argc, char *argv[])
       { range[0][a] = 0;
         range[NTHREADS][a] = S[a]->nels;
       }
+    seq = Current_Kmer(S[0],NULL);
     for (t = 1; t < NTHREADS; t++)
       { p = (S[0]->nels*t)/NTHREADS; 
         GoTo_Kmer_Index(S[0],p);
-        printf(" %lld: %s\n",p,Current_Kmer(S[0]));
+        printf(" %lld: %s\n",p,Current_Kmer(S[0],seq));
         range[t][0] = p;
         for (a = 1; a < narg; a++)
           { GoTo_Kmer_String(S[a],S[0]->celm);
-            printf(" %lld: %s\n",S[a]->cidx,Current_Kmer(S[a]));
+            printf(" %lld: %s\n",S[a]->cidx,Current_Kmer(S[a],seq));
             range[t][a] = S[a]->cidx;
           }
       }
+    free(seq);
 
     for (t = 0; t < NTHREADS; t++)
       { parm[t].tid  = t;
