@@ -14,9 +14,9 @@
 #include <dirent.h>
 #include <math.h>
 
-#undef   DEBUG_PARTITION
-#undef   DEBUG_QUEUE
-#undef   DEBUG_DATA_POINT
+#undef    DEBUG_PARTITION
+#undef    DEBUG_QUEUE
+#undef    DEBUG_DATA_POINT
 
 #include "libfastk.h"
 
@@ -56,7 +56,7 @@ static void setup_fmer_table()
        }
 }
 
-#if defined(DEBUG_PARTITION) || defined(DEBUG_QUEUE)
+#if defined(DEBUG_PARTITION)
 
 static void print_seq(uint8 *seq, int len)
 { int i, b, k;
@@ -66,7 +66,7 @@ static void print_seq(uint8 *seq, int len)
     printf("%s",fmer[seq[i]]);
   k = 6;
   for (i = b << 2; i < len; i++)
-    { printf("%c",dna[seq[b] >> k]);
+    { printf("%c",dna[(seq[b] >> k) & 0x3]);
       k -= 2;
     }
 }
@@ -156,7 +156,6 @@ Profile *Count_Homopolymer_Errors(Kmer_Stream *T)
   uint8  suffs[]  = { 0x00, 0xc0, 0xf0, 0xfc };
   uint8  abyte[]  = { 0x00, 0x55, 0xaa, 0xff };
 
-  uint8 *iptr;
   uint8 *cache, *cptr, *ctop;
 
   int    i;
@@ -169,7 +168,9 @@ Profile *Count_Homopolymer_Errors(Kmer_Stream *T)
 
   int   a, b, advn[4];
   int   cn[4];
+#if defined(DEBUG_PARTITION) || defined(DEBUG_QUEUE)
   int64 ridx;
+#endif
 
   setup_fmer_table();
 
@@ -188,45 +189,46 @@ Profile *Count_Homopolymer_Errors(Kmer_Stream *T)
     }
   klong -= 1;
 
-  cache = Malloc(4096*tbyte,"Allocating entry buffer");
+  cache = Malloc(4097*tbyte,"Allocating entry buffer");
   cptr  = cache;
   ctop  = cache + 4096*tbyte;
   fbeg[4] = 0;
 
-  ridx = 0;
-  iptr = First_Kmer_Entry(T);
-  while (iptr != NULL)
-    { hlen = khalf-1;
-      hsym = SYMBOL(iptr,hlen);
+  First_Kmer_Entry(T);
+  while (T->csuf != NULL)
+    { Current_Entry(T,cache);
+      hlen = khalf-1;
+      hsym = SYMBOL(cache,hlen);
       for (hlen--; hlen >= klong-1; hlen--)
-        if (SYMBOL(iptr,hlen) != hsym)
+        if (SYMBOL(cache,hlen) != hsym)
           break;
       hlen += 1;
 
       if (hlen <= klong)
-        { mycpy(cache,iptr,tbyte);
-          ridx += 1;
-          for (iptr = Next_Kmer_Entry(T); iptr != NULL; iptr = Next_Kmer_Entry(T))
-            { int x = mypref(iptr,cache,khalf); 
+        { cptr = cache + tbyte;
+          for (Next_Kmer_Entry(T); T->csuf != NULL; Next_Kmer_Entry(T))
+            { int x = mypref(Current_Entry(T,cptr),cache,khalf); 
               if (x < khalf)
                 break;
-              mycpy(cache,iptr,tbyte);
-              ridx += 1;
             }
+          mycpy(cache,cptr,tbyte);
           continue;
         }
 
       hlen = khalf-hlen;
+#if defined(DEBUG_PARTITION) || defined(DEBUG_QUEUE)
+      ridx = T->cidx;
+#endif
 #ifdef DEBUG_PARTITION
       printf(" %lld: ",ridx);
-      print_seq(iptr,kmer);
+      print_seq(cache,kmer);
       printf("  Len = %d  Sym = %c\n",hlen,dna[hsym]);
       fflush(stdout);
 #endif
 
       { int k;
 
-        mycpy(suffix,iptr,kbyte);
+        mycpy(suffix,cache,kbyte);
         k = (khalf>>2);
         suffix[k] = (suffix[k] & suffs[khalf&0x3]) | (abyte[hsym] & ~suffs[khalf&0x3]);
         for (k++; k < kbyte; k++)
@@ -246,18 +248,17 @@ Profile *Count_Homopolymer_Errors(Kmer_Stream *T)
         fend[i] = -1;
     
       cptr = cache;
-      for (; iptr != NULL; iptr = Next_Kmer_Entry(T))
-        { int x = mypref(iptr,suffix,kchkl); 
+      for (; T->csuf != NULL; Next_Kmer_Entry(T))
+        { int x = mypref(Current_Entry(T,cptr),suffix,kchkl); 
           if (x < khalf)
             break;
-          if (cptr+tbyte >= ctop)
+          if (cptr >= ctop)
             { int64 cidx = cptr-cache;
-              int64 cmax = cidx*1.4 + 2048*tbyte;
-              cache = Realloc(cache,cmax,"Reallocting entry buffer");
+              int64 cmax = ((cidx*14)/(10*tbyte) + 2048)*tbyte;
+              cache = Realloc(cache,cmax+tbyte,"Reallocting entry buffer");
               ctop  = cache + cmax;
               cptr  = cache + cidx;
             }
-          mycpy(cptr,iptr,tbyte);
           x -= kbase;
           if (0 <= x && x <= 3)
             { if (fend[x] < 0)
@@ -276,9 +277,7 @@ Profile *Count_Homopolymer_Errors(Kmer_Stream *T)
 #endif
 
       if (fend[1] < 0 && fend[2] < 0)
-        { ridx += ctop-cache;
-          continue;
-        }
+        continue;
 
       for (i = 3; i >= 0; i--)
         if (fend[i] < 0)
@@ -364,7 +363,6 @@ Profile *Count_Homopolymer_Errors(Kmer_Stream *T)
             printf("\n");
 #endif
         }
-      ridx += ctop-cache;
     }
 
   return (&profile);

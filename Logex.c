@@ -805,7 +805,7 @@ static void print_seq(FILE *out, uint8 *seq, int len)
     fprintf(out,"%s",fmer[seq[i]]);
   k = 6;
   for (i = b << 2; i < len; i++)
-    { fprintf(out,"%c",dna[seq[b] >> k]);
+    { fprintf(out,"%c",dna[(seq[b] >> k) & 0x3]);
       k -= 2;
     }
 }
@@ -825,10 +825,11 @@ static void *merge_thread(void *args)
 
   int one   = 1;
   int kbyte = T[0]->kbyte;
+  int hbyte = T[0]->kbyte - T[0]->ibyte;
   int kmer  = T[0]->kmer;
   int hgram = (HIST_LOW > 0);
 
-  uint8 **ptr, *bp;
+  Kmer_Stream *bp;
   FILE  **out;
   int64 **hist, *nels;
   int    *filter, need_counts;
@@ -839,7 +840,6 @@ static void *merge_thread(void *args)
   setup_fmer_table();
 #endif
 
-  ptr    = Malloc(sizeof(uint8 *)*ntabs,"Allocating thread working memory");
   in     = Malloc(sizeof(int)*ntabs,"Allocating thread working memory");
   cnt    = Malloc(sizeof(int)*ntabs,"Allocating thread working memory");
   nels   = Malloc(sizeof(int64)*nass,"Allocating thread working memory");
@@ -898,7 +898,7 @@ static void *merge_thread(void *args)
     }
 
   for (c = 0; c < ntabs; c++)
-    { ptr[c] = GoTo_Kmer_Index(T[c],begs[c]);
+    { GoTo_Kmer_Index(T[c],begs[c]);
       cnt[c] = 0;
     }
 
@@ -910,12 +910,17 @@ static void *merge_thread(void *args)
         break;
       itop  = 1;
       in[0] = c;
-      bp    = ptr[c];
+      bp    = T[c];
       v = (1 << c);
       for (c++; c < ntabs; c++)
         { if (T[c]->cidx >= ends[c])
             continue;
-          x = mycmp(ptr[c],bp,kbyte);
+          if (T[c]->cpre < bp->cpre)
+            x = -1;
+          else if (T[c]->cpre > bp->cpre)
+            x = 1;
+          else
+            x = mycmp(T[c]->csuf,bp->csuf,hbyte);
           if (x == 0)
             { in[itop++] = c;
               v |= (1 << c);
@@ -923,7 +928,7 @@ static void *merge_thread(void *args)
           else if (x < 0)
             { itop  = 1;
               in[0] = c;
-              bp    = ptr[c];
+              bp    = T[c];
               v = (1 << c);
             }
         }
@@ -932,7 +937,7 @@ static void *merge_thread(void *args)
         { if (need_counts)
             { for (c = 0; c < itop; c++)
                 { x = in[c];
-                  cnt[x] = COUNT_OF(ptr[x]);
+                  cnt[x] = Current_Count(T[x]);
                 }
             }
 
@@ -973,19 +978,15 @@ static void *merge_thread(void *args)
             for (c = 0; c < itop; c++)
               { x = in[c];
                 cnt[x] = 0;
-                ptr[x] = Next_Kmer_Entry(T[x]);
+                Next_Kmer_Entry(T[x]);
               }
           else
             for (c = 0; c < itop; c++)
-              { x = in[c];
-                ptr[x] = Next_Kmer_Entry(T[x]);
-              }
+              Next_Kmer_Entry(T[in[c]]);
         }
       else
         for (c = 0; c < itop; c++)
-          { x = in[c];
-            ptr[x] = Next_Kmer_Entry(T[x]);
-          }
+          Next_Kmer_Entry(T[in[c]]);
     }
 
   if (DO_TABLE)
@@ -1008,7 +1009,6 @@ static void *merge_thread(void *args)
   free(nels);
   free(cnt);
   free(in);
-  free(ptr);
 
   parm->hist = hist;
   return (NULL);
@@ -1196,6 +1196,7 @@ int main(int argc, char *argv[])
     pthread_t threads[NTHREADS];
     TP        parm[NTHREADS];
     char     *seq;
+    uint8    *ent;
     int       t, a, i;
     int64     p;
 
@@ -1204,13 +1205,15 @@ int main(int argc, char *argv[])
         range[NTHREADS][a] = S[a]->nels;
       }
     seq = Current_Kmer(S[0],NULL);
+    ent = Current_Entry(S[0],NULL);
     for (t = 1; t < NTHREADS; t++)
       { p = (S[0]->nels*t)/NTHREADS; 
         GoTo_Kmer_Index(S[0],p);
+        ent = Current_Entry(S[0],ent);
         printf(" %lld: %s\n",p,Current_Kmer(S[0],seq));
         range[t][0] = p;
         for (a = 1; a < narg; a++)
-          { GoTo_Kmer_String(S[a],S[0]->celm);
+          { GoTo_Kmer_Entry(S[a],ent);
             printf(" %lld: %s\n",S[a]->cidx,Current_Kmer(S[a],seq));
             range[t][a] = S[a]->cidx;
           }

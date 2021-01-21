@@ -46,53 +46,56 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
 
 static int HIST_LOW, HIST_HGH;
 
-void Venn2(Kmer_Stream **Tv, int64 **comb)
-{ int kbyte = Tv[0]->kbyte;
+void Venn2(Kmer_Stream **V, int64 **comb)
+{ int hbyte = V[0]->kbyte - V[0]->ibyte;
 
   Kmer_Stream *T, *U;
   int64       *Inter, *AminB, *BminA;
 
-  uint8 *iptr, *jptr;
   int64 *h;
   int    c, d, v;
 
-  T = Tv[0];
-  U = Tv[1];
+  T = V[0];
+  U = V[1];
 
   AminB = comb[0];
   BminA = comb[1];
   Inter = comb[2];
 
-  iptr = First_Kmer_Entry(T);
-  jptr = First_Kmer_Entry(U);
+  First_Kmer_Entry(T);
+  First_Kmer_Entry(U);
   while (1)
-    { if (iptr == NULL)
+    { if (T->csuf == NULL)
         { T = U;
-          iptr = jptr;
           AminB = BminA;
           break;
         }
-      if (jptr == NULL)
+      if (U->csuf == NULL)
         break;
-      v = mycmp(iptr,jptr,kbyte);
+      if (T->cpre < U->cpre)
+        v = -1;
+      else if (T->cpre > U->cpre)
+        v = 0;
+      else
+        v = mycmp(T->csuf,U->csuf,hbyte);
       if (v == 0)
         { h = Inter;
-          c = COUNT_OF(iptr);
-          d = COUNT_OF(jptr);
+          c = Current_Count(T);
+          d = Current_Count(U);
           if (c > d)
             c = d;
-          iptr = Next_Kmer_Entry(T);
-          jptr = Next_Kmer_Entry(U);
+          Next_Kmer_Entry(T);
+          Next_Kmer_Entry(U);
         }
       else if (v < 0)
         { h = AminB;
-          c = COUNT_OF(iptr);
-          iptr = Next_Kmer_Entry(T);
+          c = Current_Count(T);
+          Next_Kmer_Entry(T);
         }
       else
         { h = BminA;
-          c = COUNT_OF(jptr);
-          jptr = Next_Kmer_Entry(U);
+          c = Current_Count(U);
+          Next_Kmer_Entry(U);
         }
       if (c <= HIST_LOW)
         h[HIST_LOW] += 1;
@@ -102,9 +105,9 @@ void Venn2(Kmer_Stream **Tv, int64 **comb)
         h[c] += 1;
     }
 
-  while (iptr != NULL)
-    { c = COUNT_OF(iptr);
-      iptr = Next_Kmer_Entry(T);
+  while (T->csuf != NULL)
+    { c = Current_Count(T);
+      Next_Kmer_Entry(T);
       if (c <= HIST_LOW)
         AminB[HIST_LOW] += 1;
       else if (c >= HIST_HGH)
@@ -115,32 +118,38 @@ void Venn2(Kmer_Stream **Tv, int64 **comb)
 }
 
 void Venn(Kmer_Stream **T, int64 **comb, int nway)
-{ int kbyte = T[0]->kbyte;
+{ int hbyte = T[0]->kbyte - T[0]->ibyte;
 
-  uint8 *ptr[nway];
-  int    itop, in[nway], imin;
+  int    in[nway];
+  int    itop, imin;
   int    c, v, x;
+  Kmer_Stream *M;
 
   for (c = 0; c < nway; c++)
-    ptr[c] = First_Kmer_Entry(T[c]);
+    First_Kmer_Entry(T[c]);
   while (1)
     { for (c = 0; c < nway; c++)
-        if (ptr[c] != NULL)
+        if (T[c]->csuf != NULL)
           break;
       if (c >= nway)
         break;
       itop = 0;
       in[itop++] = imin = c;
       for (c++; c < nway; c++)
-        { if (ptr[c] == NULL)
+        { if (T[c]->csuf == NULL)
             continue;
-          v = mycmp(ptr[c],ptr[imin],kbyte);
-          v = mycmp(ptr[c],ptr[imin],kbyte);
+          if (T[c]->cpre < M->cpre)
+            v = -1;
+          else if (T[c]->cpre > M->cpre)
+            v = 1;
+          else
+            v = mycmp(T[c]->csuf,M->csuf,hbyte);
           if (v == 0)
             in[itop++] = c;
           else if (v < 0)
             { itop = 0;
               in[itop++] = imin = c;
+              M = T[c];
 	    }
         }
 
@@ -148,7 +157,7 @@ void Venn(Kmer_Stream **T, int64 **comb, int nway)
       for (c = 0; c < itop; c++)
         { x = in[c];
           v |= (1 << x); 
-          ptr[x] = Next_Kmer_Entry(T[x]);
+          Next_Kmer_Entry(T[x]);
         }
       comb[v-1] += 1;
     }

@@ -151,7 +151,11 @@ typedef struct
     int        id;
   } Track_Arg;
 
-static int64 totin;  //  Total kmer record for theard 0
+static int64 totin;  //  Total kmer record for thread 0 (if VERBOSE)
+
+static int    PMER_WORD;  //  TMER_WORD - IDX_BYTES
+static int64 *pindex;     //  IDX_BYTES prefix index
+static int    pidxlen;    //  length of index
 
 static void *merge_table_thread(void *arg)
 { Track_Arg   *data  = (Track_Arg *) arg;
@@ -167,6 +171,13 @@ static void *merge_table_thread(void *arg)
 
   int64  pct1, nextin;
   int    CLOCK;
+
+  int    idx = 0;
+#if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
+  uint8  *idp = ((uint8 *) &idx) - 1;
+#else
+  uint8  *idp = ((uint8 *) &idx) + (sizeof(int)-IDX_BYTES);
+#endif
 
   nextin = pct1 = 0;
   if (VERBOSE && data->id == 0)
@@ -229,9 +240,18 @@ static void *merge_table_thread(void *arg)
       src  = heap[1];
       sptr = src->ptr;
 
+#if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
+      for (p = IDX_BYTES; p > 0; p--)
+        idp[p] = *sptr++;
+#else
+      for (p = 0; p < IDX_BYTES; p++)
+        idp[p] = *sptr++
+#endif
+      pindex[idx] += 1;
+
       //  Flush output buffer if needed
 
-      if (aptr + TMER_WORD > atop)
+      if (aptr + PMER_WORD > atop)
         { int c = aptr-abuf;
 
 #ifdef DEBUG
@@ -249,18 +269,18 @@ static void *merge_table_thread(void *arg)
 
       //  Append k-mer to output
 
-      mycpy(aptr,sptr,TMER_WORD);
-      aptr += TMER_WORD;
-      sptr += TMER_WORD;
+      mycpy(aptr,sptr,PMER_WORD);
+      aptr += PMER_WORD;
+      sptr += PMER_WORD;
 
 #ifdef DEBUG
-      printf(" %3d: ",p);
-      print_kmer(aptr-TMER_WORD,KMER);
+      printf(" %3ld:  %0*x",src-in,IDX_BYTES*2,idx);
+      print_kmer(aptr-PMER_WORD,KMER-IDX_BYTES*4);
       printf(" %d",*((uint16 *) (aptr-2)));
       printf("\n");
 #endif
 
-      if (sptr + TMER_WORD > src->top)
+      if (sptr + PMER_WORD > src->top)
         { src->ptr = sptr;
           reload(src);
 #ifdef DEBUG
@@ -293,7 +313,7 @@ static void *merge_table_thread(void *arg)
 
   //  Set # of k-mers into output file prolog
 
-  anum /= TMER_WORD;
+  anum /= PMER_WORD;
   lseek(afile,sizeof(int),SEEK_SET);
   write(afile,&anum,sizeof(int64));
 
@@ -355,6 +375,20 @@ void Merge_Tables(char *path, char *root)
         p += 1;
       }
 
+  //  Allocate and initialize prefix index
+
+#ifdef DEVELOPER
+  read(io[NTHREADS+NPARTS-1].stream,&IDX_BYTES,sizeof(int));
+#endif
+  PMER_WORD = TMER_WORD - IDX_BYTES;
+  pidxlen   = (1 << (8*IDX_BYTES));
+  pindex    = (int64 *) Malloc(sizeof(int64)*(pidxlen+1),"Allocating index table");
+  if (pindex == NULL)
+    exit (1);
+  bzero(pindex,sizeof(int64)*pidxlen);
+
+  //  Get size in bytes of table file thread 0 will produce for the clock
+
   if (VERBOSE)
     { struct stat info;
 
@@ -363,6 +397,11 @@ void Merge_Tables(char *path, char *root)
         { fstat(io[p].stream,&info);
           totin += info.st_size;
         }
+#ifdef DEVELOPER
+      totin = ((totin-sizeof(int))/TMER_WORD)*PMER_WORD;
+#else
+      totin = (totin/TMER_WORD)*PMER_WORD;
+#endif
     }
 
   //  Remove previous table result if any
@@ -371,17 +410,6 @@ void Merge_Tables(char *path, char *root)
   system(fname);
 
   //  Setup thread params and open output file
-
-  sprintf(fname,"%s/%s.ktab",path,root);
-  f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
-  if (f == -1)
-    { fprintf(stderr,"\n%s: Cannot open external file %s for writing\n",Prog_Name,fname);
-      exit (1);
-    }
-  write(f,&KMER,sizeof(int));
-  write(f,&NTHREADS,sizeof(int));
-  write(f,&DO_TABLE,sizeof(int));
-  close(f);
 
   for (t = 0; t < NTHREADS; t++)
     { sprintf(fname,"%s/.%s.ktab.%d",path,root,t+1);
@@ -412,12 +440,12 @@ void Merge_Tables(char *path, char *root)
     pthread_join(threads[t],NULL);
 #endif
 
+  //  Close input files and if user-mode then remove them
+
   p = 0;
   for (t = 0; t < NTHREADS; t++)
     for (n = 0; n <= NPARTS; n++)
       close(io[p++].stream);
-
-  //  If user-mode the remove input files
 
 #ifndef DEVELOPER
   for (p = 0; p < NPARTS; p++)
@@ -427,6 +455,36 @@ void Merge_Tables(char *path, char *root)
       }
 #endif
 
+  //  Turn index counts to index offsets and create stub file
+
+  { int64 off;
+    int   x;
+
+    off = 0;
+    for (x = 0; x <  pidxlen; x++)
+      { off += pindex[x];
+        pindex[x] = off;
+      }
+    pindex[pidxlen] = off+1;
+
+printf("pidxlen = %d\n",pidxlen);
+
+    sprintf(fname,"%s/%s.ktab",path,root);
+    f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+    if (f == -1)
+      { fprintf(stderr,"\n%s: Cannot open external file %s for writing\n",Prog_Name,fname);
+        exit (1);
+      }
+    write(f,&KMER,sizeof(int));
+    write(f,&NTHREADS,sizeof(int));
+    write(f,&DO_TABLE,sizeof(int));
+    write(f,&IDX_BYTES,sizeof(int));
+    write(f,pindex,sizeof(int64)*(pidxlen+1));
+
+    close(f);
+  }
+
+  free(pindex);
   free(blocks);
   free(io);
   free(heap);

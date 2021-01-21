@@ -31,7 +31,7 @@
 #undef   DEBUG_SCHEME
 #undef   DEBUG_DISTRIBUTE
 #undef   SHOW_PACKETS
-#define    PACKET 0
+#define    PACKET 1
 #undef   DEBUG_COMPRESS
 #undef   DEBUG_KMER_SPLIT
 #undef   CHECK_KMER_SPLIT
@@ -60,6 +60,9 @@ static IO_UTYPE Fran[256];   //  fran[x] = 3,2,1,0 for a,c,g,t
 
 static uint64 Tran[256];   //  Tran[x] in 0-3 for a,c,g,t according to frequency  
 static uint64 Cran[256];   //  Cran[x] complement of Tran[x] shifted by MIN_L1 or later PAD_L1
+
+static uint64 Sran[4];   //  Tran[x] for acgt = 0123
+static uint64 Bran[4];   //  Cran[x] for acgt = 0123
 
   //  Padded Minimizer scheme
 
@@ -1521,9 +1524,8 @@ typedef struct
     uint8    *ptr;        //  Current buffer fill pointer
     uint8    *end;        //  End of buffer
     int64     kmers;      //  # of k-mers put in this bucket
+    int64     index[257]; //  1-byte index for part table
   } Pro_File;
-
-static char *fmer[256], _fmer[1280];
 
 typedef struct
   { Kmer_Stream *stm;
@@ -1546,10 +1548,16 @@ static void *distribute_table(void *arg)
 #endif
 
   Kmer_Stream *S;
-  uint8       *e;
   int64        i;
   Pro_File    *trg;
   uint8       *ptr;
+
+  int    ibyte, pbyte;
+  int    ibps, ishft;
+
+  int    lstpre;
+  uint8  lstb[3];
+  uint64 lstmc, lstc, lstu;
 
   int64 nxtkmr, pct1;
   int   CLOCK;
@@ -1557,7 +1565,7 @@ static void *distribute_table(void *arg)
   CLOCK = 0;
   if (data->stm != NULL)
     { S = PRO_TABLE;
-      e = GoTo_Kmer_Index(S,0);
+      GoTo_Kmer_Index(S,0);
       if (VERBOSE)
         { nxtkmr = pct1 = end/100;
           fprintf(stderr,"\n    0%%");
@@ -1566,32 +1574,41 @@ static void *distribute_table(void *arg)
         }
     }
   else
-    { S = Open_Kmer_Stream(PRO_NAME);
-      e = GoTo_Kmer_Index(S,beg);
+    { S = Clone_Kmer_Stream(PRO_TABLE);
+      GoTo_Kmer_Index(S,beg);
     }
 
+  ibyte  = S->ibyte;
+  pbyte  = S->pbyte;
+  ibps   = 4*S->ibyte;
+  ishft  = 2*ibps-2;
+
+  lstpre = -1;
   for (i = beg; i < end; i++)
     { uint64 mc, mp;
       uint64 c, u;
-      int    x, k, j, p;
+      int    x, k, p;
       int    o, b, y;
-      char  *s;
+      uint8 *s;
 
 #ifdef DEBUG_KMER_SPLIT
       printf("KMER %lld\n",i);
 #endif
 
-      mc = PAD_TOT;
-      c = u = 0;
-      p = 0;
-      for (k = 0; k <= (KMER>>2); k++)
-        { s = fmer[e[k]];
-          for (j = 0; j < 4 && p < KMER; j++, p++)
-            { x = s[j];
-              c = ((c << 2) | Tran[x]) & PAD_MSK;
-              u = (u >> 2) | Cran[x];
+if (S->cidx != i)
+  printf("Out of Sync\n");
+
+      if (S->cpre != lstpre)
+        { lstpre = S->cpre;
+
+          mc = PAD_TOT;
+          c = u = 0;
+	  for (p = 0, k = ishft; p < ibps; p++, k -= 2)
+            { x = (lstpre >> k) & 0x3;
+              c = ((c << 2) | Sran[x]) & PAD_MSK;
+              u = (u >> 2) | Bran[x];
 #ifdef DEBUG_KMER_SPLIT
-              printf(" %5d: %c %0*llx %0*llx",p,x,P,c,P,u);
+              printf(" %5d: %c %0*llx %0*llx",p,DNA[x],P,c,P,u);
               fflush(stdout);
 #endif    
               if (p >= PAD_L1)
@@ -1605,12 +1622,69 @@ static void *distribute_table(void *arg)
                   printf(" <%0*llx>",P,mc);
                   fflush(stdout);
 #endif      
-                }
+                    }
 #ifdef DEBUG_KMER_SPLIT
               printf("\n"); fflush(stdout);
               fflush(stdout);
 #endif  
             }
+          lstmc = mc;
+          lstc  = c;
+          lstu  = u;
+          switch (ibyte)
+          { case 3:
+              lstb[0] = lstpre >> 16;
+              lstb[1] = (lstpre >> 8) & 0xff;
+              lstb[2] = lstpre & 0xff;
+              break;
+            case 2:
+              lstb[0] = lstpre >> 8;
+              lstb[1] = lstpre & 0xff;
+              break;
+            case 1:
+              lstb[0] = lstpre;
+              break;
+          }
+        }
+      else
+        { mc = lstmc;
+          c  = lstc;
+          u  = lstu;
+        }
+
+      k = 6;
+      s = S->csuf;
+      for (p = ibps; p < KMER; p++)
+        { if (k == 0)
+            { x = *s++ & 0x3;
+              k = 6;
+            }
+          else
+            { x = (*s >> k) & 0x3;
+              k -= 2;
+            }
+          c = ((c << 2) | Sran[x]) & PAD_MSK;
+          u = (u >> 2) | Bran[x];
+#ifdef DEBUG_KMER_SPLIT
+          printf(" %5d: %c %0*llx %0*llx",p,DNA[x],P,c,P,u);
+          fflush(stdout);
+#endif    
+          if (p >= PAD_L1)
+            { if (u < c)
+                mp = u;
+              else
+                mp = c;
+              if (mp < mc)
+                mc = mp;
+#ifdef DEBUG_KMER_SPLIT
+              printf(" <%0*llx>",P,mc);
+              fflush(stdout);
+#endif      
+            }
+#ifdef DEBUG_KMER_SPLIT
+          printf("\n"); fflush(stdout);
+	  fflush(stdout);
+#endif  
         }
 
       o = (mc >> PAD2);
@@ -1633,11 +1707,15 @@ static void *distribute_table(void *arg)
         { write(trg->stream,trg->data,ptr-trg->data);
           ptr = trg->data;
         }
-      memcpy(ptr,e,TMER_WORD);
-      trg->ptr = ptr + TMER_WORD;
-      trg->kmers += 1;
 
-      e = Next_Kmer_Entry(S);
+      for (p = 1; p < ibyte; p++)
+        *ptr++ = lstb[p];
+      memcpy(ptr,S->csuf,pbyte);
+      trg->ptr = ptr + pbyte;
+      trg->kmers += 1;
+      trg->index[*lstb] += 1;
+
+      Next_Kmer_Entry(S);
 
       if (CLOCK && i >= nxtkmr)
         { fprintf(stderr,"\r  %3d%%",(int) ((100.*i)/end));
@@ -1658,36 +1736,16 @@ static void *distribute_table(void *arg)
 void Split_Table(char *root)
 { int       bufsize;
   uint64    nfiles;
+  char     *fname;
 
   Pro_File  *out;
   uint8     *buffers;
   Table_Arg *parmt;
 
-  //  Setup bit to ascii table "fmer"
-
-  { char *t;
-    int   i, l0, l1, l2, l3;
-
-    i = 0;
-    t = _fmer;
-    for (l3 = 0; l3 < 4; l3++)
-     for (l2 = 0; l2 < 4; l2++)
-      for (l1 = 0; l1 < 4; l1++)
-       for (l0 = 0; l0 < 4; l0++)
-         { fmer[i] = t;
-           *t++ = DNA[l3];
-           *t++ = DNA[l2];
-           *t++ = DNA[l1];
-           *t++ = DNA[l0];
-           *t++ = 0;
-           i += 1;
-         }
-  }
-
   //  Allocate output data structures
 
   nfiles  = NPARTS*NTHREADS;
-  bufsize = IO_BUF_LEN*TMER_WORD;
+  bufsize = IO_BUF_LEN*(PRO_TABLE->tbyte-1);
 
   out     = (Pro_File *) Malloc(nfiles*sizeof(Pro_File),"Allocating buffers");
   buffers = (uint8 *) Malloc(nfiles*bufsize,"Allocating buffers");
@@ -1703,28 +1761,11 @@ void Split_Table(char *root)
   //  Setup output data structures
 
   { int    t, p, n;
-    char  *fname;
     int64 _zero = 0, *zero = &_zero;
 
     fname = (char *) Malloc(strlen(SORT_PATH)+strlen(root)+100,"Allocating file names");
     if (fname == NULL)
       exit (1);
-
-    for (n = 0; n < NPARTS; n++)
-      { int f;
-
-        sprintf(fname,"%s/%s.U%d.ktab",SORT_PATH,root,n);
-        f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
-        if (f == -1)
-          { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
-                           Prog_Name,SORT_PATH);
-            exit (1);
-          }
-        write(f,&PRO_TABLE->kmer,sizeof(int));
-        write(f,&NTHREADS,sizeof(int));
-        write(f,&PRO_TABLE->minval,sizeof(int));
-        close(f);
-      }
 
     p = 0;
     for (t = 0; t < NTHREADS; t++)
@@ -1744,6 +1785,7 @@ void Split_Table(char *root)
           out[p].ptr    = out[p].data;
           out[p].end    = out[p].data + bufsize;
           out[p].kmers  = 0;
+          bzero(out[p].index,sizeof(int64)*256);
 
           write(f,zero,sizeof(int));
           write(f,zero,sizeof(int64));
@@ -1752,6 +1794,18 @@ void Split_Table(char *root)
 
     free(fname);
   }
+
+  //  Kmers bps are 0123, not acgt so need tables
+
+  Sran[0] = Tran['a'];
+  Sran[1] = Tran['c'];
+  Sran[2] = Tran['g'];
+  Sran[3] = Tran['t'];
+
+  Bran[0] = Cran['a'];
+  Bran[1] = Cran['c'];
+  Bran[2] = Cran['g'];
+  Bran[3] = Cran['t'];
 
   //  Ready to send k-mers to distribution/thread specific files
 
@@ -1765,16 +1819,11 @@ void Split_Table(char *root)
       exit (1);
 
     nels = PRO_TABLE->nels;
-    for (i = 1; i < NTHREADS; i++)
-      { GoTo_Kmer_Index(PRO_TABLE,(i*nels)/NTHREADS);
-        parmt[i].beg = PRO_TABLE->cidx;
-      }
-
     parmt[0].stm = PRO_TABLE;
     parmt[0].beg = 0;
     parmt[0].out = out;
     for (i = 1; i < NTHREADS; i++)
-      { parmt[i-1].end = parmt[i].beg;
+      { parmt[i-1].end = parmt[i].beg = (i*nels)/NTHREADS;
         parmt[i].stm = NULL;
         parmt[i].out = out + i*NPARTS;
       }
@@ -1797,22 +1846,63 @@ void Split_Table(char *root)
     free(parmt);
   }
 
-  { int   p, t, n;
+  { int p, t, n, f;
 
     p = 0;
-    for (t = 0; t < ITHREADS; t++)
+    for (t = 0; t < NTHREADS; t++)
       for (n = 0; n < NPARTS; n++)
-        { int f = out[p].stream;
-
+        { f = out[p].stream;
           if (out[p].ptr > out[p].data)
             write(f,out[p].data,out[p].ptr-out[p].data);
-
           lseek(f,0,SEEK_SET);
           write(f,&PRO_TABLE->kmer,sizeof(int));
           write(f,&(out[p].kmers),sizeof(int64));
           close(f);
           p += 1;
         }
+  }
+
+  { int n, x, f;
+    int one = 1;
+
+    for (n = 0; n < NPARTS; n++)
+      { int p, t;
+
+        p = n + NPARTS;
+        for (t = 1; t < NTHREADS; t++)
+          { for (x = 0; x < 256; x++)
+              out[n].index[x] += out[p].index[x];
+            p += NPARTS;
+          }
+      }
+
+    for (n = 0; n < NPARTS; n++)
+      { int64 y, *index;
+
+        index = out[n].index;
+        y = 0;
+        for (x = 0; x < 256; x++)
+          { y += index[x];
+            index[x] = y;
+          }
+        index[256] = y+1;
+      }
+
+    for (n = 0; n < NPARTS; n++)
+      { sprintf(fname,"%s/%s.U%d.ktab",SORT_PATH,root,n);
+        f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+        if (f == -1)
+          { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
+                           Prog_Name,SORT_PATH);
+            exit (1);
+          }
+        write(f,&KMER,sizeof(int));
+        write(f,&NTHREADS,sizeof(int));
+        write(f,&PRO_TABLE->minval,sizeof(int));
+        write(f,&one,sizeof(int));
+        write(f,out[n].index,sizeof(int64)*257);
+        close(f);
+      }
   }
 
   free(buffers);

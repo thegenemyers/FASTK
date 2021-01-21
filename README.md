@@ -5,6 +5,9 @@
 **_Current: November 18, 2020_**</font>
 
 - [Command Line](#command-line)
+  - [FastK](#fastk)
+  - [Fastrm, Fastcp, & Fastmv](#fastrm)
+  - [Ncontiger & Nremover](#ncontig)
 
 - [Sample Applications](#sample-applications)
   - [Histex](#histex): Display a FastK histogram
@@ -52,6 +55,8 @@ The histogram is always produced whereas the production of a k&#8209;mer table (
 are controlled by command
 line options.  The table (2.) is over just the *canonical* k&#8209;mers present in the data set.  Producing profiles (3.&4.) as part of the underlying sort is much more efficient than producing them after the fact using a table or hash of all k&#8209;mers such as is necessitated when using other k&#8209;mer counter programs.  The profiles are recorded in a space-efficient compressed form, e.g.
 about 4.7-bits per base for a recent 50X HiFi asssembly data set.
+
+<a name="fastk"></a>
 
 ```
 1. FastK [-k<int(40)>] [-t[<int(4)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int>]
@@ -120,25 +125,68 @@ be more than enough.
 Lastly, the &#8209;T option allows the user to specify the number of threads to use.
 Generally, this is ideally set to the actual number of physical cores in one's machine.
             
+<a name="fastrm"></a>
+
 ```
 2a. Fastrm [-if] <source>[.hist|.ktab|.prof] ...
-2b. Fastmv [-inf] <source>[.hist|.ktab|.prof] <dest>
-2c. Fastcp [-inf] <source>[.hist|.ktab|.prof] <dest>
+2b. Fastmv [-inf] <source>[.hist|.ktab|.prof] ( <target> | ... <directory> )
+2c. Fastcp [-inf] <source>[.hist|.ktab|.prof] ( <target> | ... <directory> )
 ```
 
 As described above FastK produces hidden files whose names begin with a . for the &#8209;t and &#8209;p
 options in order to avoid clutter when listing a directory's contents.
 An issue with this approach is that it is inconvenient for the user to remove, rename, or copy these files
-and often a user will forget they are there, potentially wasting disk space.
+and often a user will forget the hidden files are there, potentially wasting disk space.
 We therefore provide Fastrm, Fastmv, and Fastcp that remove, rename, and copy FastK .hist, .ktab, and .prof output files as a single unit.
 
-If \<source> does not end with a FastK extenion then the command operates on any histogram, k&#8209;mer table, and profile files with \<source> as its prefix.  Otherwise the command operates on the file with the given extension and its hidden files.  Fastrm removes the relevant stub and
-hidden files, Fastmv renames all the relevant files as if FastK had been called with option &#8209;N\<dest>, and Fastcp makes a copy of all associated files with the path name \<dest>.  If \<dest> is a directory than
-the base name of source is used to form a complete destination path for both Fastmv and Fastcp.
+If \<source> does not end with a FastK extenion then the command operates on any histogram, k&#8209;mer table, and profile files with \<source> as its prefix.  Otherwise the command operates on the file with the given extension and its hidden files.  Fastrm removes the relevant stubs and
+hidden files, Fastmv renames all the relevant files as if FastK had been called with option &#8209;N\<target>, and Fastcp makes a copy of all associated files with the path name \<target>.  For
+Fastmv and Fastcp, if the last argument is a directory (as opposed to a path name), then any number of stub files can be moved or copied where
+the base name of each source is combined with \<directory> to form complete target path names.
 
-As for the UNIX rm, mv, and cp commands, the &#8209;i option asks the command to query each file as to whether you want to delete (rm) or overwrite (mv,cp) it, but only for the stubs and not the hidden files corresponding to each stub, which share the same fate as their stub file.
-The &#8209;n option tells Fastmv and Fastcp to not overwrite any files.
-Finally, the &#8209;f option 
+As for the UNIX rm, mv, and cp commands, the &#8209;i option asks the command to ask the user
+about each file as to whether you want to delete it (rm) or overwrite an existing file (mv,cp), but only for the stubs and not the hidden files corresponding to each stub, which share the same fate as their stub file.
+The &#8209;n option tells Fastmv and Fastcp to not overwrite any existing files.
+Finally, the &#8209;f option forces the creation of the new files and overides both the
+&#8209;i and &#8209;n options.
+            
+<a name="ncontig"></a>
+
+```
+3a. Ncontiger < <in:fast[aq]> > <out:fasta>
+3b. Nremover -k<int> < <in:fast[aq]> > <out:fasta>
+```
+
+FastK does not recognize 'N' as a special symbol, but simpy treats it and any other symbols other
+than 'a', 'c', 'g', 't', lower & upper case, as an 'A'.  Thus whenever a run of 'N's occurs as a
+gap between contigs in a scaffold, an oft-used convention for assembled genomes, or 'N' is used
+to denote an ambiguous base call as occasionally occurs near the end or beginning of low quality
+Illlumina reads, it is desirablle to remove these in a simple filtering step prior to giving
+the input to FastK.
+
+Ncontiger reads a fasta or fastq file on the standard input, and breaks a single scaffold entry
+into individual entries for each contig, removing the run of N's between them.  It sends its output
+to the standard output as a fasta file, where the header of each contig contains white-space
+separated integers followed 2 colons and the header of the scaffold it came from.  The 4 integers
+give the scaffold number, contig number within the scaffold, and coordinates of the contig within the
+scaffold, respectively.  As an example:
+
+```
+> Scaffold1
+accgnncggtnnngtta
+```
+is transformed into:
+
+```
+> 1 1 0 4 :: Scaffold1
+accg
+> 1 2 6 10 :: Scaffold1
+cggt
+> 1 3 13 17 :: Scaffold1
+gtta
+```
+
+Nremover has the same IO pattern as Ncontiger, but only retains as fasta entries, substrings of a read between N's (or the boundary of the read) that are -k bases or longer.  Thus when the transformed data is given to FastK, k-mers with N's have been effectively eliminated.  Also the new header lines are minimal giving just the read number and the "piece" number of the retained substring.
 
 ### Current Limitations & Known Bugs
 
@@ -149,8 +197,6 @@ FastK is not working when memory exceeds 128GB.  This should generally not be an
 integers(s) that need to be 64-bit.
 
 FastK is not working for k greater than roughly 128.  Again this is an unusually large k for a practical application but in principle it should work for unlimited k and we will address this problem shortly.
-
-The relative profile option is not yet available.
 
 &nbsp;
 
@@ -180,7 +226,7 @@ include the counts for the frequencies below and above them, respectively.
 
 <a name="tabex"></a>
 ```
-2. Tabex [-t<int>] <source>[.ktab]  (LIST|CHECK|(<k-mer:string>) ...
+2. Tabex [-t<int>] <source>[.ktab] (LIST|CHECK|(<k-mer:string>) ...
 ```
 
 Given that a set of k&#8209;mer counter table files have been generated represented by stub file
@@ -436,30 +482,24 @@ if it cannot create and write the named file.
 
 ### K-mer Table Class
 
-A Kmer\_Table object is a record with 6 fields as described in the comments of the declaration below:
+The Kmer\_Table class offers a simple, basic interface to access FastK table objects.
+It loads entire tables into memory and shields the user from the encoding details,
+so optimization for say serial access are not possible.  Some parts of a Kmer\_Table
+record are visible for convenience but should never be modified by a user:
 
 ```
 typedef struct
   { int     kmer;       //  Kmer length
     int     minval;     //  The minimum count of a k-mer in the table
-    int     kbyte;      //  Kmer encoding in bytes
-    int     tbyte;      //  Kmer,count entry in bytes
     int64   nels;       //  # of unique, sorted k-mers in the table
-    uint8  *table;      //  The (huge) table in memory
-    void   *private[1]; //  Private field
+
+    void   *private[7]; //  Private fields
   } Kmer_Table;
 ```
 
-The field `table` is a pointer to an array of <code>nels</code> entries of
-size `tbyte` bytes where each item encodes a k&#8209;mer, count pair and the
-entries are **sorted** in lexicographical order of the k&#8209;mers.
-The k&#8209;mer of a table entry is encoded in the first `kbyte` = (kmer+3)/4 bytes where each base is compressed into 2&#8209;bits so that each byte contains up to four bases, in order of high bits to low bits.  The
-bases a,c,g,t are assigned to the values 0,1,2,3, respectively.  As an example, 0xc6 encodes
-tacg.  The last byte is partially filled if kmer is not a multiple of 4, and the remainder is guaranteed to be zeroed.  The byte sequence for a k&#8209;mer is then followed by a 2-byte 
-unsigned integer count with a maximum value of 32,767 (implying tbytes = kbytes+2) and
-a minimum value of `minval`.  This later value is the maximum of (a) the cutoff
-given in the stub file (from the -t option of the FastK run producing the file) and (b) the `cut_off` parameter given to `Load_Kmer_Table`.
-The number of bytes in the count may change in a future version.  
+The table is conceptually an array of <code>nels</code> entries 
+where each entry encodes a k&#8209;mer, count pair that
+are **sorted** in lexicographical order of the k&#8209;mers. 
 
 ```
 Kmer_Table *Load_Kmer_Table(char *name, int cut_off);
@@ -468,119 +508,154 @@ void        Free_Kmer_Table(Kmer_Table *T);
 char       *Fetch_Kmer(Kmer_Table *T, int64 i, char *seq);
 int         Fetch_Count(Kmer_Table *T, int64 i);
 
-int64       Find_Kmer(Kmer_Table *T, char *kseq);
+int64       Find_Kmer(Kmer_Table *T, char *seq);
 ```
 
 `Load_Kmer_Table` opens the FastK k&#8209;mer table represented by the stub file
 at path name `name`, adding the .ktab extension if it is not present.  It returns a pointer to a newly allocated `Kmer_Table` object for
 the data encoded in the relevant files.  The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with
-the stub file, it prints an informative message to standard error and exits.  Unless the `cut_off` parameter implies the table should be trimmed, this routine attempts to load the entire table into memory and so may fail as these tables can be very large.  For example, if FastK is run on a human genome data set with -t4 the table can require as much as 40-50GB.*  In the cases where one wants the table of only those k&#8209;mers
-whose counts are not less than `cut_off` and this threshold is greater than
-that recorded in the stub file, then the load actually reads the table
+the stub file, it prints an informative message to standard error and exits.  This routine attempts to load the entire table into memory and so may fail as these tables can be very large.  For example, if FastK is run on a human genome data set with -t4, the table can require as much as 40-50GB.  As
+a result, in the cases where one wants the reduced table of only those k&#8209;mers
+whose counts are not less than `cut_off`, then the load actually reads the table
 twice with a `Kmer_Stream` to use only the memory required for exactly those
 k&#8209;mers.  This can save significant space at the expense of taking more time to load.
-
 `Free_Kmer_Table` removes all memory encoding the table object.
 
 The two `Fetch` routines return the k&#8209;mer and count, respectively, of the
 `i`<sup>th</sup> entry in the given table.  `Fetch_Kmer` in particular returns a pointer to an ascii, 0-terminated string giving the k&#8209;mer in lower-case
 a, c, g, t.  If the parameter `seq` is not NULL then the string is placed there and
 the pointer returned is to `seq` which much be of length at least `kmer+3`.  If `seq`
-is NULL then an array of the appropriate size is allocated and returned as the value
-of the routine.
+is NULL then an array of the appropriate size is allocated and returned containing the requested string. 
 
 `Find_Kmer` searches the table for the supplied k&#8209;mer string and returns the
-index of the k&#8209;mer if found, or -1 if not found.  The string `kseq` must be
+index of the k&#8209;mer if found, or -1 if not found.  The string `seq` must be
 at least `kmer` bases long, and if longer, the trailing bases are ignored.  The string
-may use either upper- or lower-case Ascii letters.
+may use either upper- or lower-case Ascii letters.  The input k&#8209;mer need not be
+canonical, `Find_Kmer` will automatically search for the canonical form.
 
 The sample code below opens a table for "foo.ktab", prints out the contents of the table, and ends by freeing all memory involved.
 
 ```
 Kmer_Table *T = Open_Kmer_Table("foo",0);
-char       *s = Fetch_Kmer(T,0,NULL);
+char       *s = Fetch_Kmer(T,0,NULL);       //  Create buffer s, value ignored
 for (int i = 0; i < T->nels; i++)
   printf("%s : %d\n",Fetch_Kmer(T,i,s),Fetch_Count(T,i));
-Free_Kmer_Table(T);
 free(s);
+Free_Kmer_Table(T);
 ```
 
 &nbsp;
 
 ### K-mer Stream Class
 
-K&#8209;mer tables can be truly large so that when loaded in memory 10's of gigabytes of main
-memory are required.  On the other hand many operations can be arranged as sweeps of
-one or more tables especially given that they are sorted, e.g finding the k&#8209;mers common to two tables.  The FastK library therefore also contains a `Kmer_Stream` class
-that allows one to iterate over the elements of a table:
+The Kmer\_Stream class realizes a more complex interface to FastK tables that
+entails saving memory by buffering and direct access to the raw encoding
+if desired (see [K-mer Table Files](#k-mer-table-files) below).
+
+K&#8209;mer tables can be truly large so that when loaded in memory 10's of gigabytes of main memory are required.  On the other hand most operations can be arranged as a scan of
+one or more tables especially given that they are sorted, e.g finding the k&#8209;mers common to two tables.  The Kmer\_Stream class is designed for efficient scanning of the
+table, trading off speed of random accesss for efficient memory utilization.
+As such, it has the concept of a current position and a small, several KB, buffer to
+efficiently move sequentially through consecutive positions.  It is possible to jump
+to a specific position, but less efficiently as then one must externally seek the table on disk and reload the buffer.
+
+All fields that might be useful are visible to the user as
+follows, with the provisio that they are read-only:
 
 ```
 typedef struct
   { int     kmer;        //  Kmer length
     int     minval;      //  The minimum count of a k-mer in the stream
-    int     kbyte;       //  Kmer encoding in bytes
-    int     tbyte;       //  Kmer,count entry in bytes
     int64   nels;        //  # of unique, sorted k-mers in the stream
-    uint8  *celm;        //  Current entry (in buffer)
+                     //  Current position
     int64   cidx;        //  Index of current entry (in table as a whole)
-    void   *private[7];  //  Private fields
+    uint8  *csuf;        //  current entry suffix
+    int     cpre;        //  current entry prefix
+                     // Other useful parameters
+    int     ibyte;       //  # of bytes in prefix
+    int     kbyte;       //  Kmer encoding in bytes (= ceiling(kmer/4))
+    int     tbyte;       //  Kmer+count entry in bytes (= kbyte + 2)
+    int     hbyte;       //  Kmer suffix in bytes (= kbyte - ibyte)
+    int     pbyte;       //  Kmer,count suffix in bytes (= tbyte - ibyte)
+    
+    void   *private[9];  //  Private fields
   } Kmer_Stream;
 ```
-Unlike a Kmer\_Table object almost all of the fields for a Kmer\_Stream are hidden from
-the user who is expected to manipulate the table through the operators below.  A
-Kmer\_Stream always has a current position that one generally initializes and then
-advances sequentially through the table.  One can directly access the bit&#8209;coded current
-entry via the field `celm` and the absolute index of this element in the table is
-available in `cidx`.  The operators for manipulating a table as as follows:
+A Kmer\_Stream has a current position that is initialized to the first entry in the
+table and that is typically then advanced sequentially through the table.
+The current position is directly available
+in the fields (1) `cidx`, the ordinal index in the table of the current entry,
+(2) `cpre`, the first `ibyte` bytes of the bit compressed k-mer encoded as an integer, and (3) `csuf`, a pointer to the remaining `pbyte` bytes of the k-mer,count encoding.  When the current position is at the end of the table `cidx` will equal `nels` and `csuf` will 
+be NULL.  The operators for manipulating a table are as as follows:
 
 ```
 Kmer_Stream *Open_Kmer_Stream(char *name);
+Kmer_Stream *Clone_Kmer_Stream(Kmer_Stream *S);
 void         Free_Kmer_Stream(Kmer_Stream *S);
 
-uint8       *First_Kmer_Entry(Kmer_Stream *S);
-uint8       *Next_Kmer_Entry(Kmer_Stream *S);
+void         First_Kmer_Entry(Kmer_Stream *S);
+void         Next_Kmer_Entry(Kmer_Stream *S);
 
 char        *Current_Kmer(Kmer_Streaam *S, char *seq);
 int          Current_Count(Kmer_Streaam *S);
+uint8       *Current_Entry(Kmer_Streaam *S, uint8 *entry);
 
-uint8       *GoTo_Kmer_Index(Kmer_Stream *S, int64 i);
-uint8       *GoTo_Kmer_String(Kmer_Stream *S, uint8 *entry);
+void         GoTo_Kmer_Index(Kmer_Stream *S, int64 i);
+void         GoTo_Kmer_String(Kmer_Stream *S, char *seq);
+void         GoTo_Kmer_Entry(Kmer_Stream *S, uint8 *entry);
 ```
 
-`Open_Kmer_Stream` opens a k&#8209;mer table as a stremable object that scans efficiently, but
-trades off efficient random access for efficent memory utilization.  Specifically, As it iterates over the entries it uses only a small input buffer of several KB.  Note carefully that the routine conceptually **opens** the table for reading, but does not **load** it (into memory).  The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with the stub file, it prints an informative message to standard error and exits.  The current position or cursor
-is set to be the start of the table.
+`Open_Kmer_Stream` opens a k&#8209;mer table as a streamable table object.  Note carefully that the routine conceptually **opens** the table for reading, but does not **load** it (into memory).  The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with the stub file, it prints an informative message to standard error and exits.  The current position or cursor is set to be the start of the table.
+`Free_Kmer_Stream` removes all memory encoding the stream object and closes any open
+files associated with it.
 
-`Free_Kmer_Stream` removes all memory encoding the stream object.
+`Clone_Kmer_Stream` creates a stream object that shares its read-only indexing tables with the input
+stream `S`.  This provides space efficiency when opening a table with multiple threads.  One must
+take care to free all clones, prior to freeing the stream the clones were spawned from.
 
-`First_Kmer_Entry` sets the iterator for the stream to the first entry of
-the table and `Next_Kmer_Entry` advance the stream to the next entry.
-The routines return NULL when the end of the table is reached, but normally
-return a `uint8` pointer to the current entry so that the
-sophisticated user can directly work with the 2&#8209;bit packed k&#8209;mer sequence described
-at the start of the [K-mer Table Class](#k-mer-table-class) description or the [K-mer Table Files](#k-mer-table-files) section.    Otherwise, one can extract the count and k&#8209;mer of
-the current entry with `Current_Count` and `Current_Kmer` routines,
-respectively.
+`First_Kmer_Entry` sets the position/entry for the stream to the first entry of
+the table and `Next_Kmer_Entry` advance the current position to the next entry.
+One needs to check if `csuf` is NULL to determine if the position has advanced to the
+end of the table.
+
+One can work with the k-mer,count pair for the current entry directly through the fields
+`cpre` and `csuf` permiting optimizations in some situations, but for the most part
+the three `Current` routines will produce components of an entry in a more convenient
+form.
  
-`Current_Kmer` returns a pointer to an ascii, 0-terminated string giving the k&#8209;mer in lower-case a, c, g, t.  If the parameter `seq` is not NULL then the string is placed there and the pointer returned is to `seq` which much be of length at least `kmer+3`.
-If `seq` is NULL then an array of the appropriate size is allocated and returned as
-the value of the routine.
+`Current_Kmer` returns a pointer to an ascii, 0-terminated string giving the k&#8209;mer at the current position
+in lower-case a, c, g, t.  If the parameter `seq` is not NULL then the string is placed there and the pointer returned is to `seq` which much be of length at least `kmer+3`.
+If `seq` is NULL then an array of the appropriate size is allocated and returned containing the requested string.  `Current_Count` returns the count of the kmer,count
+pair at the current position.
 
-`GoTo_Kmer_Index` sets the current cursor to the `i`<sup>th</sup> element of the
-stream, and `GoTo_Kmer_String` sets the cursor to the first entry in the table whose
-k&#8209;mer is not less than the k&#8209;mer `entry` encoded as a `kbyte` 2&#8209;bit packed k&#8209;mer.
-These routines are not efficient, especially `GoTo_Kmer_String` which must do a binary search for the desired position.  They are intended for the expert who wishes
-to use them for partitioning a table for simultaneous processing by multiple threads.
+`Current_Entry` has the same calling conventions as `Current_Kmer`, but returns the `tbyte` bit-compressed encoding of a k-mer,count pair.
+The k&#8209;mer is encoded in the first `kbyte` = (kmer+3)/4 bytes where each base is compressed into 2&#8209;bits so that each byte contains up to four bases, in order of high bits to low bits.  The
+bases a,c,g,t are assigned to the values 0,1,2,3, respectively.  As an example, 0xc6 encodes
+tacg.  The last byte is partially filled if `kmer` is not a multiple of 4, and the remainder is guaranteed to be zeroed.  The byte sequence for the k&#8209;mer is then followed by a 2-byte 
+unsigned integer count (implying tbytes = kbytes+2) with a maximum value of 32,767 and
+a minimum value of `minval`.  So the pointer `entry` if non-NULL should point at an array of at least
+ceiling(k/4)+2 (= `tbyte`) bytes.
 
-As an example, the code below opens a stream for "foo.ktab", prints out the contents of the table, and ends
-by freeing all memory involved.
+The three `GoTo` routines allow one to jump to a specific position.
+`GoTo_Kmer_Index` sets the current position to the `i`<sup>th</sup> entry of the
+table.  `GoTo_Kmer_String` sets the position to the first entry in the table whose
+k&#8209;mer is not less the `seq`.
+`GoTo_Kmer_Entry` sets the position to the first entry in the table whose value is not less than that of the 2-bit compressed k&#8209;mer encoding pointed at by `entry`.
+`GoTo_Kmer_String` searches for the k&#8209;mer in canonical form, whereas
+`GoTo_Kmer_Entry` searches for the 2-bit compressed k&#8209;mer as given.
+These routines are not efficient, especially `GoTo_Kmer_String` and `GoTo_Kmer_Entry`
+which must binary search for the desired position.  They are intended for the expert who
+wishes to use them for tasks like partitioning a table for simultaneous processing by multiple threads.
+
+As an example, the code below opens a stream for "foo.ktab", prints out the contents of the table, and ends by freeing all memory involved.
 
 ```
 Kmer_Stream *S = Open_Kmer_Stream("foo",1);
-for (uint8 *e = First_Kmer_Entry(S); e != NULL; e = Next_Kmer_Entry(S))
-  printf("%s : %d\n",Current_Kmer(S),Current_Count(S));
+char        *s = Current_Kmer(S,NULL);       //  Create buffer s, value ignored
+for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
+  printf("%s : %d\n",Current_Kmer(S,s),Current_Count(S));
+free(s);
 Free_Kmer_Stream(S);
-Current_Kmer(NULL);
 ```
 
 &nbsp;
@@ -672,28 +747,44 @@ type of histogram counts, the encoding contains explicitly I(l) and I(h) as 4th 
 
 ### K-mer Table Files
 
-A table of canonical k&#8209;mers and their counts is produced in N parts, where N is the number of threads FastK was run with.
-A single *stub* file `<source>.ktab` where \<source> is the output path name used by
+A table of canonical k&#8209;mers and their counts is produced in N hidden parts, where N is the number of threads FastK was run with.  These hidden files are identified by
+a single *stub* file `<source>.ktab` where \<source> is the output path name used by
 FastK.
-This stub file contains (1) the k&#8209;mer length, followed by (2) the number of threads FastK was run with, followed by (3) the frequency cutoff (&#8209;t option) used to prune the table, as three integers.
+The information in the stub file is as follows:
+
+```
+   < kmer size(k)    : int >
+   < # of parts(N)   : int >
+   < min count(m)    : int >
+   < prefix bytes(p) : int >
+   < 1st index to entries with prefix = i : int64 >, i = 0, ... 4^(4p)
+```
+The first 4 integers of the stub file give (1) the k&#8209;mer length, (2) the number of threads FastK was run with, (3) the frequency cutoff (&#8209;t option) used to prune the table, and (4) the number of prefix bytes of each k-mer (when encoded as a 2-bit
+compressed byte array) that are indexed by the 4<sup>4p</sup>+1 table, call it IDX, that constitutes the remainder of the stub file.  The i<sup>th</sup> element, IDX[i],
+gives the ordinal index of the first element in the sorted table for which its first
+4p bases have the value i.  Thus the entries in the table whose first 4p bases have
+value i can be found in the interval [&nbsp;IDX[i],&nbsp;IDX[i+1]&nbsp;).  Note carefully that these intervals are guaranteed not to span table parts.
+   
 The table file parts are in N hidden files in the same directory as the stub
 file with the names `.<base>.ktab.[1,N]` assuming that \<source> = \<dir>/\<base>.
-The k&#8209;mers in each part are lexicographically ordered and the k&#8209;mers in Ti are all less than the k&#8209;mers in T(i+1), i.e. the concatention of the N files in order of thread index is sorted.  
-
-The data in each table file is as follows:
+The k&#8209;mers in each part are lexicographically ordered and the k&#8209;mers in part i are all less than the k&#8209;mers in part i+1, i.e. the concatention of the N files in order of thread index is sorted.  The information in each table file is as follows:
 
 ```
     < kmer size(k)   : int   >
     < # of k-mers(n) : int64 >
-    ( < bit-encoded k-mer : uint8 ^ (k+3)/4 > < count : uint16 ) ^ n
+    ( < bit-encoded k-mer : uint8 ^ (ceiling(k/4)-p) > < count : uint16 ) ^ n
 ```
     
 In words, an initial integer gives the kmer size that FastK was run with followed by
-a 64&#8209;bit int, n, that gives the # of entries in the file.  The remainder of the file is then n
-k&#8209;mer,cnt pairs.  The k&#8209;mer is encoded in (k+3)/4 bytes where each base is compressed into 2-bits so that each byte contains up to four bases, in order of high bits to low bits.  The
-bases a,c,g,t are assigned to the values 0,1,2,3, respectively.  As an example, 0xc6 encodes
-tacg.  The last byte is partially filled if k is not a multiple of 4, and the remainder is
-guaranteed to be zeroed.  The byte sequence for a k&#8209;mer is then followed by a 2-byte 
+a 64&#8209;bit int, n, that gives the # of entries in this part file.  The remainder of the file is then n
+k&#8209;mer,cnt pairs save that the first p bytes of the k&#8209;mer encodings are excised
+as they can be obtained from the index in the stub file above.  Doing so saves a great
+deal of disk space at the expense of a bit more encoding complexity.
+The k&#8209;mer bases are encoded in 2-bits with 4 to a byte, from high bits to low bits,
+where the bases a,c,g,t are assigned to the values 0,1,2,3, respectively.
+For example, 0xc6 encodes tacg.
+The last byte is partially filled if k is not a multiple of 4, and the remainder is
+guaranteed to be zeroed.  The truncated ceiling(k/4)-p &ge; 0 byte encoding for a k&#8209;mer is then followed by a 2-byte 
 unsigned integer count with a maximum value of 32,767.
 
 &nbsp;
@@ -757,3 +848,4 @@ same as the most recent count, where x is the lower 6-bits interpreted as an uns
 If the 2 highest order bit of the current byte are 01, then the remaining 6 bits are interpreted
 as a *1's complement* integer and the difference is one more or less than said value depending
 on the sign.  The single byte encoding is used whenever possible.
+H

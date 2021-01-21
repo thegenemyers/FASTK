@@ -53,6 +53,7 @@ int main(int argc, char **argv)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -i: prompt for each (stub) deletion\n");
+        fprintf(stderr,"      -f: force operation quietly\n");
         exit (1);
       }
   }

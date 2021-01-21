@@ -67,6 +67,7 @@ extern int RUN_BYTES;    //  # of bytes encoding largest run index
 extern int SLEN_BYTES;   //  # of bytes encoding Length of a super-mer
 extern int PLEN_BYTES;   //  # of bytes encoding length of a compressed profile segment
 extern int PROF_BYTES;   //  # of bytes encoding RUN+PLEN_BYTES
+extern int IDX_BYTES;    //  # of bytes for table prefix index
 
 extern int KMER_BYTES;   //  # of bytes encoding a KMER 
 extern int SMER_BYTES;   //  # of bytes encoding a super-mer 

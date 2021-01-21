@@ -75,6 +75,7 @@ int RUN_BYTES;    //  # of bytes encoding largest run index
 int SLEN_BYTES;   //  # of bytes encoding length of a super-mer
 int PLEN_BYTES;   //  # of bytes encoding length of a compressed profile segment
 int PROF_BYTES;   //  # of bytes encoding RUN_BYTES+PLEN_BYTES
+int IDX_BYTES;    //  # of bytes for table prefix index
 
 int SLEN_BYTE_MASK;   //  Byte-mask for super-mer lengths
 

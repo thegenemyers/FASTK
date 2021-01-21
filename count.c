@@ -36,6 +36,7 @@
 #undef  DEBUG_TABOUT
 #undef  DEBUG_CLIST
 #undef  DEBUG_CMERGE
+#undef  EQUAL_MERGE
 #undef  DEBUG_PLIST
 #undef    SHOW_RUN
 #undef  DEBUG_PWRITE
@@ -57,7 +58,7 @@
 uint8 Comp[256];
 
 #if defined(DEBUG_CANONICAL) || defined(DEBUG_KLIST) || defined(DEBUG_SLIST) \
-      || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE)
+      || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE) || defined(EQUAL_MERGE)
 
 static char DNA[4] = { 'a', 'c', 'g', 't' };
 
@@ -65,7 +66,7 @@ static char *fmer[256], _fmer[1280];
 
 #endif
 
-#if defined(DEBUG_SLIST) || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE)
+#if defined(DEBUG_SLIST) || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE) || defined(EQUAL_MERGE)
 
 static void write_Ascii(uint8 *bytes, int len)
 { int i;
@@ -599,7 +600,8 @@ static void *table_write_thread(void *arg)
             tmer += 1;
           }
       }
-  write(kfile,bufr,fill-bufr);
+  if (fill > bufr)
+    write(kfile,bufr,fill-bufr);
 
   data->tmers = tmer;
   return (NULL);
@@ -669,66 +671,111 @@ static void *cmer_merge_thread(void *arg)
   int64       *part   = data->parts;
   uint8      **fours  = data->fours;
   Kmer_Stream *S      = data->stm;
+  int          hbyte  = S->hbyte;
 
   int KM1 = KMER_WORD-1;
 
   int    x, d, k, c;
   uint8 *kptr, *lptr, *kend;
-  uint8 *fill, *e;
+  uint8 *fill;
   int    ct;
+
+#ifdef EQUAL_MERGE
+  int    skip = 0;
+#endif
+
+  if (beg > 0)
+    S = Clone_Kmer_Stream(S);
 
   kptr = data->sort + data->off;
   *kptr = beg;
-  e = GoTo_Kmer_String(S,kptr);
+  GoTo_Kmer_Entry(S,kptr);
 #ifdef DEBUG_CMERGE
-  printf("\n\nx = %s  k = ",fmer[beg]);
+  printf("\n\nStart: x = %s  k = ",fmer[beg]);
   write_Ascii(kptr,KMER);
-  printf(" e = ");
-  write_Ascii(e,KMER);
+  printf(" e = %s",fmer[S->cpre]);
+  write_Ascii(S->csuf,KMER-4);
   printf(" %lld\n",S->cidx);
 #endif
   for (x = beg; x < end; x++)
-    for (kend = kptr + part[x]; kptr < kend; )
-      { lptr = kptr+KMER_WORD;
-        while (*lptr == 0)
-          lptr += KMER_WORD;
 
-        *kptr = x;
-        c = memcmp(e,kptr,KMER_BYTES);
-        while (c < 0)
-          { e = Next_Kmer_Entry(S);
-            c = memcmp(kptr,e,KMER_BYTES);
-          }
-#ifdef DEBUG_CMERGE
-        printf("c = %4d k = ",c);
-        write_Ascii(kptr,KMER);
-        printf(" e = ");
-        write_Ascii(e,KMER);
-        printf(" %lld",S->cidx);
+    { while (S->cpre < x)
+        Next_Kmer_Entry(S);
+
+      for (kend = kptr + part[x]; kptr < kend; )
+        { lptr = kptr+KMER_WORD;
+          while (*lptr == 0)
+            lptr += KMER_WORD;
+
+          if (S->cpre > x)
+            c = 5000;
+          else
+            { c = memcmp(S->csuf,kptr+1,hbyte);
+              while (c < 0)
+                { Next_Kmer_Entry(S);
+#ifdef EQUAL_MERGE
+                  printf("Skip?\n"); fflush(stdout);
+                  skip = 1;
 #endif
-        if (c != 0)
-          ct = 0;
-        else // c == 0
-          { ct = *((uint16 *) (e+KMER_BYTES));
-            e = Next_Kmer_Entry(S);
-          }
-#ifdef DEBUG_CMERGE
-        printf(" Cnts: %d vs %d\n",ct,*((uint16 *) (kptr+KMER_BYTES)));
+                  c = memcmp(S->csuf,kptr+1,hbyte);
+                }
+            }
+#ifdef EQUAL_MERGE
+          if (c != 0 || skip)
+            { printf("\nx = %02x  kptr = %ld start = %ld\n",
+                     x,kptr-data->sort,(kend-part[x])-data->sort);
+              write_Ascii(kptr+1,KMER-4);
+              printf("\n");
+              write_Ascii(S->csuf,KMER-4);
+              printf("\n");
+              GoTo_Kmer_Index(S,S->cidx-3);
+              kptr -= 3*KMER_WORD;
+              for (int u = 0; u < 7; u++)
+                { printf("c = %4d k = ",c);
+                  write_Ascii(kptr,KMER);
+                  printf(" %d  e = %s",*((uint16 *) (kptr+KMER_BYTES)),fmer[S->cpre]);
+                  write_Ascii(S->csuf,KMER-4);
+                  printf("  %d %lld\n",*((uint16 *) (S->csuf+hbyte)),S->cidx);
+                  kptr += KMER_WORD;
+                  Next_Kmer_Entry(S);
+                }
+              kptr -= 4*KMER_WORD;
+              GoTo_Kmer_Index(S,S->cidx-4);
+              printf("\n");
+	    }
 #endif
+#ifdef DEBUG_CMERGE
+          *kptr = x;
+          printf("c = %4d k = ",c);
+          write_Ascii(kptr,KMER);
+          printf(" %d  e = %s",*((uint16 *) (kptr+KMER_BYTES)),fmer[S->cpre]);
+          write_Ascii(S->csuf,KMER-4);
+          printf("  %d %lld\n",*((uint16 *) (S->csuf+hbyte)),S->cidx);
+#endif
+          if (c != 0)
+            ct = 0;
+          else // c == 0
+            { ct = *((uint16 *) (S->csuf+hbyte));
+              Next_Kmer_Entry(S);
+            }
 
-        while (kptr < lptr)
-          { d = kptr[KM1];
-            fill = fours[d];
-            *((uint16 *) fill) = ct;
-            fill += 2;
-            for (k = TMER_WORD; k < KM1; k++)
-              *fill++ = kptr[k];
-            fours[d] = fill;
-            kptr += KMER_WORD;
-          }
-      } 
+          while (kptr < lptr)
+            { d = kptr[KM1];
+              fill = fours[d];
+              *((uint16 *) fill) = ct;
+              fill += 2;
+              for (k = TMER_WORD; k < KM1; k++)
+                *fill++ = kptr[k];
+              fours[d] = fill;
+              kptr += KMER_WORD;
+            }
+        } 
+    } 
 
-  Free_Kmer_Stream(S);
+#ifndef DEVELOPER
+  if (beg > 0)
+    Free_Kmer_Stream(S);
+#endif
 
   return (NULL);
 }
@@ -1174,7 +1221,7 @@ void Sorting(char *path, char *root)
          Comp[i++] = (l3 | l2 | l1 | l0);
 
 #if defined(DEBUG_CANONICAL) || defined(DEBUG_KLIST) || defined(DEBUG_SLIST) \
-      || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE)
+      || defined(DEBUG_TABOUT) || defined(DEBUG_CMERGE) || defined(EQUAL_MERGE)
     { char *t;
 
       i = 0;
@@ -1511,6 +1558,12 @@ void Sorting(char *path, char *root)
                 sprintf(fname,"%s/%s.%d.L%d",SORT_PATH,root,p,t);
                 parmt[t].kfile = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
               }
+#ifdef DEVELOPER
+            if (p == NPARTS-1)
+              { int zero = 0;
+                write(parmt[0].kfile,&zero,sizeof(int));
+              }
+#endif
 
 #ifdef DEBUG_TABOUT
             for (t = 0; t < NTHREADS; t++)
@@ -1524,9 +1577,23 @@ void Sorting(char *path, char *root)
 #endif
 
             for (t = 0; t < NTHREADS; t++)
-              { close(parmt[t].kfile);
-                tmers += parmt[t].tmers;
+              tmers += parmt[t].tmers;
+
+            if (p == NPARTS-1)
+              { if (tmers > 0x4000000ll && KMER >= 12)
+                  IDX_BYTES = 3;
+                else if (tmers >= 0x40000ll && KMER >= 8)
+                  IDX_BYTES = 2;
+                else // tmers < 0x40000ll, KMER always >= 7
+                  IDX_BYTES = 1;
+#ifdef DEVELOPER
+                lseek(parmt[0].kfile,0,SEEK_SET);
+                write(parmt[0].kfile,&IDX_BYTES,sizeof(int));
+#endif
               }
+ 
+            for (t = 0; t < NTHREADS; t++)
+              close(parmt[t].kfile);
           }
 
         if (! DO_PROFILE)
@@ -1571,15 +1638,15 @@ void Sorting(char *path, char *root)
             // Relative profile: also set up table file for merges
 
             sprintf(fname,"%s/%s.U%d",SORT_PATH,root,p);
-            for (t = 0; t < NTHREADS; t++)
-              { parmc[t].stm = Open_Kmer_Stream(fname);
-                if (parmc[t].stm == NULL)
-                  { fprintf(stderr,"\n%s: Table %s should exist but doesn't?\n",Prog_Name,fname); 
-                    exit (1);
-                  }
+            parmc[0].stm = Open_Kmer_Stream(fname);
+            if (parmc[0].stm == NULL)
+              { fprintf(stderr,"\n%s: Table %s should exist but doesn't?\n",Prog_Name,fname); 
+                exit (1);
               }
+            for (t = 1; t < NTHREADS; t++)
+              parmc[t].stm = parmc[0].stm;
 
-#ifdef DEBUG_CMERGE
+#if defined(DEBUG_CMERGE) || defined(EQUAL_MERGE)
             for (t = 0; t < NTHREADS; t++)
               cmer_merge_thread(parmc+t);
 #else
@@ -1590,9 +1657,13 @@ void Sorting(char *path, char *root)
               pthread_join(threads[t],NULL);
 #endif
 
+            Free_Kmer_Stream(parmc[0].stm);
+
+#ifndef DEVELOPER
             sprintf(fname,"rm -f %s/%s.U%d.ktab %s/.%s.U%d.ktab.*",
                           SORT_PATH,root,p,SORT_PATH,root,p);
             system(fname);
+#endif
           }
 
         else // PRO_TABLE == 0
@@ -1730,7 +1801,7 @@ void Sorting(char *path, char *root)
         if (7 > awide)
           awide = 7;
 
-        fprintf(stderr,"\r                                             \r"); 
+        fprintf(stderr,"\r                                               \r"); 
         fprintf(stderr,"      Part:%*swgt'd k-mers%*ssavings\n",wwide-10,"",awide-5,"");
         fflush(stderr);
         for (p = 0; p < NPARTS; p++)

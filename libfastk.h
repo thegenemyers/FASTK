@@ -46,11 +46,9 @@ void       Free_Histogram(Histogram *H);
 typedef struct
   { int     kmer;         //  Kmer length
     int     minval;       //  The minimum count of a k-mer in the table
-    int     kbyte;        //  Kmer encoding in bytes
-    int     tbyte;        //  Kmer+count entry in bytes
     int64   nels;         //  # of unique, sorted k-mers in the table
-    uint8  *table;        //  The (huge) table in memory
-    void   *private[1];   //  Private fields
+
+    void   *private[7];   //  Private fields
   } Kmer_Table;
 
 Kmer_Table *Load_Kmer_Table(char *name, int cut_off);
@@ -67,25 +65,35 @@ int64       Find_Kmer(Kmer_Table *T, char *kseq);
 typedef struct
   { int    kmer;       //  Kmer length
     int    minval;     //  The minimum count of a k-mer in the stream
+    int64  nels;       //  # of elements in entire table
+                    // Current position
+    int64  cidx;       //  current element index
+    uint8 *csuf;       //  current element suffix
+    int    cpre;       //  current element prefix
+                    // Other useful parameters
+    int    ibyte;      //  # of bytes in prefix
     int    kbyte;      //  Kmer encoding in bytes
     int    tbyte;      //  Kmer+count entry in bytes
-    int64  nels;       //  # of elements in entire table
-    uint8 *celm;       //  Current entry (in buffer)
-    int64  cidx;       //  Index of current entry (in table as a whole)
-    void  *private[7]; //  Private fields
+    int    hbyte;      //  Kmer suffix in bytes (= kbyte - ibyte)
+    int    pbyte;      //  Kmer,count suffix in bytes (= tbyte - ibyte)
+
+    void  *private[10]; //  Private fields
   } Kmer_Stream;
 
 Kmer_Stream *Open_Kmer_Stream(char *name);
+Kmer_Stream *Clone_Kmer_Stream(Kmer_Stream *S);
 void         Free_Kmer_Stream(Kmer_Stream *S);
 
-uint8       *First_Kmer_Entry(Kmer_Stream *S);
-uint8       *Next_Kmer_Entry(Kmer_Stream *S);
+void         First_Kmer_Entry(Kmer_Stream *S);
+void         Next_Kmer_Entry(Kmer_Stream *S);
 
-char        *Current_Kmer(Kmer_Stream *entry, char *seq);
-int          Current_Count(Kmer_Stream *entry);
+char        *Current_Kmer(Kmer_Stream *S, char *seq);
+int          Current_Count(Kmer_Stream *S);
+uint8       *Current_Entry(Kmer_Stream *S, uint8 *seq);
 
-uint8       *GoTo_Kmer_Index(Kmer_Stream *S, int64 idx);
-uint8       *GoTo_Kmer_String(Kmer_Stream *S, uint8 *entry);
+void         GoTo_Kmer_Index(Kmer_Stream *S, int64 idx);
+void         GoTo_Kmer_String(Kmer_Stream *S, char *seq);
+void         GoTo_Kmer_Entry(Kmer_Stream *S, uint8 *entry);
 
 
   //  PROFILES

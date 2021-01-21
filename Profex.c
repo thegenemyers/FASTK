@@ -61,10 +61,10 @@ int main(int argc, char *argv[])
   { int     c, id;
     char   *eptr;
     uint16 *profile;
-    int     plen, tlen;
+    int     pmax, plen;
 
-    plen    = 20000;
-    profile = Malloc(plen*sizeof(uint16),"Profile array");
+    pmax    = 20000;
+    profile = Malloc(pmax*sizeof(uint16),"Profile array");
 
     for (c = 2; c < argc; c++)
       { id = strtol(argv[c],&eptr,10);
@@ -76,14 +76,14 @@ int main(int argc, char *argv[])
           { fprintf(stderr,"%s: Id %d is out of range\n",Prog_Name,id);
             exit (1);
           }
-        tlen = Fetch_Profile(P,(int64) id-1,plen,profile);
-        if (tlen > plen)
-          { plen    = 1.2*tlen + 1000;
-            profile = Realloc(profile,plen*sizeof(uint16),"Profile array");
-            Fetch_Profile(P,(int64) id-1,plen,profile);
+        plen = Fetch_Profile(P,(int64) id-1,pmax,profile);
+        if (plen > pmax)
+          { pmax    = 1.2*plen + 1000;
+            profile = Realloc(profile,pmax*sizeof(uint16),"Profile array");
+            Fetch_Profile(P,(int64) id-1,pmax,profile);
           }
         printf("\nRead %d:\n",id);
-        for (int i = 0; i < tlen; i++)
+        for (int i = 0; i < plen; i++)
           printf(" %5d: %5d\n",i,profile[i]);
       }
     free(profile);

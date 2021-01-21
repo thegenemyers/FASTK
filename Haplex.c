@@ -53,6 +53,8 @@ static void setup_fmer_table()
        }
 }
 
+#ifdef DEBUG
+
 static void print_seq(uint8 *seq, int len)
 { int i, b, k;
 
@@ -61,7 +63,33 @@ static void print_seq(uint8 *seq, int len)
     printf("%s",fmer[seq[i]]);
   k = 6;
   for (i = b << 2; i < len; i++)
-    { printf("%c",dna[seq[b] >> k]);
+    { printf("%c",(dna[seq[b] >> k) & 0x3]);
+      k -= 2;
+    }
+}
+
+#endif
+
+static void print_hap(uint8 *seq, int len, int half)
+{ int i, b, h, k;
+
+  h = half >> 2;
+  b = len >> 2;
+  for (i = 0; i < h; i++)
+    printf("%s",fmer[seq[i]]);
+  k = 6;
+  for (i = h << 2; k >= 0; i++)
+    { if (i == half)
+        printf("%c",dna[(seq[h] >> k) & 0x3]-32);
+      else
+        printf("%c",dna[(seq[h] >> k) & 0x3]);
+      k -= 2;
+    }
+  for (i = h+1; i < b; i++)
+    printf("%s",fmer[seq[i]]);
+  k = 6;
+  for (i = b << 2; i < len; i++)
+    { printf("%c",dna[(seq[b] >> k) & 0x3]);
       k -= 2;
     }
 }
@@ -72,11 +100,6 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
         return (a[-1] < b[-1] ? -1 : 1);
     }
   return (0);
-}
-
-static inline void mycpy(uint8 *a, uint8 *b, int n)
-{ while (n--)
-    *a++ = *b++;
 }
 
 
@@ -122,7 +145,7 @@ void Find_Haplo_Pairs(Kmer_Stream *T)
   uint8  prefs[] = { 0x3f, 0x0f, 0x03, 0x00 };
   int    mask, offs, rem;
 
-  uint8 *iptr;
+  uint8 *nptr;
   uint8 *cache, *cptr, *ctop;
 
   int    f, i;
@@ -146,38 +169,39 @@ void Find_Haplo_Pairs(Kmer_Stream *T)
   printf("Extension = K[%d]&%02x . K[%d..%d)\n",offs-1,mask,offs,offs+rem);
 #endif
 
-  cache = Malloc(4096*tbyte,"Allocating entry buffer");
+  cache = Malloc(4097*tbyte,"Allocating entry buffer");
   cptr  = cache;
   ctop  = cache + 4096*tbyte;
 
-  iptr = First_Kmer_Entry(T);
-  while (iptr != NULL)
+  First_Kmer_Entry(T);
+  while (T->csuf != NULL)
     { f = 0;
       cptr = cache;
       index[f++] = 0;
-      mycpy(cptr,iptr,tbyte);
-      for (iptr = Next_Kmer_Entry(T); iptr != NULL; iptr = Next_Kmer_Entry(T))
-        { int x = mypref(cptr,iptr,khalf); 
-          cptr += tbyte;
+      Current_Entry(T,cptr);
+      nptr = cptr+tbyte;
+      for (Next_Kmer_Entry(T); T->csuf != NULL; Next_Kmer_Entry(T))
+        { int x = mypref(cptr,Current_Entry(T,nptr),khalf); 
           if (x < khalf)
             break;
           if (x == khalf)
-            index[f++] = cptr-cache;
-          if (cptr >= ctop)
+            index[f++] = nptr-cache;
+          if (nptr >= ctop)
             { int64 cidx = ctop-cache;
-              int64 cmax = cidx*1.4 + 2048*tbyte; 
-              cache = Realloc(cache,cmax,"Reallocting entry buffer");
+              int64 cmax = ((cidx*14)/(10*tbyte) + 2048)*tbyte; 
+              cache = Realloc(cache,cmax+tbyte,"Reallocting entry buffer");
               ctop  = cache + cmax;
-              cptr  = cache + cidx;
+              nptr  = cache + cidx;
             }
-          mycpy(cptr,iptr,tbyte);
+          cptr = nptr;
+          nptr = cptr+tbyte;
         }
 
 #ifdef DEBUG_PARTITION
       printf("part %d",f);
       for (i = 0; i < f; i++)
         printf(" %d",index[i]/tbyte);
-      printf(" %ld\n",(cptr-cache)/tbyte);
+      printf(" %ld\n",(nptr-cache)/tbyte);
 #endif
 
       if (f <= 1)
@@ -187,7 +211,7 @@ void Find_Haplo_Pairs(Kmer_Stream *T)
         finger[i] = cache + index[i];
       for (i = 1; i < f; i++)
         flimit[i-1] = finger[i];
-      flimit[f-1] = cptr;
+      flimit[f-1] = nptr;
 
 #define ADD(i)					\
 { int cn = COUNT_OF(finger[i]);			\
@@ -245,7 +269,7 @@ void Find_Haplo_Pairs(Kmer_Stream *T)
           if (c > 1) 
             { for (i = 0; i < c; i++)
                 { uint8 *fp = finger[good[i]];
-                  print_seq(fp,kmer);
+                  print_hap(fp,kmer,khalf);
                   printf(" %d\n",COUNT_OF(fp));
                 }
               printf("\n");
@@ -330,6 +354,10 @@ int main(int argc, char *argv[])
   }
 
   T = Open_Kmer_Stream(argv[1]);
+  if (T == NULL)
+    { fprintf(stderr,"%s: Cannot open table %s\n",Prog_Name,argv[1]);
+      exit (1);
+    }
 
   Find_Haplo_Pairs(T);
 
