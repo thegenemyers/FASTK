@@ -56,7 +56,7 @@ extern int64  NMAX;        //  max super-mers in any part
 extern int    MOD_LEN;     //  length of minimizer buffer (power of 2)
 extern int    MOD_MSK;     //  mask for minimzer buffer
 
-extern int    MAX_SUPER;   //  = EMER - MIN_L1  (where EMER = KMER - 2*PAD)
+extern int    MAX_SUPER;   //  = (KMER - PAD_LEN) + 1
 
 extern int    SLEN_BITS;      //  # of bits needed to encode the length of a super-mer (less KMER-1)
 extern uint64 SLEN_BIT_MASK;  //  Bit-mask for super-mer lengths

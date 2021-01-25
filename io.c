@@ -1873,7 +1873,7 @@ static void *cram_output_thread(void *arg)
   int64 estbps, cumbps, nxtbps, pct1;
   int   CLOCK;
 
-  cumbps = nxtbps = 0;
+  cumbps = nxtbps = estbps = pct1 = 0;
   if (VERBOSE && tid == 0 && action != SAMPLE)
     { estbps = dset->ratio / ITHREADS;
       nxtbps = pct1 = estbps/100;
@@ -2234,7 +2234,7 @@ static void *dazz_output_thread(void *arg)
 
           covl = 0;
           while (o+len > omax)
-            { int x;
+            { int x = 0;
 
               ovl = ((omax-o) >> 2) << 2;
               fread(line+o,ovl>>2,1,fid);

@@ -135,6 +135,7 @@ void Venn(Kmer_Stream **T, int64 **comb, int nway)
         break;
       itop = 0;
       in[itop++] = imin = c;
+      M = T[c];
       for (c++; c < nway; c++)
         { if (T[c]->csuf == NULL)
             continue;

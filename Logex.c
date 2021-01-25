@@ -830,8 +830,9 @@ static void *merge_thread(void *args)
   int hgram = (HIST_LOW > 0);
 
   Kmer_Stream *bp;
-  FILE  **out;
-  int64 **hist, *nels;
+  FILE  **out  = NULL;
+  int64 **hist = NULL;
+  int64  *nels;
   int    *filter, need_counts;
   int    itop, *in, *cnt;
   int    c, v, x, i;
@@ -1046,8 +1047,9 @@ int main(int argc, char *argv[])
             ARG_FLAGS("")
             break;
           case 'H':
-            DO_TABLE = 0;
           case 'h':
+            if (argv[i][1] == 'H')
+              DO_TABLE = 0;
             HIST_LOW = strtol(argv[i]+2,&eptr,10);
             if (eptr > argv[i]+2)
               { if (HIST_LOW < 1 || HIST_LOW > 0x7fff)

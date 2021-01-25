@@ -1081,7 +1081,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                   mc = mp;
                 }
 #ifdef DEBUG_DISTRIBUTE
-              printf(" <%5d:%0*llx>",m,P,mc);
+              printf(" <%5d:%0*llx%c>",m,P,mc,flp[m]?'-':'+');
               fflush(stdout);
 #endif      
             }
@@ -1209,7 +1209,8 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
 
 #ifdef DEBUG_DISTRIBUTE
           if (p < q)
-            printf(" %5d: %c %0*llx %0*llx <%5d:%0*llx>\n",p,x,P,c,P,u,m,P,mc);
+            printf(" %5d: %c %0*llx %0*llx <%5d:%0*llx%c>\n",p,x,P,c,P,u,m,P,mc,
+                                                             flp[m&MOD_MSK]?'-':'+');
           else
             printf(" <<\n");
           fflush(stdout);
@@ -1563,6 +1564,7 @@ static void *distribute_table(void *arg)
   int   CLOCK;
 
   CLOCK = 0;
+  nxtkmr = pct1 = 0;
   if (data->stm != NULL)
     { S = PRO_TABLE;
       GoTo_Kmer_Index(S,0);
@@ -1583,6 +1585,7 @@ static void *distribute_table(void *arg)
   ibps   = 4*S->ibyte;
   ishft  = 2*ibps-2;
 
+  lstmc = lstc = lstu = 0;
   lstpre = -1;
   for (i = beg; i < end; i++)
     { uint64 mc, mp;
@@ -1594,9 +1597,6 @@ static void *distribute_table(void *arg)
 #ifdef DEBUG_KMER_SPLIT
       printf("KMER %lld\n",i);
 #endif
-
-if (S->cidx != i)
-  printf("Out of Sync\n");
 
       if (S->cpre != lstpre)
         { lstpre = S->cpre;

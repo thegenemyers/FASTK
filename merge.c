@@ -101,7 +101,7 @@ static void *merge_profile_thread(void *arg)
   uint16 lcont, d;
   uint8 *db = (uint8 *)  &d;
   int    n;
-  int64  nidx;
+  int64  nidx = 0;
 
   int64  pct1, partin, nextin;
   int    CLOCK;
