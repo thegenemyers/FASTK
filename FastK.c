@@ -336,7 +336,7 @@ int main(int argc, char *argv[])
         pwd  = First_Pwd (io);
       }
     else
-      { root = Root(OUT_NAME,NULL);
+      { root = Root(OUT_NAME,"");
         pwd  = PathTo(OUT_NAME);
       }
 

@@ -1791,8 +1791,6 @@ void Split_Table(char *root)
           write(f,zero,sizeof(int64));
           p += 1;
         }
-
-    free(fname);
   }
 
   //  Kmers bps are 0123, not acgt so need tables
@@ -1903,8 +1901,10 @@ void Split_Table(char *root)
         write(f,out[n].index,sizeof(int64)*257);
         close(f);
       }
+
   }
 
+  free(fname);
   free(buffers);
   free(out);
   free(Min_Part);

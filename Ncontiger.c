@@ -212,7 +212,7 @@ int main(int argc, char *argv[])
   { int    i, j, k;
     int    flags[128];
 
-    (void) argv;
+    (void) flags;
 
     ARG_INIT("Ncontiger")
 
