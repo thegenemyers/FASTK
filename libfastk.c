@@ -970,7 +970,7 @@ inline void First_Kmer_Entry(Kmer_Stream *_S)
 
       More_Kmer_Stream(S);
       S->cidx = 0;
-      S->cpre = 1;
+      S->cpre = 0;
       while (index[S->cpre] <= 0)
         S->cpre += 1;
     }

@@ -280,7 +280,7 @@ static void *merge_table_thread(void *arg)
       printf("\n");
 #endif
 
-      if (sptr + PMER_WORD > src->top)
+      if (sptr + TMER_WORD > src->top)
         { src->ptr = sptr;
           reload(src);
 #ifdef DEBUG
@@ -466,8 +466,6 @@ void Merge_Tables(char *path, char *root)
         pindex[x] = off;
       }
     pindex[pidxlen] = off+1;
-
-printf("pidxlen = %d\n",pidxlen);
 
     sprintf(fname,"%s/%s.ktab",path,root);
     f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
