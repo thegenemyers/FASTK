@@ -92,8 +92,8 @@ int          Current_Count(Kmer_Stream *S);
 uint8       *Current_Entry(Kmer_Stream *S, uint8 *seq);
 
 void         GoTo_Kmer_Index(Kmer_Stream *S, int64 idx);
-void         GoTo_Kmer_String(Kmer_Stream *S, char *seq);
-void         GoTo_Kmer_Entry(Kmer_Stream *S, uint8 *entry);
+int          GoTo_Kmer_String(Kmer_Stream *S, char *seq);
+int          GoTo_Kmer_Entry(Kmer_Stream *S, uint8 *entry);
 
 
   //  PROFILES

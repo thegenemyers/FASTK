@@ -15,7 +15,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = " [-u] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
+static char *Usage = " [-uA] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
 
 int main(int argc, char *argv[])
 { Histogram *H;
@@ -23,6 +23,7 @@ int main(int argc, char *argv[])
   int    HIST_LOW;
   int    HIST_HGH;
   int    UNIQUE;
+  int    ASCII;
 
   //  Process arguments
 
@@ -43,7 +44,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("u")
+            ARG_FLAGS("uA")
             break;
           case 'h':
             HIST_SET = 1;
@@ -77,6 +78,7 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
+    ASCII  = flags['A'];
     UNIQUE = flags['u'];
     if (HIST_HGH > 0x7fff)
       HIST_HGH = 0x7fff;
@@ -121,43 +123,51 @@ int main(int argc, char *argv[])
     int64       ssum, stotal;
     int64      *hist;
 
-    root = Root(argv[1],NULL);
-    if (UNIQUE)
-      printf("\nHistogram of unique %d-mers of %s\n",H->kmer,root);
-    else
-      printf("\nHistogram of %d-mer instances of %s\n",H->kmer,root);
-    free(root);
-
     hist = H->hist;
 
-    stotal = 0;
-    
-    for (j = HIST_LOW; j <= HIST_HGH; j++)
-      stotal += hist[j];
-
-    printf("\n  Input: ");
-    Print_Number(stotal,0,stdout);
-    if (UNIQUE)
-      printf(" unique %d-mers\n",H->kmer);
-    else
-      printf(" %d-mer instances\n",H->kmer);
-
-    printf("\n     Freq:        Count   Cum. %%\n");
-
-    ssum = hist[HIST_HGH];
-    if (ssum > 0)
-      printf(" >= %5d: %12lld   %5.1f%%\n",HIST_HGH,ssum,(100.*ssum)/stotal);
-
-    for (j = HIST_HGH-1; j > HIST_LOW; j--)
-      { ssum += hist[j];
-        if (hist[j] > 0)
-          printf("    %5d: %12lld   %5.1f%%\n",j,hist[j],(100.*ssum)/stotal);
+    if (ASCII)
+      { for (j = HIST_LOW; j <= HIST_HGH; j++)
+          if (hist[j] > 0)
+            printf("%d %lld\n",j,hist[j]);
       }
 
-    if (HIST_LOW == 1)
-      printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
     else
-      printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
+      { root = Root(argv[1],NULL);
+        if (UNIQUE)
+          printf("\nHistogram of unique %d-mers of %s\n",H->kmer,root);
+        else
+          printf("\nHistogram of %d-mer instances of %s\n",H->kmer,root);
+        free(root);
+
+        stotal = 0;
+    
+        for (j = HIST_LOW; j <= HIST_HGH; j++)
+          stotal += hist[j];
+
+        printf("\n  Input: ");
+        Print_Number(stotal,0,stdout);
+        if (UNIQUE)
+          printf(" unique %d-mers\n",H->kmer);
+        else
+          printf(" %d-mer instances\n",H->kmer);
+
+        printf("\n     Freq:        Count   Cum. %%\n");
+
+        ssum = hist[HIST_HGH];
+        if (ssum > 0)
+          printf(" >= %5d: %12lld   %5.1f%%\n",HIST_HGH,ssum,(100.*ssum)/stotal);
+
+        for (j = HIST_HGH-1; j > HIST_LOW; j--)
+          { ssum += hist[j];
+            if (hist[j] > 0)
+              printf("    %5d: %12lld   %5.1f%%\n",j,hist[j],(100.*ssum)/stotal);
+          }
+
+        if (HIST_LOW == 1)
+          printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
+        else
+          printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
+      }
   }
 
   Free_Histogram(H);

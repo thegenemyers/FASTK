@@ -206,7 +206,7 @@ FastK is not working for k greater than roughly 128.  Again this is an unusually
 
 <a name="histex"></a>
 ```
-1. Histex [-u] [-h[<int(1)>:]<int(100)>] <source>[.hist]
+1. Histex [-uG] [-h[<int(1)>:]<int(100)>] <source>[.hist]
 ```
 
 This command and also Tabex and Profex are presented specifically to
@@ -223,6 +223,9 @@ k-mers U(f) that occur with the given frequency f in the input data set, otherwi
 of the # of k-mer instances I(f) that occur with the given frequency.  I(f) = f&middot;U(f)
 except for possibly the lowest and highest frequency of the histogram as these entries
 include the counts for the frequencies below and above them, respectively.
+
+If the -G option is set, then Histex outputs a simple ASCII listing suitable for
+input into GenomeScope, i.e. their so-called .histo files.
 
 <a name="tabex"></a>
 ```
@@ -280,7 +283,8 @@ This is accomplished by adding two new unary operators, '[]' and '#', and adding
 * Any sub-expression can be followed by a post-fix modulation operator consisting of a
 comma separated list of integer ranges in square brackets, i.e.
 '[' \<range> \( ',' \<range> )\* ']'  where \<range> is an integer range where either
-the upper or lower bound (or both) can be missing, i.e. [\<int>] '-' [\<int>].
+the upper or lower bound (or both) can be missing, i.e. [\<int>] '-' [\<int>], or an
+integer, in which case the range is just the specific integer.
 Only those k&#8209;mer,count pairs produced by the filter's sub-expression whose counts are
 in one of the supplied ranges is accepted by this modulator expression.  For example,
 `A[5-10]` accepts all k&#8209;mers in the first table with count between 5 and
@@ -601,8 +605,8 @@ int          Current_Count(Kmer_Streaam *S);
 uint8       *Current_Entry(Kmer_Streaam *S, uint8 *entry);
 
 void         GoTo_Kmer_Index(Kmer_Stream *S, int64 i);
-void         GoTo_Kmer_String(Kmer_Stream *S, char *seq);
-void         GoTo_Kmer_Entry(Kmer_Stream *S, uint8 *entry);
+int          GoTo_Kmer_String(Kmer_Stream *S, char *seq);
+int          GoTo_Kmer_Entry(Kmer_Stream *S, uint8 *entry);
 ```
 
 `Open_Kmer_Stream` opens a k&#8209;mer table as a streamable table object.  Note carefully that the routine conceptually **opens** the table for reading, but does not **load** it (into memory).  The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with the stub file, it prints an informative message to standard error and exits.  The current position or cursor is set to be the start of the table.
@@ -639,11 +643,13 @@ ceiling(k/4)+2 (= `tbyte`) bytes.
 The three `GoTo` routines allow one to jump to a specific position.
 `GoTo_Kmer_Index` sets the current position to the `i`<sup>th</sup> entry of the
 table.  `GoTo_Kmer_String` sets the position to the first entry in the table whose
-k&#8209;mer is not less the `seq`.
+k&#8209;mer is not less the `seq` in canonical form.
 `GoTo_Kmer_Entry` sets the position to the first entry in the table whose value is not less than that of the 2-bit compressed k&#8209;mer encoding pointed at by `entry`.
 `GoTo_Kmer_String` searches for the k&#8209;mer in canonical form, whereas
 `GoTo_Kmer_Entry` searches for the 2-bit compressed k&#8209;mer as given.
-These routines are not efficient, especially `GoTo_Kmer_String` and `GoTo_Kmer_Entry`
+Both routines return 1 if the k-mer at the new position matches the search argument, and 0
+otherwise.
+The GoTo-routines are not efficient, especially `GoTo_Kmer_String` and `GoTo_Kmer_Entry`
 which must binary search for the desired position.  They are intended for the expert who
 wishes to use them for tasks like partitioning a table for simultaneous processing by multiple threads.
 

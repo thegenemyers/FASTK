@@ -166,9 +166,7 @@ int main(int argc, char *argv[])
             { if ((int) strlen(argv[c]) != S->kmer)
                 printf("%*s: Not a %d-mer\n",S->kmer,argv[c],S->kmer);
               else
-                { GoTo_Kmer_String(S,argv[c]);
-                  seq = Current_Kmer(S,seq);
-                  if (strcmp(seq,argv[c]) == 0 && Current_Count(S) >= CUT)
+                { if (GoTo_Kmer_String(S,argv[c]))
                     printf("%*s: %5d @ idx = %lld\n",S->kmer,argv[c],Current_Count(S),S->cidx);
                   else
                     printf("%*s: Not found\n",S->kmer,argv[c]);

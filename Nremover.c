@@ -21,7 +21,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = "-k<int> < <in:fast[aq]> > <out:fasta>";
+static char *Usage = "-k<int> [-bc<int(0)>] < <in:fast[aq]> > <out:fasta>";
 
 typedef struct
   { char *header;  // header line (excluding 1st char)
@@ -206,6 +206,7 @@ static Entry *get_fasta_entry()
 
 int main(int argc, char *argv[])
 { int KMER;
+  int BC_PREFIX;
 
   INPUT   = stdin;
   OUTPUT  = stdout;
@@ -219,6 +220,7 @@ int main(int argc, char *argv[])
     ARG_INIT("Nremover")
 
     KMER = 0;
+    BC_PREFIX = 0;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -226,6 +228,15 @@ int main(int argc, char *argv[])
         switch (argv[i][1])
         { default:
             ARG_FLAGS("")
+            break;
+          case 'b':
+            if (argv[i][2] != 'c')
+              { fprintf(stderr,"\n%s: -%s is not a legal optional argument\n",Prog_Name,argv[i]);
+                exit (1);
+              }
+            argv[i] += 1;
+            ARG_NON_NEGATIVE(BC_PREFIX,"Bar code prefiex")
+            argv[i] -= 1;
             break;
           case 'k':
             ARG_POSITIVE(KMER,"K-mer length")
@@ -235,15 +246,16 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
-    if (KMER <= 0)
-      { fprintf(stderr,"%s: Must specify -k parameter\n",Prog_Name);
-        exit (1);
-      }
-
     if (argc != 1)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -k: Only keep substrings >= this\n");
+        fprintf(stderr,"     -bc: Ignore prefix of each read of given length (e.g. bar code)\n");
+        exit (1);
+      }
+
+    if (KMER <= 0)
+      { fprintf(stderr,"%s: Must specify -k parameter\n",Prog_Name);
         exit (1);
       }
   }
@@ -264,7 +276,7 @@ int main(int argc, char *argv[])
     for (s = 0; (entry = fetch()) != NULL; s++)
       { seq = entry->seq;
         len = entry->len;
-        for (k = 0; k < len; k++)
+        for (k = BC_PREFIX; k < len; k++)
           if (seq[k] != 'N' && seq[k] != 'n')
             break;
         for (c = 0, i = k; i < len; i = k, c++)

@@ -1125,7 +1125,7 @@ inline void GoTo_Kmer_Index(Kmer_Stream *_S, int64 i)
   More_Kmer_Stream(S);
 }
 
-void GoTo_Kmer_String(Kmer_Stream *S, char *seq)
+int GoTo_Kmer_String(Kmer_Stream *S, char *seq)
 { uint8 entry[S->kbyte];
 
   if (is_minimal(seq,S->kmer))
@@ -1133,10 +1133,10 @@ void GoTo_Kmer_String(Kmer_Stream *S, char *seq)
   else
     compress_comp(seq,S->kmer,entry);
 
-  GoTo_Kmer_Entry(S,entry);
+  return (GoTo_Kmer_Entry(S,entry));
 }
 
-void GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
+int GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
 { _Kmer_Stream *S = STREAM(_S);
 
   int64 *index = S->index;
@@ -1165,7 +1165,7 @@ void GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
       S->cidx = S->nels;
       S->cpre = S->ixlen;
       S->part = S->nthr+1;
-      return;
+      return (0);
     }
   while (index[m] == l)
     m += 1;
@@ -1204,7 +1204,7 @@ void GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
       S->cidx = S->nels;
       S->cpre = S->ixlen;
       S->part = S->nthr+1;
-      return;
+      return (0);
     }
 
   lseek(f,proff+l*pbyte,SEEK_SET);
@@ -1212,8 +1212,13 @@ void GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
   More_Kmer_Stream(S);
   S->cidx = l + lo;
 
-  while (S->csuf != NULL && mycmp(S->csuf,entry,hbyte) < 0)
-    Next_Kmer_Entry(_S);
+  while (S->csuf != NULL)
+    { m = mycmp(S->csuf,entry,hbyte);
+      if (m >= 0)
+        return (m == 0);
+      Next_Kmer_Entry(_S);
+    }
+  return (0);
 }
 
 

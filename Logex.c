@@ -14,10 +14,11 @@
 
 #undef   DEBUG
 #undef   DEBUG_THREADS
+#undef   DEBUG_TRACE
 
 #include "libfastk.h"
 
-static char *Usage[] = { " [-T<int(4)>] [-[hH]{<int(1)>:]<int>]",
+static char *Usage[] = { " [-T<int(4)>] [-[hH][<int(1)>:]<int>]",
                          "   <output:name=expr> ... <source_root>[.ktab] ..." };
 
 #define MAX_TABS 8
@@ -241,11 +242,24 @@ static Node *filter()
       beg = Scan;
       len = 0;
       while (1)
-        { if (isdigit(*Scan))
-            get_number();
-          if (*Scan != '-')
-            { free_tree(v);
-              ERROR(5)
+        { if (*Scan != '-')
+            { if (isdigit(*Scan))
+                get_number();
+              if (*Scan == ']')
+                { len += 2;
+                  break;
+                }
+              if (*Scan == ',')
+                { len += 2;
+                  Scan += 1;
+                  while (isspace(*Scan))
+                    Scan += 1;
+                  continue;
+                }
+              if (*Scan != '-')
+                { free_tree(v);
+                  ERROR(5)
+                }
             }
           Scan += 1;
           while (isspace(*Scan))
@@ -273,17 +287,31 @@ static Node *filter()
       Scan = beg;
       len  = 0;
       while (1)
-        { if (isdigit(*Scan))
-            f[len++] = get_number();
+        { if (*Scan != '-')
+            { if (isdigit(*Scan))
+                { f[len] = f[len+1] = get_number();
+                  len += 2;
+                }
+              if (*Scan == ']')
+                break;
+              if (*Scan == ',')
+                { Scan += 1;
+                  while (isspace(*Scan))
+                    Scan += 1;
+                  continue;
+                }
+            }
           else
-            f[len++] = 1;
+            { f[len] = f[len+1] = 1;
+              len += 2;
+            }
           Scan += 1;
           while (isspace(*Scan))
             Scan += 1;
           if (isdigit(*Scan))
-            f[len++] = get_number();
+            f[len-1] = get_number();
           else
-            f[len++] = 0x7fff;
+            f[len-1] = 0x7fff;
           if (*Scan == ']')
             break;
           Scan += 1;
@@ -715,7 +743,7 @@ static Assignment *parse_assignment(char *ass, int ntabs)
   A->ntabs   = ntabs;
   A->root    = Root(ass,".ktab");
   A->path    = PathTo(ass);
-  A->expr    = parse_expression(expr+1,&(A->varg),ntabs);
+  A->expr    = parse_expression(expr,&(A->varg),ntabs);
   A->filter  = compile_expression(A->expr,ntabs);
   A->logical = (A->expr->op == OP_NUM);
   return (A);
@@ -771,47 +799,6 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
   return (0);
 }
 
-#ifdef DEBUG
-
-static char dna[4] = { 'a', 'c', 'g', 't' };
-
-static char *fmer[256], _fmer[1280];
-
-static void setup_fmer_table()
-{ char *t;
-  int   i, l3, l2, l1, l0;
-
-  i = 0;
-  t = _fmer;
-  for (l3 = 0; l3 < 4; l3++)
-   for (l2 = 0; l2 < 4; l2++)
-    for (l1 = 0; l1 < 4; l1++)
-     for (l0 = 0; l0 < 4; l0++)
-       { fmer[i] = t;
-         *t++ = dna[l3];
-         *t++ = dna[l2];
-         *t++ = dna[l1];
-         *t++ = dna[l0];
-         *t++ = 0;
-         i += 1;
-       }
-}
-
-static void print_seq(FILE *out, uint8 *seq, int len)
-{ int i, b, k;
-
-  b = len >> 2;
-  for (i = 0; i < b; i++)
-    fprintf(out,"%s",fmer[seq[i]]);
-  k = 6;
-  for (i = b << 2; i < len; i++)
-    { fprintf(out,"%c",dna[(seq[b] >> k) & 0x3]);
-      k -= 2;
-    }
-}
-
-#endif
-
 static void *merge_thread(void *args)
 { TP *parm = (TP *) args;
   int           tid   = parm->tid;
@@ -837,9 +824,17 @@ static void *merge_thread(void *args)
   int    itop, *in, *cnt;
   int    c, v, x, i;
 
-#ifdef DEBUG
-  setup_fmer_table();
+#ifdef DEBUG_TRACE
+  char *buffer;
 #endif
+
+  if (hgram)
+    { hist = Malloc(sizeof(int64 *)*nass,"Allocating thread working memory");
+      hist[0] = Malloc(sizeof(int64)*((HIST_HGH-HIST_LOW)+3)*nass,"Allocating histogram");
+      hist[0] -= HIST_LOW;
+      for (i = 1; i < nass; i++)
+        hist[i] = hist[i-1] + ((HIST_HGH-HIST_LOW)+3);
+    }
 
   in     = Malloc(sizeof(int)*ntabs,"Allocating thread working memory");
   cnt    = Malloc(sizeof(int)*ntabs,"Allocating thread working memory");
@@ -868,6 +863,10 @@ static void *merge_thread(void *args)
         }
     }
 
+#ifdef DEBUG_TRACE
+  buffer = Current_Kmer(T[0],NULL);
+#endif
+
   need_counts = 0;
   for (v = 0; v < (1 << ntabs); v++)
     filter[v] = 0;
@@ -887,14 +886,6 @@ static void *merge_thread(void *args)
           nels[i] = 0;
           fwrite(&kmer,sizeof(int),1,out[i]);
           fwrite(nels+i,sizeof(int64),1,out[i]);
-        }
-    }
-
-  if (hgram)
-    { hist = Malloc(sizeof(int64 *)*nass,"Allocating thread working memory");
-      for (i = 0; i < nass; i++)
-        { hist[i] = Malloc(sizeof(int64)*((HIST_HGH-HIST_LOW)+1),"Allocating histogram");
-          hist[i] -= HIST_LOW;
         }
     }
 
@@ -934,6 +925,14 @@ static void *merge_thread(void *args)
             }
         }
 
+#ifdef DEBUG_TRACE
+      for (c = 0; c < itop; c++)
+        { x = in[c];
+          printf(" %d: %s %5d",x,Current_Kmer(T[x],buffer),Current_Count(T[x]));
+        }
+      printf(" %x %d\n",v,filter[v]);
+#endif
+
       if (filter[v])
         { if (need_counts)
             { for (c = 0; c < itop; c++)
@@ -951,26 +950,36 @@ static void *merge_thread(void *args)
                         nels[i] += 1;
                       }
                     if (hgram)
-                      hist[i][HIST_LOW] += 1;
+                      { hist[i][HIST_LOW] += 1;
+                        hist[i][HIST_HGH+1] += 1;
+                      }
+#ifdef DEBUG_TRACE
+                    printf("   %d: *\n",i);
+#endif
                   }
                 else
-                  { v = eval_expression(A[i]->expr,cnt);
-                    if (v > 0)
+                  { c = eval_expression(A[i]->expr,cnt);
+                    if (c > 0)
                       { if (DO_TABLE)
                           { fwrite(bp,kbyte,1,out[i]);
-                            fwrite(&v,sizeof(short),1,out[i]);
-// print_seq(stdout,bp,kmer);
-// printf(" %d %d %d\n",v,i,kbyte);
+                            fwrite(&c,sizeof(short),1,out[i]);
                             nels[i] += 1;
                           }
                         if (hgram)
-                          { if (v < HIST_LOW)
-                              hist[i][HIST_LOW] += v;
-                            else if (v > HIST_HGH)
-                              hist[i][HIST_HGH] += v;
+                          { if (c <= HIST_LOW)
+                              { hist[i][HIST_LOW] += 1;
+                                hist[i][HIST_HGH+1] += c;
+                              }
+                            else if (c >= HIST_HGH)
+                              { hist[i][HIST_HGH] += 1;
+                                hist[i][HIST_HGH+2] += c;
+                              }
                             else
-                              hist[i][v] += v;
+                              hist[i][c] += 1;
                           }
+#ifdef DEBUG_TRACE
+                        printf("   %d: %5d\n",i,c);
+#endif
                       }
                   }
               }
@@ -1195,7 +1204,9 @@ int main(int argc, char *argv[])
   }
 
   { int64     range[NTHREADS+1][narg];
+#ifndef DEBUG_THREADS
     pthread_t threads[NTHREADS];
+#endif
     TP        parm[NTHREADS];
     char     *seq;
     uint8    *ent;
@@ -1212,11 +1223,15 @@ int main(int argc, char *argv[])
       { p = (S[0]->nels*t)/NTHREADS; 
         GoTo_Kmer_Index(S[0],p);
         ent = Current_Entry(S[0],ent);
+#ifdef DEBUG
         printf(" %lld: %s\n",p,Current_Kmer(S[0],seq));
+#endif
         range[t][0] = p;
         for (a = 1; a < narg; a++)
           { GoTo_Kmer_Entry(S[a],ent);
+#ifdef DEBUG
             printf(" %lld: %s\n",S[a]->cidx,Current_Kmer(S[a],seq));
+#endif
             range[t][a] = S[a]->cidx;
           }
       }
@@ -1245,30 +1260,31 @@ int main(int argc, char *argv[])
 #endif
 
     if (HIST_LOW > 0)
-      { int64 *histi, *histt;
+      { int64 *hist0, *histt;
         FILE  *f;
 
         for (i = 0; i < nass; i++)
-          { histi = parm[0].hist[i];
+          { hist0 = parm[0].hist[i];
             for (t = 1; t < NTHREADS; t++)
               { histt = parm[t].hist[i];
-                for (a = HIST_LOW; a <= HIST_HGH; a++)
-                  histi[a] += histt[a];
-                free(histt);
+                for (a = HIST_LOW; a <= HIST_HGH+2; a++)
+                  hist0[a] += histt[a];
               }
 
             f = fopen(Catenate(A[i]->path,"/",A[i]->root,".hist"),"w");
             fwrite(&(S[0]->kmer),sizeof(int),1,f);
             fwrite(&HIST_LOW,sizeof(int),1,f);
             fwrite(&HIST_HGH,sizeof(int),1,f);
-            fwrite(histi,sizeof(int64),(HIST_HGH-HIST_LOW)+1,f);
+            fwrite(hist0+HIST_HGH+1,sizeof(int64),1,f);
+            fwrite(hist0+HIST_HGH+2,sizeof(int64),1,f);
+            fwrite(hist0+HIST_LOW,sizeof(int64),(HIST_HGH-HIST_LOW)+1,f);
             fclose(f);
-
-            free(histi);
           }
 
         for (t = 0; t < NTHREADS; t++)
-          free(parm[t].hist);
+          { free(parm[t].hist[0] + HIST_LOW);
+            free(parm[t].hist);
+          }
       }
   }
 

@@ -122,7 +122,7 @@ void Venn(Kmer_Stream **T, int64 **comb, int nway)
 
   int    in[nway];
   int    itop, imin;
-  int    c, v, x;
+  int    c, d, v, x;
   Kmer_Stream *M;
 
   for (c = 0; c < nway; c++)
@@ -154,13 +154,17 @@ void Venn(Kmer_Stream **T, int64 **comb, int nway)
 	    }
         }
 
+      x = 0x7fff;
       v = 0;
       for (c = 0; c < itop; c++)
         { x = in[c];
           v |= (1 << x); 
+          d = Current_Count(T[x]);
+          if (d < x)
+            x = d;
           Next_Kmer_Entry(T[x]);
         }
-      comb[v-1] += 1;
+      comb[v-1][d] += 1;
     }
 }
 
@@ -320,6 +324,8 @@ int main(int argc, char *argv[])
           write(f,&kmer,sizeof(int));
           write(f,&HIST_LOW,sizeof(int));
           write(f,&HIST_HGH,sizeof(int));
+          write(f,comb[i-1]+HIST_LOW,sizeof(int64));
+          write(f,comb[i-1]+HIST_HGH,sizeof(int64));
           write(f,comb[i-1]+HIST_LOW,sizeof(int64)*((HIST_HGH-HIST_LOW)+1));
           close(f);
         }

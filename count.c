@@ -813,7 +813,7 @@ static void *profile_list_thread(void *arg)
   uint8    *sptr, *send;
   int       i, x;
   uint8    *asp;
-  uint8     b[2*MAX_SUPER];
+  uint8     b[2*MAX_SUPER+2];
   uint64    pidx;
 
   int       STOT = SMER_BYTES + SLEN_BYTES;
@@ -929,6 +929,7 @@ static void *profile_list_thread(void *arg)
               printf(" {%d}",p);
 #endif
             }
+
 #ifdef SHOW_RUN
           printf(" += %d / %d\n",len,sln+1);
 #endif

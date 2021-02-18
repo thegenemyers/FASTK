@@ -92,22 +92,6 @@ char *Strndup(char *string, int len, char *mesg);        //  stderr if out of me
 char *PathTo(char *path);                // Return path portion of file name "path"
 char *Root(char *path, char *suffix);    // Return the root name, excluding suffix, of "path"
 
-#define OPEN(arg,pwd,root,input,suffix,nsuf)                    \
-  for (i = 0; i < nsuf; i++)                                    \
-    { root  = Root(arg,suffix[i]);                              \
-      input = fopen(Catenate(pwd,"/",root,suffix[i]),"r");      \
-      if (input != NULL) break;                                 \
-      free(root);                                               \
-    }
-
-#define OPEN2(arg,pwd,root,input,suffix,nsuf)                   \
-  for (i = 0; i < nsuf; i++)                                    \
-    { root  = Root(arg,suffix[i]);                              \
-      input = open(Catenate(pwd,"/",root,suffix[i]),O_RDONLY);  \
-      if (input >= 0) break;                                    \
-      free(root);                                               \
-    }
-
 // Catenate returns concatenation of path.sep.root.suffix in a *temporary* buffer
 // Numbered_Suffix returns concatenation of left.<num>.right in a *temporary* buffer
 
