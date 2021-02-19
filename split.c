@@ -21,7 +21,7 @@
 #include "libfastk.h"
 #include "FastK.h"
 
-#define  USE_MAPPING
+#undef   USE_MAPPING
 #undef   HISTOGRAM_TEST
 #undef   MAXIMUM_TEST
 #undef   FIND_MTHRESH
@@ -380,6 +380,8 @@ static void assign_pieces(int nstates, int64 *count, int nparts, int64 pmer)
 
 #ifdef DEBUG_SCHEME
 
+static char Invert[4];
+
 static void _print_tree(int lev, int i, int64 ktot, int64 *count)
 { int j, a;
 
@@ -389,7 +391,7 @@ static void _print_tree(int lev, int i, int64 ktot, int64 *count)
     { printf("\n");
       j = -count[i];
       for (a = 0; a < 4; a++)
-        { printf("%*s -> %c:",2*lev,"",(char) Tran[a]);
+        { printf("%*s -> %c:",2*lev,"",Invert[a]);
           _print_tree(lev+1,j+a,ktot,count);
         }
     }
@@ -413,7 +415,7 @@ static void _print_ass(int lev, int i, int *part)
     { printf("\n");
       j = -part[i];
       for (a = 0; a < 4; a++)
-        { printf("%*s -> %c:",2*lev,"",(char) Tran[a]);
+        { printf("%*s -> %c:",2*lev,"",Invert[a]);
           _print_ass(lev+1,j+a,part);
         }
     }
@@ -523,6 +525,7 @@ int Determine_Scheme(DATA_BLOCK *block)
     pthread_join(threads[i],NULL);
 
   { int64 *freq, f;
+    int    assn[4];
     int    c;
 #if defined(DEBUG_SCHEME) || defined(HISTOGRAM_TEST)
     int64  m, ftot;
@@ -549,7 +552,7 @@ int Determine_Scheme(DATA_BLOCK *block)
             c += 1;
           else if (freq[j] == f && j < i)
             c += 1;
-        Tran[i] = c;
+        assn[i] = c;
 #if defined(DEBUG_SCHEME) || defined(HISTOGRAM_TEST)
         if (f > m)
           m = f;
@@ -559,31 +562,37 @@ int Determine_Scheme(DATA_BLOCK *block)
 
 #ifndef USE_MAPPING
     for (i = 0; i < 4; i++)
-      Tran[i] = i;
+      assn[i] = i;
 #endif
 
-    Tran['a'] = Tran['A'] = Tran[0];
-    Tran['c'] = Tran['C'] = Tran[1];
-    Tran['g'] = Tran['G'] = Tran[2];
-    Tran['t'] = Tran['T'] = Tran[3];
+    for (i = 0; i < 256; i++)
+      Tran[i] = assn[0];
+    Tran['a'] = Tran['A'] = assn[0];
+    Tran['c'] = Tran['C'] = assn[1];
+    Tran['g'] = Tran['G'] = assn[2];
+    Tran['t'] = Tran['T'] = assn[3];
 
 #if defined(DEBUG_SCHEME) || defined(HISTOGRAM_TEST)
     printf("   Most freq = %lld  gc = %d%%\n",
            m,(int) ((100.*(freq[1]+freq[2]))/ftot));
     for (i = 0; i < 4; i++)
-      printf(" Tran[%c] -> %lld (%lld / %7.4f)\n",DNA[i],Tran[i],freq[i],(100.*freq[i])/ftot);
-    Tran[Tran['a']] = 'a';
-    Tran[Tran['c']] = 'c';
-    Tran[Tran['g']] = 'g';
-    Tran[Tran['t']] = 't';
+      printf(" Tran[%c] -> %lld (%lld / %7.4f)\n",DNA[i],assn[i],freq[i],(100.*freq[i])/ftot);
+    Invert[Tran['a']] = 'a';
+    Invert[Tran['c']] = 'c';
+    Invert[Tran['g']] = 'g';
+    Invert[Tran['t']] = 't';
 #endif
   }
 
+  for (i = 0; i < 256; i++)
+    Dran[i] = 0;
   Dran['a'] = Dran['A'] = 0;
   Dran['c'] = Dran['C'] = 1;
   Dran['g'] = Dran['G'] = 2;
   Dran['t'] = Dran['T'] = 3;
 
+  for (i = 0; i < 256; i++)
+    Fran[i] = 3;
   Fran['a'] = Fran['A'] = 3;
   Fran['c'] = Fran['C'] = 2;
   Fran['g'] = Fran['G'] = 1;
@@ -616,10 +625,15 @@ int Determine_Scheme(DATA_BLOCK *block)
 
       MAX_SUPER = KMER - PAD_L1;
 
-      Cran['a'] = Cran['A'] = (Tran['t'] << (2*PAD_L1));
-      Cran['c'] = Cran['C'] = (Tran['g'] << (2*PAD_L1));
-      Cran['g'] = Cran['G'] = (Tran['c'] << (2*PAD_L1));
-      Cran['t'] = Cran['T'] = (Tran['a'] << (2*PAD_L1));
+      { uint64 ct = (Tran['a'] << (2*PAD_L1));
+
+        for (i = 0; i < 256; i++)
+          Cran[i] = ct;
+        Cran['a'] = Cran['A'] = (Tran['t'] << (2*PAD_L1));
+        Cran['c'] = Cran['C'] = (Tran['g'] << (2*PAD_L1));
+        Cran['g'] = Cran['G'] = (Tran['c'] << (2*PAD_L1));
+        Cran['t'] = Cran['T'] = ct;
+      }
 
       parmt[0].count = count;
       for (i = 1; i < NTHREADS; i++)
