@@ -91,14 +91,21 @@ int CMER_WORD;    //  bytes to hold a count/index entry
 static struct rusage   Itime;
 static struct timespec Iwall;
 
-void startTime()
+static struct rusage   Mtime;
+static struct timespec Mwall;
+
+static void startTime()
 { getrusage(RUSAGE_SELF,&Itime);
   clock_gettime(CLOCK_MONOTONIC,&Iwall);
+  Mtime = Itime;
+  Mwall = Iwall;
 }
 
-void timeTo(FILE *f)
-{ struct rusage   now;
-  struct timespec today;
+void timeTo(FILE *f, int all)
+{ struct rusage    now;
+  struct timespec  today;
+  struct rusage   *t;
+  struct timespec *w;
   int usecs, umics;
   int ssecs, smics;
   int tsecs, tmics;
@@ -107,10 +114,20 @@ void timeTo(FILE *f)
   getrusage(RUSAGE_SELF, &now);
   clock_gettime(CLOCK_MONOTONIC,&today);
 
-  fprintf (f,"\nResources:");
+  if (all)
+    { t = &Itime;
+      w = &Iwall;
+      fprintf (f,"\nTotal Resources:");
+    }
+  else
+    { t = &Mtime;
+      w = &Mwall;
+      fprintf (f,"\n  Resources for phase:");
+    }
 
-  usecs = now.ru_utime.tv_sec  - Itime.ru_utime.tv_sec;
-  umics = now.ru_utime.tv_usec - Itime.ru_utime.tv_usec;
+
+  usecs = now.ru_utime.tv_sec  - t->ru_utime.tv_sec;
+  umics = now.ru_utime.tv_usec - t->ru_utime.tv_usec;
   if (umics < 0)
     { umics += 1000000;
       usecs -= 1;
@@ -120,8 +137,8 @@ void timeTo(FILE *f)
   else
     fprintf (f,"  %d.%03du",usecs,umics/1000);
 
-  ssecs = now.ru_stime.tv_sec  - Itime.ru_stime.tv_sec;
-  smics = now.ru_stime.tv_usec - Itime.ru_stime.tv_usec;
+  ssecs = now.ru_stime.tv_sec  - t->ru_stime.tv_sec;
+  smics = now.ru_stime.tv_usec - t->ru_stime.tv_usec;
   if (smics < 0)
     { smics += 1000000;
       ssecs -= 1;
@@ -131,8 +148,8 @@ void timeTo(FILE *f)
   else
     fprintf (f,"  %d.%03ds",ssecs,smics/1000);
 
-  tsecs = today.tv_sec  - Iwall.tv_sec;
-  tmics = today.tv_nsec/1000 - Iwall.tv_nsec/1000;
+  tsecs = today.tv_sec  - w->tv_sec;
+  tmics = today.tv_nsec/1000 - w->tv_nsec/1000;
   if (tmics < 0)
     { tmics += 1000000;
       tsecs -= 1;
@@ -144,11 +161,14 @@ void timeTo(FILE *f)
 
   fprintf(f,"  %.1f%%  ",(100.*(usecs+ssecs) + (umics+smics)/10000.)/(tsecs+tmics/1000000.));
 
-  mem = (now.ru_maxrss - Itime.ru_maxrss)/1000000;
+  mem = (now.ru_maxrss - t->ru_maxrss)/1000000;
   Print_Number(mem,0,f);
   fprintf(f,"MB");
 
   fprintf(f,"\n");
+
+  Mtime = now;
+  Mwall = today;
 }
 
 
@@ -421,26 +441,42 @@ int main(int argc, char *argv[])
 
 #ifdef DEVELOPER
     if (DO_STAGE == 1)
-#endif
       { Split_Kmers(io,root);
         if (PRO_TABLE != NULL)
           Split_Table(root);
       }
+#else
+    Split_Kmers(io,root);
+    if (VERBOSE)
+      timeTo(stderr,0);
+    if (PRO_TABLE != NULL)
+      { Split_Table(root);
+        if (VERBOSE)
+          timeTo(stderr,0);
+      }
+#endif
 
     Free_Input_Partition(io);
   }
 
 #ifdef DEVELOPER
   if (DO_STAGE == 2)
-#endif
     Sorting(pwd,root);
+#else
+  Sorting(pwd,root);
+  if (VERBOSE)
+    timeTo(stderr,0);
+#endif
 
   if (DO_TABLE > 0)
 #ifdef DEVELOPER
     if (DO_STAGE == 3)
       Merge_Tables(pwd,root);
 #else
-    Merge_Tables(pwd,root);
+    { Merge_Tables(pwd,root);
+      if (VERBOSE)
+        timeTo(stderr,0);
+    }
 #endif
 
   if (DO_PROFILE > 0)
@@ -448,7 +484,10 @@ int main(int argc, char *argv[])
     if (DO_STAGE == 4)
       Merge_Profiles(pwd,root);
 #else
-    Merge_Profiles(pwd,root);
+    { Merge_Profiles(pwd,root);
+      if (VERBOSE)
+        timeTo(stderr,0);
+    }
 #endif
 
 #ifndef DEVELOPER
@@ -467,7 +506,7 @@ int main(int argc, char *argv[])
   free(Prog_Name);
 
   if (VERBOSE)
-    timeTo(stderr);
+    timeTo(stderr,1);
 
   exit (0);
 }
