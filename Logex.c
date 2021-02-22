@@ -490,9 +490,11 @@ static void print_tree(Node *v, int level)
       fflush(stdout);
     }
   else if (v->op == OP_NUM)
-    { printf("%*s%s (%d)\n",level,"",Operator[v->op],v->mode);
+    { int i;
+
+      printf("%*s%s (%d)\n",level,"",Operator[v->op],v->mode);
       if (v->mode)
-        for (int i = 0; i < (1<<Narg); i++)
+        for (i = 0; i < (1<<Narg); i++)
           printf("%*s  %0*x: %d\n",level,"",(Narg-1)/4+1,i,((int *) (v->rgt))[i]);
       fflush(stdout);
       print_tree(v->lft,level+2);
@@ -689,11 +691,11 @@ static int eval_expression(Node *t, int *cnts)
       }
 
     case OP_CNT:
-      { int x, *r;
+      { int i, x, *r;
 
         x = eval_expression(t->lft,cnts);
         r = (int *) (t->rgt);
-        for (int i = 0; i < t->mode; i += 2)
+        for (i = 0; i < t->mode; i += 2)
           { if (x < r[i])
               return (0);
             else if (x <= r[i+1])
@@ -752,11 +754,13 @@ static Assignment *parse_assignment(char *ass, int ntabs)
 #ifdef DEBUG
 
 static void print_assignment(Assignment *A)
-{ printf("'%s' '%s' %02x:\n",A->path,A->root,A->varg);
+{ int i;
+
+  printf("'%s' '%s' %02x:\n",A->path,A->root,A->varg);
   Narg = A->ntabs;
   print_tree(A->expr,0);
   if ( ! A->logical)
-    for (int i = 0; i < (1 << Narg); i++)
+    for (i = 0; i < (1 << Narg); i++)
       printf(" %0*x: %d\n",(Narg-1)/4+1,i,A->filter[i]);
 }
 

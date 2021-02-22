@@ -53,7 +53,7 @@ static void List_Kmer_Table(Kmer_Table *T, FILE *out)
 
 static int Check_Kmer_Stream(Kmer_Stream *S)
 { int    hbyte = S->hbyte;
-  int    lpre;
+  int    lpre, u;
   uint8 *lsuf;
   char  *seq;
 
@@ -66,7 +66,7 @@ static int Check_Kmer_Stream(Kmer_Stream *S)
   for (Next_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
     { if (S->cpre < lpre || (S->cpre == lpre && memcmp(S->csuf,lsuf,hbyte) < 0))
         { fprintf(stderr,"\nOut of Order %02x %02x\n",S->cpre,lpre);
-          for (int u = 0; u < S->hbyte; u++)
+          for (u = 0; u < S->hbyte; u++)
             printf(" %02x %02x\n",S->csuf[u],lsuf[u]);
           fprintf(stderr," %9lld: %s = %5d\n",S->cidx,Current_Kmer(S,seq),Current_Count(S));
           GoTo_Kmer_Index(S,S->cidx-1);

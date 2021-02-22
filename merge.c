@@ -444,9 +444,12 @@ static void *merge_profile_thread(void *arg)
                 memmove(o,ptr,len);
                 lcont = *((uint16 *) (ptr+len));
 #ifdef SHOW_RUN
-                for (int u = 0; u < len; u++)
-                  printf(" %02x",ptr[u]);
-                printf(" {%d}",lcont);
+                { int u;
+
+                  for (u = 0; u < len; u++)
+                    printf(" %02x",ptr[u]);
+                  printf(" {%d}",lcont);
+                }
 #endif
                 o += len;
               }
@@ -539,7 +542,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
 
     o = 0;
     for (t = 0; t < ITHREADS; t++)
-      { int         f;
+      { int         f, i;
         struct stat info;
 
         sprintf(fname,"%s/%s.0.P%d.0",SORT_PATH,dbrt,t);
@@ -567,7 +570,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
           { fstat(f,&info);
             totin = info.st_size;
   
-            for (int i = 1; i < NPANELS; i++)
+            for (i = 1; i < NPANELS; i++)
               { sprintf(fname,"%s/%s.0.P0.%d",SORT_PATH,dbrt,i);
                 stat(fname,&info);
                 totin += info.st_size;

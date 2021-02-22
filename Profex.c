@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
       exit (1);
     }
 
-  { int     c, id;
+  { int     i, c, id;
     char   *eptr;
     uint16 *profile;
     int     pmax, plen;
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
             Fetch_Profile(P,(int64) id-1,pmax,profile);
           }
         printf("\nRead %d:\n",id);
-        for (int i = 0; i < plen; i++)
+        for (i = 0; i < plen; i++)
           printf(" %5d: %5d\n",i,profile[i]);
       }
     free(profile);

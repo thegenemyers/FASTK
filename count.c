@@ -722,7 +722,9 @@ static void *cmer_merge_thread(void *arg)
             }
 #ifdef EQUAL_MERGE
           if (c != 0 || skip)
-            { printf("\nx = %02x  kptr = %ld start = %ld\n",
+            { int u;
+
+              printf("\nx = %02x  kptr = %ld start = %ld\n",
                      x,kptr-data->sort,(kend-part[x])-data->sort);
               write_Ascii(kptr+1,KMER-4);
               printf("\n");
@@ -730,7 +732,7 @@ static void *cmer_merge_thread(void *arg)
               printf("\n");
               GoTo_Kmer_Index(S,S->cidx-3);
               kptr -= 3*KMER_WORD;
-              for (int u = 0; u < 7; u++)
+              for (u = 0; u < 7; u++)
                 { printf("c = %4d k = ",c);
                   write_Ascii(kptr,KMER);
                   printf(" %d  e = %s",*((uint16 *) (kptr+KMER_BYTES)),fmer[S->cpre]);
@@ -1349,14 +1351,16 @@ void Sorting(char *path, char *root)
 
 #ifdef DEVELOPER
         if (p == 0)
-          { if (DO_PROFILE)
+          { int i;
+
+            if (DO_PROFILE)
               { KMER_WORD += KMAX_BYTES;
                 CMER_WORD  = KMAX_BYTES+1;
                 ODD_PASS   = (KMAX_BYTES % 2 == 1);
                 RUN_BYTES  = (RUN_BITS+7) >> 3;
                 SMER_WORD += RUN_BYTES;
                 PROF_BYTES = RUN_BYTES + sizeof(uint64);
-                for (int i = 0; i < IO_UBITS; i++)
+                for (i = 0; i < IO_UBITS; i++)
                   Runer_Reload[IO_UBITS-i] = (i + RUN_BITS - 1) / IO_UBITS;
               }
             s_sort = Malloc((NMAX+1)*SMER_WORD+1,"Allocating super-mer sort array");
