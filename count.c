@@ -707,18 +707,19 @@ static void *cmer_merge_thread(void *arg)
           while (*lptr == 0)
             lptr += KMER_WORD;
 
-          if (S->cpre > x)
-            c = 5000;
-          else
-            { c = memcmp(S->csuf,kptr+1,hbyte);
-              while (c < 0)
-                { Next_Kmer_Entry(S);
-#ifdef EQUAL_MERGE
-                  printf("Skip?\n"); fflush(stdout);
-                  skip = 1;
-#endif
-                  c = memcmp(S->csuf,kptr+1,hbyte);
+          while (1)
+            { if (S->cpre > x)
+                { c = 5000;
+                  break;
                 }
+              c = memcmp(S->csuf,kptr+1,hbyte);
+              if (c >= 0)
+                break;
+              Next_Kmer_Entry(S);
+#ifdef EQUAL_MERGE
+              printf("Skip?\n"); fflush(stdout);
+              skip = 1;
+#endif
             }
 #ifdef EQUAL_MERGE
           if (c != 0 || skip)
