@@ -149,6 +149,7 @@ typedef struct
     IO_block  *in;      //  input & output buffers
     IO_block  *out;
     int        id;
+    int64      tsize;   //  output table size in bytes
   } Track_Arg;
 
 static int64 totin;  //  Total kmer record for thread 0 (if VERBOSE)
@@ -313,6 +314,8 @@ static void *merge_table_thread(void *arg)
 
   //  Set # of k-mers into output file prolog
 
+  data->tsize = anum;
+
   anum /= PMER_WORD;
   lseek(afile,sizeof(int),SEEK_SET);
   write(afile,&anum,sizeof(int64));
@@ -382,7 +385,7 @@ void Merge_Tables(char *path, char *root)
 #endif
   PMER_WORD = TMER_WORD - IDX_BYTES;
   pidxlen   = (1 << (8*IDX_BYTES));
-  pindex    = (int64 *) Malloc(sizeof(int64)*(pidxlen+1),"Allocating index table");
+  pindex    = (int64 *) Malloc(sizeof(int64)*pidxlen,"Allocating index table");
   if (pindex == NULL)
     exit (1);
   bzero(pindex,sizeof(int64)*pidxlen);
@@ -457,15 +460,10 @@ void Merge_Tables(char *path, char *root)
 
   //  Turn index counts to index offsets and create stub file
 
-  { int64 off;
-    int   x;
+  { int x;
 
-    off = 0;
-    for (x = 0; x <  pidxlen; x++)
-      { off += pindex[x];
-        pindex[x] = off;
-      }
-    pindex[pidxlen] = off+1;
+    for (x = 1; x < pidxlen; x++)
+      pindex[x] += pindex[x-1];
 
     sprintf(fname,"%s/%s.ktab",path,root);
     f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
@@ -477,10 +475,32 @@ void Merge_Tables(char *path, char *root)
     write(f,&NTHREADS,sizeof(int));
     write(f,&DO_TABLE,sizeof(int));
     write(f,&IDX_BYTES,sizeof(int));
-    write(f,pindex,sizeof(int64)*(pidxlen+1));
+    write(f,pindex,sizeof(int64)*pidxlen);
 
     close(f);
   }
+
+  if (VERBOSE)
+    { int64 tsize;
+
+      tsize = 0;
+      for (t = 0; t < NTHREADS; t++)
+        tsize += parmk[t].tsize;
+
+      fprintf(stderr,"  There are ");
+      Print_Number(tsize/PMER_WORD,0,stderr);
+      fprintf(stderr," %d-mers that occur %d-or-more times\n",KMER,DO_TABLE);
+
+      tsize += 4*sizeof(int) + pidxlen*sizeof(int64) + NTHREADS*(sizeof(int)+sizeof(int64));
+
+      if (tsize >= 5.e8)
+        fprintf(stderr,"\n  The table occupies %.2f GB\n",tsize/1.e9);
+      else if (tsize >= 5.e5)
+        fprintf(stderr,"\n  The table occupies %.2f MB\n",tsize/1.e6);
+      else
+        fprintf(stderr,"\n  The table occupies %.2f KB\n",tsize/1.e3);
+      fflush(stderr);
+    }
 
   free(pindex);
   free(blocks);

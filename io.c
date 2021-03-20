@@ -41,6 +41,8 @@
 #include "HTSLIB/htslib/hfile.h"
 #include "HTSLIB/cram/cram.h"
 
+#include <zlib.h>
+
 #undef    DEBUG_FIND
 #undef    DEBUG_IO
 #undef    DEBUG_TRAIN
@@ -80,14 +82,12 @@ typedef struct
   { char      *path;   //  Full path name
     char      *root;   //  Ascii root name
     char      *pwd;    //  Ascii path name
-    int64      fsize;  //  Size of (uncompressed) file in bytes
+    int64      fsize;  //  Size of file in bytes
     int        ftype;  //  Type of file
-                       //  Fasta/q and Cram specific:
-    int64   zsize;  //    Size of zip index (in blocks)
-    int64     *zoffs;  //    zoffs[i] = offset to compressed block i
-                       //  Fasta/q specific:
-    int        zipd;   //    Is file VGPzip'd (has paired .vzi file)
-    int        recon;  //    Is file an uncompressed regular zip-file?
+    int        zipd;   //  Is file gzip'd
+
+    int64      zsize;  //  Size of compression index for cram and dazz
+    int64     *zoffs;  //  zoffs[i] = offset to compressed block i
     int        DB_all; //  Trim parameters for Dazzler DB's
     int        DB_cut;
   } File_Object;
@@ -114,10 +114,7 @@ typedef struct
     DATA_BLOCK   block;  //  block buffer for this thread
     int          thread_id;  //  thread index (in [0,NTHREAD-1]
     void *     (*output_thread)(void *);  //  output routine for file type
-
     DEPRESS     *decomp; //    decompressor
-                         //  fasta/q specific:
-    uint8       *zuf;    //    decode buffer (for zip'd files)
   } Thread_Arg;
 
 static void do_nothing(Thread_Arg *parm)
@@ -137,7 +134,7 @@ static int64 *genes_cram_index(char *path, int64 fsize, int64 *zsize);
 static void   read_DB_stub(char *path, int *cut, int *all);
 static int64 *get_dazz_offsets(FILE *idx, int64 *zsize);
 
-static void Fetch_File(char *arg, File_Object *input)
+static void Fetch_File(char *arg, File_Object *input, int gz_ok)
 { static char *suffix[] = { ".cram", ".bam", ".sam", ".db", ".dam",
                             ".fastq", ".fasta", ".fq", ".fq",
                             ".fastq.gz", ".fasta.gz", ".fastq", ".fasta",
@@ -146,16 +143,12 @@ static void Fetch_File(char *arg, File_Object *input)
                             ".fastq", ".fasta", ".fq", ".fa",
                             ".fastq.gz", ".fasta.gz", ".fastq.gz", ".fasta.gz",
                             ".fq.gz",  ".fa.gz", ".fq.gz", ".fa.gz" };
-  static char *sufidx[] = { "", "", "", "", "",
-                            "", "", "", "",
-                            ".fastq.vzi", ".fasta.vzi", ".fastq.vzi", ".fastq.vzi"
-                            ".fq.vzi", ".fa.vzi", ".fq.vzi", ".fa.vzi"};
 
   struct stat stats;
   char  *pwd, *root, *path;
   int    fid, i;
   int64  fsize, zsize, *zoffs;
-  int    ftype, zipd, recon;
+  int    ftype, zipd;
 
   pwd = PathTo(arg);
   for (i = 0; i < 17; i++)
@@ -185,19 +178,9 @@ static void Fetch_File(char *arg, File_Object *input)
   path = Strdup(Catenate(pwd,"/",root,extend[i]),"Allocating full path name");
 
   zoffs = NULL;
-  recon = 0;
   if (zipd)
-    { int idx;
-
-      idx = open(Catenate(pwd,"/",root,sufidx[i]),O_RDONLY);
-      if (idx < 0)
-        { if (VERBOSE)
-            fprintf(stderr,"  File %s not VGPzip'd, decompressing\n",arg);
-          system(Catenate("gunzip -k ",path,"",""));
-          path[strlen(path)-3] = '\0';
-          zipd  = 0;
-          recon = 1;
-          if (lstat(path,&stats) == -1)
+    { if (gz_ok)
+        { if (lstat(path,&stats) == -1)
             { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,path);
               exit (1);
             }
@@ -205,14 +188,17 @@ static void Fetch_File(char *arg, File_Object *input)
           zsize = (fsize-1)/IO_BLOCK+1;
         }
       else
-        { read(idx,&zsize,sizeof(int64));
-          zoffs = (int64 *) Malloc(sizeof(int64)*(zsize+1),"Allocating VGPzip index");
-          if (zoffs == NULL)
-            exit (1);
-          read(idx,zoffs+1,sizeof(int64)*zsize);
-          zoffs[0] = 0;
-          fsize = IO_BLOCK*zsize;   //  An estimate only, upper bound
-          close(idx);
+        { if (VERBOSE)
+            fprintf(stderr,"  Gzipped file %s being temporarily uncompressed\n",arg);
+          system(Catenate("gunzip -k ",path,"",""));
+          path[strlen(path)-3] = '\0';
+          zipd  = 0;
+          if (lstat(path,&stats) == -1)
+            { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,path);
+              exit (1);
+            }
+          fsize = stats.st_size;
+          zsize = (fsize-1)/IO_BLOCK+1;
         }
     }
   else if (ftype == DAZZ)
@@ -268,13 +254,12 @@ static void Fetch_File(char *arg, File_Object *input)
   input->fsize = fsize;
   input->ftype = ftype;
   input->zipd  = zipd;
-  input->recon = recon;
   input->zsize = zsize;
   input->zoffs = zoffs;
 }
 
-static void Free_File(File_Object *input)
-{ if (input->recon)
+static void Free_File(File_Object *input, int gz_ok)
+{ if (!gz_ok && input->zipd)
     unlink(input->path);
   free(input->zoffs);
   free(input->path);
@@ -418,12 +403,8 @@ static void fast_nearest(Thread_Arg *data)
 { int          fid    = data->fid;
   int64        beg    = data->beg.fpos;
   uint8       *buf    = data->buf;
-  uint8       *zuf    = data->zuf;
   File_Object *inp    = data->fobj + data->bidx;
-  DEPRESS     *decomp = data->decomp;
-
   int          fastq = (inp->ftype == FASTQ);
-  int64       *zoffs = inp->zoffs;
 
   int64 blk, off;
   int   slen;
@@ -438,10 +419,7 @@ static void fast_nearest(Thread_Arg *data)
   blk = beg / IO_BLOCK;
   off = beg % IO_BLOCK;
 
-  if (inp->zipd)
-    lseek(fid,zoffs[blk],SEEK_SET);
-  else
-    lseek(fid,blk*IO_BLOCK,SEEK_SET);
+  lseek(fid,blk*IO_BLOCK,SEEK_SET);
 
   if (fastq)
     state = UK;
@@ -459,25 +437,7 @@ static void fast_nearest(Thread_Arg *data)
 #ifdef DEBUG_FIND
       fprintf(stderr,"  Loading block %lld: @%lld",blk,lseek(fid,0,SEEK_CUR));
 #endif
-      if (inp->zipd)
-        { uint32 dlen, tlen;
-          int    rez;
-          size_t x;
-
-          dlen = zoffs[blk+1]-zoffs[blk];
-          tlen = IO_BLOCK;
-          read(fid,zuf,dlen);
-          if ((rez = libdeflate_gzip_decompress(decomp,zuf,dlen,buf,tlen,&x)) != 0)
-            { fprintf(stderr,"\n%s: Decompression not OK!\n",Prog_Name);
-              exit (1);
-            }
-          slen = (int) x;
-#ifdef DEBUG_FIND
-          fprintf(stderr," %d ->",dlen);
-#endif
-        }
-      else
-        slen = read(fid,buf,IO_BLOCK);
+      slen = read(fid,buf,IO_BLOCK);
 #ifdef DEBUG_FIND
       fprintf(stderr," %d %d\n",slen,errno);
 #endif
@@ -556,9 +516,9 @@ static char *Name2[] =
 
 #endif
 
-#define DUMP(notyet,dclose)						  \
+#define DUMP(scale,notyet,dclose)					  \
 if (action == SAMPLE)                                                     \
-  { dset->ratio = (1.*parm->work) / (totread-(notyet));			  \
+  { dset->ratio = ((1.*parm->work) / (totread-(notyet))) * scale;	  \
     dset->totlen = dset->boff[dset->nreads] - dset->nreads;		  \
     dclose(fid);                                                          \
     return (NULL);                                                        \
@@ -581,7 +541,7 @@ else                                                                      \
 { line[olen++] = lastc = '\0';							\
   dset->boff[++dset->nreads] = olen;						\
   if (olen > omax-DT_MINIM || dset->nreads >= dset->maxrds)			\
-    { DUMP(notyet,close)							\
+    { DUMP(ratio,notyet,close)							\
       Reset_Data_Block(dset,0);							\
       olen = 0;									\
     }										\
@@ -593,7 +553,7 @@ else                                                                      \
         { line[olen++] = '\0';							\
           dset->boff[++dset->nreads] = olen;					\
           dset->rem  = 1;							\
-          DUMP(slen-b,close)							\
+          DUMP(ratio,slen-b,close)						\
           dset->rem  = 0;							\
           Reset_Data_Block(dset,1);						\
           olen = KMER-1;							\
@@ -608,8 +568,6 @@ static void *fast_output_thread(void *arg)
 { Thread_Arg  *parm   = (Thread_Arg *) arg;
   File_Object *fobj   = parm->fobj;
   uint8       *buf    = parm->buf;
-  uint8       *zuf    = parm->zuf;
-  DEPRESS     *decomp = parm->decomp;
   int          action = parm->action;
   DATA_BLOCK  *dset   = &parm->block;
   int          tid    = parm->thread_id;
@@ -617,10 +575,11 @@ static void *fast_output_thread(void *arg)
 
   File_Object *inp;
   int          f, fid;
+  gzFile       gzid;
   int64        blk, off;
   int64        epos, eblk, eoff;
-  int64       *zoffs;
   int64        totread;
+  double       ratio;
 
   int   state, lastc;
   int   omax, olen;
@@ -646,6 +605,8 @@ static void *fast_output_thread(void *arg)
   line = dset->bases;
 
   totread = 0;
+  olen = 0;
+  ratio = 1.;
 
   for (f = parm->bidx; f <= parm->eidx; f++)
     { inp = fobj+f;
@@ -667,15 +628,15 @@ static void *fast_output_thread(void *arg)
       off   = parm->beg.fpos % IO_BLOCK;
       eblk  = (epos-1) / IO_BLOCK;
       eoff  = (epos-1) % IO_BLOCK + 1;
-      zoffs = inp->zoffs;
 
       if (inp->zipd)
-        lseek(fid,zoffs[blk],SEEK_SET);
+        { gzid = gzdopen(fid,"r");
+          eblk = 0x7fffffffffffffffll;
+        }
       else
         lseek(fid,blk*IO_BLOCK,SEEK_SET);
 
       state = QAT;
-      olen  = 0;
       lastc = 0;
 
 #ifdef DEBUG_IO
@@ -689,24 +650,16 @@ static void *fast_output_thread(void *arg)
           fprintf(stderr,"  Loading block %lld: @%lld",blk,lseek(fid,0,SEEK_CUR));
 #endif
           if (inp->zipd)
-            { uint32 dlen, tlen;
-              int    rez;
-              size_t x;
-
-              dlen = zoffs[blk+1]-zoffs[blk];
-              tlen = IO_BLOCK;
-              read(fid,zuf,dlen);
-              if ((rez = libdeflate_gzip_decompress(decomp,zuf,dlen,buf,tlen,&x)) != 0)
-                { fprintf(stderr,"\n%s: Decompression not OK!\n",Prog_Name);
-                  exit (1);
-                }
-              slen = (int) x;
-#ifdef DEBUG_IO
-              fprintf(stderr," %d ->",dlen);
-#endif
+            { slen = gzread(gzid,buf,IO_BLOCK);
+              if (blk == 0 && slen != 0 && action == SAMPLE)
+                ratio = (1.*slen) / gzoffset(gzid);
             }
           else
             slen = read(fid,buf,IO_BLOCK);
+
+          if (slen == 0)
+            break;
+
           totread += slen;
 #ifdef DEBUG_IO
           fprintf(stderr," %d\n",slen);
@@ -777,12 +730,16 @@ static void *fast_output_thread(void *arg)
         }
       if (state == AEOL)
         END_SEQ(0)
-      close(fid);
+
+      if (inp->zipd)
+        gzclose_r(gzid);
+      else
+        close(fid);
     }
 
   dset->totlen = dset->boff[dset->nreads] - dset->nreads;
   if (action == SAMPLE)
-    { dset->ratio = (1.*parm->work) / totread;
+    { dset->ratio = ((1.*parm->work) / totread) * ratio;
       return (NULL);
     }
   else if (dset->nreads > 0)
@@ -1931,7 +1888,7 @@ static void *cram_output_thread(void *arg)
               line[omax] = '\0';
               dset->boff[++dset->nreads] = omax+1;
               dset->rem = 1;
-              DUMP((bpos-htell(fid->fp))+(len-ovl),cram_close)
+              DUMP(1.,(bpos-htell(fid->fp))+(len-ovl),cram_close)
               dset->rem = 0;
               Reset_Data_Block(dset,1);
               o = KMER-1;
@@ -1943,7 +1900,7 @@ static void *cram_output_thread(void *arg)
           line[o++] = '\0';
           dset->boff[++dset->nreads] = o;
           if (o > omax-DT_MINIM || dset->nreads >= dset->maxrds)
-            { DUMP(bpos-htell(fid->fp),cram_close)
+            { DUMP(1.,bpos-htell(fid->fp),cram_close)
               Reset_Data_Block(dset,0);
               o = 0;
             }
@@ -2256,7 +2213,7 @@ static void *dazz_output_thread(void *arg)
               line[o++] = '\0';
               boff[++dset->nreads] = o;
               dset->rem = 1;
-              DUMP((bpos-ftello(fid))+len,fclose)
+              DUMP(1.,(bpos-ftello(fid))+len,fclose)
               dset->rem = 0;
               Reset_Data_Block(dset,1);
               o = KMER-1;
@@ -2277,7 +2234,7 @@ static void *dazz_output_thread(void *arg)
           line[o++] = '\0';
           boff[++dset->nreads] = o;
           if (o > omax-DT_MINIM || dset->nreads >= dset->maxrds)
-            { DUMP(bpos-ftello(fid),fclose)
+            { DUMP(1.,bpos-ftello(fid),fclose)
               Reset_Data_Block(dset,0);
               o = 0;
             }
@@ -2316,7 +2273,6 @@ Input_Partition *Partition_Input(int argc, char *argv[])
   int         ftype;
   int         need_decon;
   int         need_buf;
-  int         need_zuf;
   void *    (*output_thread)(void *);
   void      (*scan_header)(Thread_Arg *);
   void      (*find_nearest)(Thread_Arg *);
@@ -2335,23 +2291,26 @@ Input_Partition *Partition_Input(int argc, char *argv[])
   //    and then in parallel threads produce the output for each part.
 
   { int    f, i, t;
+    int    gz_ok;
     int64  b, w;
     int64  work;
     uint8 *bf;
+    int    file_split;
 
     //  Get name and size of each file in 'fobj[]', determine type, etc.
 
+    file_split = 0;
     need_decon = 0;
-    need_zuf   = 0;
     need_buf   = 0;
     ftype      = FASTA;
     output_thread = fast_output_thread;
     scan_header   = do_nothing;
     find_nearest  = fast_nearest;
 
+    gz_ok = (nfiles >= 3 || nfiles >= NTHREADS/2);
     work = 0;
     for (f = 0; f < nfiles; f++)
-      { Fetch_File(argv[f+1],fobj+f);
+      { Fetch_File(argv[f+1],fobj+f,gz_ok);
 
         if (f > 0)
           { if (fobj[f].ftype != ftype)
@@ -2387,30 +2346,62 @@ Input_Partition *Partition_Input(int argc, char *argv[])
                 find_nearest  = dazz_nearest;
               }
           }
-        if (ftype == CRAM || ftype == DAZZ)
-          need_buf = 0;
-        else
+        if ( ! (ftype == CRAM || ftype == DAZZ))
           need_buf = 1;
         if (ftype == BAM)
           need_decon = 1;
-        else if (fobj[f].zipd)
-          { need_decon = 1;
-            need_zuf   = 1;
-          }
+        if (fobj[f].zipd)
+          file_split = 1;
 
         work += fobj[f].fsize;
       }
     parm[0].work = work;
 
-    if (VERBOSE)
-      { if (nfiles > 1)
-          fprintf(stderr,"\nPartitioning %d %s.%s files into %d parts\n",
-                         nfiles,fobj->zipd?"compressed ":"",Tstring[fobj->ftype],NTHREADS);
+    //  If gzip'd files then divide whole files
+
+    if (file_split)
+      { if (nfiles <= 1.5*NTHREADS)
+          ITHREADS = nfiles;
         else
-          fprintf(stderr,"\nPartitioning %d %s.%s file into %d parts\n",
-                         nfiles,fobj->zipd?"compressed ":"",Tstring[fobj->ftype],NTHREADS);
-        fflush(stderr);
+          ITHREADS = NTHREADS;
+
+        if (VERBOSE)
+          { fprintf(stderr,"\nUsing %d threads to read %d %s files some or all",
+                           ITHREADS,nfiles,Tstring[fobj->ftype]);
+            fprintf(stderr," of which are compressed\n");
+            fflush(stderr);
+          }
+
+        //  Allocate IO buffer space
+
+        if (need_buf)
+          { bf = Malloc(ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
+            if (bf == NULL)
+              exit (1);
+          }
+        else
+          bf = NULL;
+
+        for (t = 0; t < ITHREADS; t++)
+          { parm[t].fobj          = fobj;
+            parm[t].output_thread = output_thread;
+            parm[t].thread_id     = t;
+            parm[t].action        = SPLIT;
+            parm[t].bidx          = (t*nfiles)/ITHREADS;
+            parm[t].beg.fpos      = 0;
+            parm[t].beg.boff      = 0;
+            parm[t].eidx          = ((t+1)*nfiles)/ITHREADS-1;
+            parm[t].end.fpos      = fobj[parm[t].eidx].fsize;
+            parm[t].end.boff      = 0;
+            parm[t].buf           = bf + t*IO_BLOCK;
+            parm[t].decomp        = NULL;
+          }
       }
+
+    //  else split files at achieve load balancing
+
+    else
+      {
 
     //  Allocate work evenly amongst threads, setting up search start
     //    point for each thread.  Also find the beginning of data in
@@ -2424,18 +2415,25 @@ Input_Partition *Partition_Input(int argc, char *argv[])
     else
       ITHREADS = NTHREADS;
 
-    //  Allocate IO buffer space and assign to threads
+    //  Allocate IO buffer space
 
     if (need_buf)
-      { if (need_zuf)
-          bf = Malloc(2*ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
-        else
-          bf = Malloc(ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
+      { bf = Malloc(ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
         if (bf == NULL)
           exit (1);
       }
     else
       bf = NULL;
+
+    if (VERBOSE)
+      { if (nfiles > 1)
+          fprintf(stderr,"\nPartitioning %d %s.%s files into %d parts\n",
+                         nfiles,fobj->zipd?"compressed ":"",Tstring[fobj->ftype],NTHREADS);
+        else
+          fprintf(stderr,"\nPartitioning %d %s.%s file into %d parts\n",
+                         nfiles,fobj->zipd?"compressed ":"",Tstring[fobj->ftype],NTHREADS);
+        fflush(stderr);
+      }
 
     f = 0;
     t = -1;
@@ -2458,12 +2456,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
         parm[t].thread_id     = t;
         parm[t].action        = SPLIT;
         if (need_buf)
-          if (need_zuf)
-            { parm[t].buf = bf + 2*t*IO_BLOCK;
-              parm[t].zuf = bf + (2*t+1)*IO_BLOCK;
-            }
-          else
-            parm[t].buf = bf + t*IO_BLOCK;
+          parm[t].buf = bf + t*IO_BLOCK;
         else
           parm[t].buf = NULL;
         if (need_decon)
@@ -2509,24 +2502,19 @@ Input_Partition *Partition_Input(int argc, char *argv[])
         fflush(stderr);
 #endif
       }
-    if (t+1 < ITHREADS && need_buf)
-      { if (need_zuf)
-          bf = Realloc(bf,2*(t+1)*IO_BLOCK,"Allocating IO_Buffer\n");
-        else
-          bf = Realloc(bf,(t+1)*IO_BLOCK,"Allocating IO_Buffer\n");
-        if (bf == NULL)
-          exit (1);
-        for (i = 0; i <= t; i++)
-          if (need_buf)
-            { if (need_zuf)
-                { parm[i].buf = bf + 2*i*IO_BLOCK;
-                  parm[i].zuf = bf + (2*i+1)*IO_BLOCK;
-                }
-              else
+
+    t += 1;
+    if (t < ITHREADS)
+      { if (need_buf)
+          { bf = Realloc(bf,t*IO_BLOCK,"Allocating IO_Buffer\n");
+            if (bf == NULL)
+              exit (1);
+            for (i = 0; i < t; i++)
+              if (need_buf)
                 parm[i].buf = bf + i*IO_BLOCK;
-            }
+          }
+        ITHREADS = t;
       }
-    ITHREADS = t+1;
 
     //  If cannot use all threads report it
 
@@ -2538,9 +2526,6 @@ Input_Partition *Partition_Input(int argc, char *argv[])
           fprintf(stderr,"  File%scould only be divided to use %d thread%s\n",
                          nfiles>1?"s ":" ",ITHREADS,ITHREADS>1?"s ":" ");
       }
-  }
-
-  { int i;
 
     //  Develop end points of each threads work using the start point of the next thread
 
@@ -2559,7 +2544,27 @@ Input_Partition *Partition_Input(int argc, char *argv[])
     parm[ITHREADS-1].end.boff = 0;
     parm[ITHREADS-1].eidx = nfiles-1;
 
+    if (ftype == DAZZ)
+      { int   f;
+        FILE *idx;
+
+        for (f = 0; f < nfiles; f++)
+          { strcpy(fobj[f].path+(strlen(fobj[f].path)-3),"idx");
+            idx = fopen(fobj[f].path,"r");
+            fobj[f].zsize = get_dazz_lengths(idx,fobj[f].zoffs,fobj[f].DB_cut,fobj[f].DB_all);
+            fclose(idx);
+            strcpy(fobj[f].path+(strlen(fobj[f].path)-3),"bps");
+          }
+        parm[ITHREADS-1].end.boff = fobj[nfiles-1].zsize;
+        parm[0].beg.boff = 0;
+      }
+
+    }  //  end load balancing code
+  }
+
 #if defined(DEBUG_FIND) || defined(DEBUG_IO)
+  { int i;
+
     fprintf(stderr,"\nPartition:\n");
     for (i = 0; i < ITHREADS; i++)
       { fprintf(stderr," %2d: %2d / %12lld / %5d",
@@ -2568,23 +2573,8 @@ Input_Partition *Partition_Input(int argc, char *argv[])
                          parm[i].eidx,parm[i].end.fpos,parm[i].end.boff);
       }
     fflush(stderr);
-#endif
   }
-
-  if (ftype == DAZZ)
-    { int   f;
-      FILE *idx;
-
-      for (f = 0; f < nfiles; f++)
-        { strcpy(fobj[f].path+(strlen(fobj[f].path)-3),"idx");
-          idx = fopen(fobj[f].path,"r");
-          fobj[f].zsize = get_dazz_lengths(idx,fobj[f].zoffs,fobj[f].DB_cut,fobj[f].DB_all);
-          fclose(idx);
-          strcpy(fobj[f].path+(strlen(fobj[f].path)-3),"bps");
-        }
-      parm[ITHREADS-1].end.boff = fobj[nfiles-1].zsize;
-      parm[0].beg.boff = 0;
-    }
+#endif
 
   return ((Input_Partition *) parm);
 }
@@ -2692,14 +2682,18 @@ void Scan_All_Input(Input_Partition *parts)
 
 void Free_Input_Partition(Input_Partition *parts)
 { Thread_Arg *parm = (Thread_Arg *) parts;
+  int nfiles, gz_ok;
   int i, f;
+
+  nfiles = parm[ITHREADS-1].eidx + 1;
+  gz_ok = (nfiles >= 3 || nfiles >= NTHREADS/2);
 
   if (parm[0].decomp != NULL)
     for (i = 0; i < ITHREADS; i++)
       libdeflate_free_decompressor(parm[i].decomp);
   free(parm[0].buf);
   for (f = 0; f <= parm[ITHREADS-1].eidx; f++)
-    Free_File(parm[0].fobj+f);
+    Free_File(parm[0].fobj+f,gz_ok);
   free(parm[0].fobj);
   free(parm);
 }

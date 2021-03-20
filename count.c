@@ -1819,12 +1819,6 @@ void Sorting(char *path, char *root)
         Print_Number(wtot,wwide,stderr);
         fprintf(stderr,"  %*.1f\n",awide,(1.*utot)/wtot);
         fflush(stderr);
-
-        if (DO_TABLE > 0)
-          { fprintf(stderr,"\n       There are ");
-            Print_Number(tmers,0,stderr);
-            fprintf(stderr," %d-mers that occur %d-or-more times\n",KMER,DO_TABLE);
-          }
       }
 
 #if !defined(DEBUG) || !defined(SHOW_RUN)

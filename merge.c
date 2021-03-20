@@ -89,6 +89,7 @@ static void *merge_profile_thread(void *arg)
   int          dfile = data->dfile;
   IO_block    *io    = data->io;
   Entry       *chord = data->chord;
+  int64        nbase = data->nbase;
   int          maxS  = 2*MAX_SUPER + 2 + PLEN_BYTES + RUN_BYTES;
 
   uint8 *dbuf;
@@ -102,6 +103,10 @@ static void *merge_profile_thread(void *arg)
   uint8 *db = (uint8 *)  &d;
   int    n;
   int64  nidx = 0;
+
+  FILE *nfile;  //  Invalid k-mers file
+  int64 iridx;
+  int   ileng, ilast;
 
   int64  pct1, partin, nextin;
   int    CLOCK;
@@ -143,6 +148,27 @@ static void *merge_profile_thread(void *arg)
   atop = abuf + BUFLEN_INT64;
 
   dbuf = chord[0].frag;
+
+  //  Open invalid interval file
+
+  sprintf(fname,"%s.NS.T%d",data->root,data->wch);
+  nfile = fopen(fname,"r");
+  if (nfile == NULL)
+    { fprintf(stderr,"\n%s: Cannot open external file %s in %s\n",
+                     Prog_Name,fname,SORT_PATH);
+      exit (1);
+    }
+  if (fread(&iridx,sizeof(int64),1,nfile) < 1)
+    iridx = 0x7fffffffffffffffll;
+  else
+    { if ((iridx & 0x8000000000000000ll) != 0)
+        { ilast = 1;
+          iridx &= 0x7fffffffffffffffll;
+        }
+      else
+        ilast = 0;
+      fread(&ileng,sizeof(int),1,nfile);
+    }
 
   //  Read the first run-id for each part
 
@@ -234,8 +260,8 @@ static void *merge_profile_thread(void *arg)
 
   //  For each run of PAN_SIZE consecutive super-mer profiles do
 
-  nidx += data->nbase;
-  for (panel = data->nbase; naval > 0; panel = nanel)
+  nidx += nbase;
+  for (panel = nbase; naval > 0; panel = nanel)
     { nanel  = panel + PAN_SIZE;
       if (nanel > nidx)
         nanel = nidx;
@@ -374,12 +400,93 @@ static void *merge_profile_thread(void *arg)
             ptr = chord[n].frag;
 
             if (len == 0)
-              { if (aptr >= atop)
-                  { write(afile,abuf,BUFLEN_IBYTE);
-                    aptr = abuf;
+              { if (iridx+nbase != p)           //  read < KMER bp long
+                  { if (aptr >= atop)
+                      { write(afile,abuf,BUFLEN_IBYTE);
+                        aptr = abuf;
+                      }
+                    *aptr++ = offset + (o-dbuf);
+#ifdef SHOW_RUN
+                    if (wlast)
+                      printf("READ %d\n  %5d:: SHORT\n",nreads,n);
+                    else
+                      printf("  %5d:: SHORT\n",n);
+#endif
+                    nreads += 1;
                   }
-                *aptr++ = offset + (o-dbuf);
-                nreads += 1;
+                else
+                  { 
+#ifdef SHOW_RUN
+                    if (wlast)
+                      printf("READ %d\n  %5d:: N=%d {0}",nreads,n,ileng);
+                    else
+                      printf("  %5d:: N=%d {0}",n,ileng);
+#endif
+
+                    if (wlast)
+                      *o++ = 0;
+                    else
+                      { d = -lcont;
+                        if (d == 0)
+                          *o++ = 0x01;
+                        else if (d > 0xffe1 || d < 32)
+                          *o++ = 0x40 | (d & 0x3f);
+                        else
+#if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
+                          { *o++ = db[1] | 0x80;
+                            *o++ = db[0];
+#else
+                          { *o++ = db[0] | 0x80;
+                            *o++ = db[1];
+#endif
+#ifdef SHOW_RUN
+                            printf("+");
+#endif
+                          }
+                      } 
+
+                    if (ileng > 1)
+                      { for (ileng -= 1; ileng > 63; ileng -= 63)
+                          { *o++ = 0x3f;
+#ifdef SHOW_RUN
+                            printf(" 0x3f");
+#endif
+                          }
+                        *o++ = ileng;
+#ifdef SHOW_RUN
+                        printf(" %02x {0}\n",o[-1]);
+#endif
+                      }
+#ifdef SHOW_RUN
+                    else
+                      printf("\n");
+#endif
+                    lcont = 0;
+
+                    if (ilast)
+                      { if (aptr >= atop)
+                          { write(afile,abuf,BUFLEN_IBYTE);
+                            aptr = abuf;
+                          }
+                        *aptr++ = offset + (o-dbuf);
+                        nreads += 1;
+                        wlast = 1;
+                      }
+                    else
+                      wlast = 0;
+
+                    if (fread(&iridx,sizeof(int64),1,nfile) < 1)
+                      iridx = 0x7fffffffffffffffll;
+                    else
+                      { if ((iridx & 0x8000000000000000ll) != 0)
+                          { ilast = 1;
+                            iridx &= 0x7fffffffffffffffll;
+                          }
+                        else
+                          ilast = 0;
+                        fread(&ileng,sizeof(int),1,nfile);
+                      }
+                  }
                 continue;
               }
 
@@ -389,7 +496,7 @@ static void *merge_profile_thread(void *arg)
             ptr += 2;
 #ifdef SHOW_RUN
             if (wlast)
-              printf("READ\n  %5d:: %3d: {%hu}",n,len,d);
+              printf("READ %d\n  %5d:: %3d: {%hu}",nreads,n,len,d);
             else
               printf("  %5d:: %3d: {%hd}",n,len,d);
 #endif
@@ -494,7 +601,13 @@ static void *merge_profile_thread(void *arg)
 
   data->nreads = nreads;
 
+  fclose(nfile);
   free(fname);
+
+#ifndef DEVELOPER
+  sprintf(fname,"%s.NS.T%d",data->root,data->wch);
+  unlink(fname);
+#endif
 
   if (CLOCK)
     fprintf(stderr,"\r         \r");
@@ -652,7 +765,6 @@ void Merge_Profiles(char *dpwd, char *dbrt)
         parmk[t].io    = io + p;
         parmk[t].chord = chord + PAN_SIZE*t;
 
-
         for (n = 0; n <= NPARTS; n++, p++)
           io[p].block = blocks + p*BUFLEN_UINT8;
 
@@ -678,6 +790,22 @@ void Merge_Profiles(char *dpwd, char *dbrt)
     for (t = 1; t < ITHREADS; t++)
       pthread_join(threads[t],NULL);
 #endif
+
+    if (VERBOSE)
+      { int64 psize;
+
+        psize = 0;
+        for (t = 0; t < ITHREADS; t++)
+          psize += lseek(parmk[t].afile,0,SEEK_CUR) + lseek(parmk[t].dfile,0,SEEK_CUR);
+
+        if (psize >= 5.e8)
+          fprintf(stderr,"  The profiles occupy %.2f GB\n",psize/1.e9);
+        else if (psize >= 5.e5)
+          fprintf(stderr,"  The profiles occupy %.2f MB\n",psize/1.e6);
+        else
+          fprintf(stderr,"  The profiles occupy %.2f KB\n",psize/1.e3);
+        fflush(stderr);
+      }
 
     //  Rewind and set the header of each A-file
 

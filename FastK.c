@@ -159,11 +159,14 @@ void timeTo(FILE *f, int all)
   else
     fprintf (f,"  %d.%03dw",tsecs,tmics/1000);
 
-  fprintf(f,"  %.1f%%  ",(100.*(usecs+ssecs) + (umics+smics)/10000.)/(tsecs+tmics/1000000.));
+  fprintf(f,"  %.1f%%",(100.*(usecs+ssecs) + (umics+smics)/10000.)/(tsecs+tmics/1000000.));
 
-  mem = (now.ru_maxrss - t->ru_maxrss)/1000000;
-  Print_Number(mem,0,f);
-  fprintf(f,"MB");
+  if (all)
+    { mem = now.ru_maxrss/1000000;
+      fprintf(f,"  ");
+      Print_Number(mem,0,f);
+      fprintf(f,"MB");
+    }
 
   fprintf(f,"\n");
 
@@ -429,7 +432,7 @@ int main(int argc, char *argv[])
       close(tid);
       unlink(".xxx");
 
-      nfiles = (NPARTS+2)*NTHREADS + tid;
+      nfiles = (NPARTS+3)*NTHREADS + tid;
       getrlimit(RLIMIT_NOFILE,&rlp);
       if (nfiles > rlp.rlim_max)
         { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);

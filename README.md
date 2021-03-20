@@ -7,7 +7,6 @@
 - [Command Line](#command-line)
   - [FastK](#fastk)
   - [Fastrm, Fastcp, & Fastmv](#fastrm)
-  - [Ncontiger & Nremover](#ncontig)
 
 - [Sample Applications](#sample-applications)
   - [Histex](#histex): Display a FastK histogram
@@ -65,11 +64,7 @@ about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 ```
 
 FastK counts the number of k&#8209;mers in a corpus of DNA sequences over the alphabet {a,c,g,t} for a specified k&#8209;mer size, 40 by default.
-The input data can be in one or more CRAM, BAM, SAM, fasta, or fastq files, where the later two can be gzip'd, preferrably
-by [VGPzip](https://github.com/VGP/vgp-tools/tree/master/VGP). The data can also be in [Dazzler databases](https://github.com/thegenemyers/DAZZ_DB).  The type of the
-file is determined by its extension (and not its
-contents).  The extension need not be given if the root name suffices
-to uniquely identify a file.  If more than one source file is given
+The input data can be in one or more CRAM, BAM, SAM, fasta, or fastq files, where the later two can be gzip'd. The data can also be in [Dazzler databases](https://github.com/thegenemyers/DAZZ_DB).  The type of the file is determined by its extension (and not its contents).  The extension need not be given if the root name suffices to uniquely identify a file.  If more than one source file is given
 they must all be of the same type in the current implementation.
 
 FastK produces a number of outputs depending on the setting of its options.  By default, the
@@ -98,6 +93,13 @@ along with 2N roughly equal-sized pairs of *hidden* files with path names
 `<dir>/.<base>.pidx.#` and `<dir>/.<base>.prof.#` in the order of the sequences in the input assuming \<source> = \<dir>/\<base>.
 The profiles are individually compressed and the exact format of these
 files is described in the section on Data Encodings.
+
+If the data file contains sequences with letters other than upper or lower case a, c, g, or t,
+then all k-mers involving these letters are considered *invalid* and they are not counted.
+Specifically, the do not occur in the k-mer table and in profiles they are regions of 2k-1
+or more 0's.  So for example, if one passes a fasta "assembly" file to FastK wherein gaps
+between contigs are indicated by runs of N's, then the profile of a scaffold "sequence" will
+contain a corresponding run of 0's where the contig gaps are.
 
 The -p option can contain an optional reference to a k&#8209;mer table such as produced by the
 -t option.  If so, then FastK produces profiles of every read where the k&#8209;mer counts
@@ -150,44 +152,6 @@ The &#8209;n option tells Fastmv and Fastcp to not overwrite any existing files.
 Finally, the &#8209;f option forces the creation of the new files and overides both the
 &#8209;i and &#8209;n options.
             
-<a name="ncontig"></a>
-
-```
-3a. Ncontiger < <in:fast[aq]> > <out:fasta>
-3b. Nremover -k<int> < <in:fast[aq]> > <out:fasta>
-```
-
-FastK does not recognize 'N' as a special symbol, but simpy treats it and any other symbols other
-than 'a', 'c', 'g', 't', lower & upper case, as an 'A'.  Thus whenever a run of 'N's occurs as a
-gap between contigs in a scaffold, an oft-used convention for assembled genomes, or 'N' is used
-to denote an ambiguous base call as occasionally occurs near the end or beginning of low quality
-Illlumina reads, it is desirablle to remove these in a simple filtering step prior to giving
-the input to FastK.
-
-Ncontiger reads a fasta or fastq file on the standard input, and breaks a single scaffold entry
-into individual entries for each contig, removing the run of N's between them.  It sends its output
-to the standard output as a fasta file, where the header of each contig contains white-space
-separated integers followed 2 colons and the header of the scaffold it came from.  The 4 integers
-give the scaffold number, contig number within the scaffold, and coordinates of the contig within the
-scaffold, respectively.  As an example:
-
-```
-> Scaffold1
-accgnncggtnnngtta
-```
-is transformed into:
-
-```
-> 1 1 0 4 :: Scaffold1
-accg
-> 1 2 6 10 :: Scaffold1
-cggt
-> 1 3 13 17 :: Scaffold1
-gtta
-```
-
-Nremover has the same IO pattern as Ncontiger, but only retains as fasta entries, substrings of a read between N's (or the boundary of the read) that are -k bases or longer.  Thus when the transformed data is given to FastK, k-mers with N's have been effectively eliminated.  Also the new header lines are minimal giving just the read number and the "piece" number of the retained substring.
-
 ### Current Limitations & Known Bugs
 
 Currently if multiple input files are given they must all be of the same type, e.g. fasta
@@ -763,13 +727,14 @@ The information in the stub file is as follows:
    < # of parts(N)   : int >
    < min count(m)    : int >
    < prefix bytes(p) : int >
-   < 1st index to entries with prefix = i : int64 >, i = 0, ... 4^(4p)
+   < 1st index to entries with prefix = i+1 : int64 >, i = 0, ... 4^(4p)-1
 ```
 The first 4 integers of the stub file give (1) the k&#8209;mer length, (2) the number of threads FastK was run with, (3) the frequency cutoff (&#8209;t option) used to prune the table, and (4) the number of prefix bytes of each k-mer (when encoded as a 2-bit
 compressed byte array) that are indexed by the 4<sup>4p</sup>+1 table, call it IDX, that constitutes the remainder of the stub file.  The i<sup>th</sup> element, IDX[i],
 gives the ordinal index of the first element in the sorted table for which its first
-4p bases have the value i.  Thus the entries in the table whose first 4p bases have
-value i can be found in the interval [&nbsp;IDX[i],&nbsp;IDX[i+1]&nbsp;).  Note carefully that these intervals are guaranteed not to span table parts.
+4p bases have the value i+1.  Thus the entries in the table whose first 4p bases have
+value i can be found in the interval [&nbsp;IDX[i-1],&nbsp;IDX[i]&nbsp;) assuming IDX[-1] = 0.
+Note carefully that these intervals are guaranteed not to span table parts.
    
 The table file parts are in N hidden files in the same directory as the stub
 file with the names `.<base>.ktab.[1,N]` assuming that \<source> = \<dir>/\<base>.
@@ -826,11 +791,11 @@ The the first count is encoded in the first one or two bytes, depending on
 its value, as follows:
 
 ```
-  0x   => x+1 in [1,128]
-  1x,y => x.y in [129,32767]
+  0x   => x in [0,127]
+  1x,y => x.y in [128,32767]
 ```
 That is, if the high order bit is set then the count is the unsigned integer encoded in the
-remaining 15-bits of the firsts two bytes.  If it is not set, then it is one more than the
+remaining 15-bits of the firsts two bytes.  If it is not set, then it is the
 unsigned integer encoded in the remaining 7-bits of the first byte.  The one byte encoding is
 used whenever possible.
 
@@ -839,10 +804,10 @@ count, and are encoded in one or two bytes.  Often there is a run of 0 differenc
 profile and a special one byte form codes this as a run length.  Formally the forward differences are encoded as follows:
 
 ```
-  00x  => x+1 in [1,64] 0 diffs
-  010x =>   x+1  in [1,32]
-  011x => -(x+1) in [-1,-32]
-  1x,y => x.y in 15 bit 2's complement in [-16384,-33] U [33,16383]
+  00x  =>  x in [1,63] 0 diffs
+  010x =>  x  in [1,31]
+  011x => -x in [-1,-31]
+  1x,y =>  x.y in 15 bit 2's complement in [-16384,-32] U [32,16383]
                                              (modulo 32768 arithmetic)
 ```
 
@@ -854,4 +819,3 @@ same as the most recent count, where x is the lower 6-bits interpreted as an uns
 If the 2 highest order bit of the current byte are 01, then the remaining 6 bits are interpreted
 as a *1's complement* integer and the difference is one more or less than said value depending
 on the sign.  The single byte encoding is used whenever possible.
-H

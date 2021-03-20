@@ -31,7 +31,7 @@
 #undef   DEBUG_SCHEME
 #undef   DEBUG_DISTRIBUTE
 #undef   SHOW_PACKETS
-#define    PACKET 1
+#define    PACKET -1
 #undef   DEBUG_COMPRESS
 #undef   DEBUG_KMER_SPLIT
 #undef   CHECK_KMER_SPLIT
@@ -61,8 +61,8 @@ static IO_UTYPE Fran[256];   //  fran[x] = 3,2,1,0 for a,c,g,t
 static uint64 Tran[256];   //  Tran[x] in 0-3 for a,c,g,t according to frequency  
 static uint64 Cran[256];   //  Cran[x] complement of Tran[x] shifted by MIN_L1 or later PAD_L1
 
-static uint64 Sran[4];   //  Tran[x] for acgt = 0123
-static uint64 Bran[4];   //  Cran[x] for acgt = 0123
+static uint64 Sran[4];   //  Tran[x] for acgt = 0123, 4 for all other chars
+static uint64 Bran[4];   //  Cran[x] for acgt = 0123, 4 for all other chars
 
   //  Padded Minimizer scheme
 
@@ -73,6 +73,8 @@ static int     PAD_LEN;  // MIN_LEN + PAD
 static int     PAD_L1;       // = PAD_LEN-1
 static int64   PAD_TOT;      // = 4^PAD_LEN
 static uint64  PAD_MSK;      // = PAD_TOT-1
+
+static int     MAX_NRUN; // 1 + 63*2*MAX_SUPER 0's  = length of longest possible invalid block
 
 static int  Min_States;
 static int *Min_Part;      //  The core prefix trie: MP[x] < 0 => goto a-MP[x] on base a
@@ -329,7 +331,7 @@ static void assign_pieces(int nstates, int64 *count, int nparts, int64 pmer)
               n = j;
           buck[n] += p;
           count[x] = n;
-	}
+        }
       else
         { t = v*drand48();
           v = 0;
@@ -534,7 +536,7 @@ int Determine_Scheme(DATA_BLOCK *block)
     freq = parmt[0].freq;
     for (i = 0; i < 256; i++)
       for (j = 0; j < NTHREADS; j++)
-	freq[i] += parmt[j].freq[i];
+        freq[i] += parmt[j].freq[i];
 
     freq[0] = freq['a'] + freq['A'];
     freq[1] = freq['c'] + freq['C'];
@@ -576,7 +578,7 @@ int Determine_Scheme(DATA_BLOCK *block)
     printf("   Most freq = %lld  gc = %d%%\n",
            m,(int) ((100.*(freq[1]+freq[2]))/ftot));
     for (i = 0; i < 4; i++)
-      printf(" Tran[%c] -> %lld (%lld / %7.4f)\n",DNA[i],assn[i],freq[i],(100.*freq[i])/ftot);
+      printf(" Tran[%c] -> %d (%lld / %7.4f)\n",DNA[i],assn[i],freq[i],(100.*freq[i])/ftot);
     Invert[Tran['a']] = 'a';
     Invert[Tran['c']] = 'c';
     Invert[Tran['g']] = 'g';
@@ -585,14 +587,14 @@ int Determine_Scheme(DATA_BLOCK *block)
   }
 
   for (i = 0; i < 256; i++)
-    Dran[i] = 0;
+    Dran[i] = 4;
   Dran['a'] = Dran['A'] = 0;
   Dran['c'] = Dran['C'] = 1;
   Dran['g'] = Dran['G'] = 2;
   Dran['t'] = Dran['T'] = 3;
 
   for (i = 0; i < 256; i++)
-    Fran[i] = 3;
+    Fran[i] = 4;
   Fran['a'] = Fran['A'] = 3;
   Fran['c'] = Fran['C'] = 2;
   Fran['g'] = Fran['G'] = 1;
@@ -625,14 +627,14 @@ int Determine_Scheme(DATA_BLOCK *block)
 
       MAX_SUPER = KMER - PAD_L1;
 
-      { uint64 ct = (Tran['a'] << (2*PAD_L1));
+      { uint64 ct = (Tran['t'] << (2*PAD_L1));
 
         for (i = 0; i < 256; i++)
           Cran[i] = ct;
-        Cran['a'] = Cran['A'] = (Tran['t'] << (2*PAD_L1));
+        Cran['a'] = Cran['A'] = ct;
         Cran['c'] = Cran['C'] = (Tran['g'] << (2*PAD_L1));
         Cran['g'] = Cran['G'] = (Tran['c'] << (2*PAD_L1));
-        Cran['t'] = Cran['T'] = ct;
+        Cran['t'] = Cran['T'] = (Tran['a'] << (2*PAD_L1));
       }
 
       parmt[0].count = count;
@@ -1005,6 +1007,7 @@ static int       *nmbits;   //  # of bits currently being used for super-mer ind
 static int       *totrds;   //  # of reads processed
 static int64     *totbps;   //  # of bps processed
 static int        short_read;  //   There was at least one read < KMER (after prefix removal)
+static FILE     **nstream;  //  Thread file for invalid intervals
 
 void Distribute_Block(DATA_BLOCK *block, int tid)
 { int    nreads  = block->nreads;
@@ -1014,6 +1017,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   Min_File *out   = ogroup[tid];
   int64     nidx  = nfirst[tid];
   int       nbits = nmbits[tid];
+  FILE     *nstr  = nstream[tid];
   int64     nlim  = (0x1ll << (nbits-1));
   int       KM1   = KMER-1;
   int       P2M2  = PAD2-2;
@@ -1031,6 +1035,8 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   uint64     mp, mc;
   int        m, n, b, y, o;
   int        last;
+  int        nfst, nlst;
+  int        plst,pfst;
 
   int        pref, *prep = &pref;
   Min_File  *trg;
@@ -1066,6 +1072,10 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
 
       if (q < KMER)
         { nidx += 1;
+#ifdef SHOW_PACKETS
+          if (PACKET < 0)
+            printf("READ %d %lld\n  %6lld:   EMPTY\n",i+1,nidx-1,nidx-1);
+#endif
           continue;
         }
 
@@ -1076,6 +1086,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
       m  = 0;
       mc = PAD_TOT;
       c = u = 0;
+      nlst = nfst = plst = -1;
       for (p = 0; p < KMER; p++)
         { x = s[p];
           c = ((c << 2) | Tran[x]) & PAD_MSK;
@@ -1103,6 +1114,12 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
           printf("\n"); fflush(stdout);
           fflush(stdout);
 #endif  
+
+          if (Dran[x] >= 4)
+            { if (p > nlst)
+                nfst = KM1;
+              nlst = p+KMER;
+            }
         }
 #ifdef DEBUG_DISTRIBUTE
       printf(" -----\n");
@@ -1141,74 +1158,136 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
               fflush(stdout);
 #endif
 
-              n = p-last;
-              trg = out + b;
-              trg->kmers += n--;
-              trg->nmers += 1;
-
-              ptr = trg->bptrs;
-              bit = &(trg->bbits);
-
-              ptr = Stuff_Int(n,SLEN_BITS,ptr,bit);
-              n += KMER;
-
-              if (DO_PROFILE)
-                { int   tbits;
-                  int64 tlim;
-
-                  ptr = Stuff_Seq(r+last,n,ptr,bit,0,prep);
-                  trg->fours[pref] += 1;
-
-                  while (nidx >= nlim)
-                    { nlim <<= 1;
-                      nbits += 1;
-                    }
-
-                  tbits = trg->nbits;
-                  while (tbits < nbits)
-                    { tlim = (0x1ll << (tbits-1));
-                      ptr = Stuff_Int(tlim,tbits,ptr,bit);
-                      if (ptr >= trg->data)
-                        { IO_UTYPE *start = trg->data - IO_BUF_LEN;
-                          write(trg->stream,start,IO_UBYTES*(ptr-start));
-                          *start = *ptr;
-                          ptr = start;
+              if (nlst >= last)
+                { if (nlst < p)
+                    { last = nlst;
+                      if (DO_PROFILE)
+                        { for (nlst -= MAX_NRUN; nfst < nlst; nfst += MAX_NRUN)
+                            { fwrite(&nidx,sizeof(int64),1,nstr);
+                              fwrite(&MAX_NRUN,sizeof(int),1,nstr);
+#ifdef SHOW_PACKETS
+                              if (PACKET < 0)
+                                printf("   %6lld: %5d/%2d: %.*s  N+-packet (%d)\n",
+                                       nidx,nfst,MAX_NRUN+KM1,MAX_NRUN+KM1,r+nfst,MAX_NRUN);
+#endif
+                              nidx += 1;
+                            }
+                          nlst = (MAX_NRUN+nlst)-nfst;
+                          fwrite(&nidx,sizeof(int64),1,nstr);
+                          fwrite(&nlst,sizeof(int),1,nstr);
+#ifdef SHOW_PACKETS
+                          if (PACKET < 0)
+                            printf("   %6lld: %5d/%2d: %.*s  N-packet (%d)\n",
+                                   nidx,nfst,nlst+KM1,nlst+KM1,r+nfst,nlst);
+#endif
                         }
-                      trg->nbits = ++tbits;
-#ifdef SHOW_PACKETS
-                      if (PACKET < 0 || b == PACKET)
-                        printf("Index bumped to %d (%lld / %d)\n",tbits,tlim<<1,b);
-#endif
+                      nlst = -1;
+                      nidx += 1;
+                      n = p-last;
                     }
-                  ptr = Stuff_Int(nidx,nbits,ptr,bit);
+                  else
+                    { if (plst > last)
+                        { last = plst;
+                          if (DO_PROFILE)
+                            { for (plst -= MAX_NRUN; pfst < plst; pfst += MAX_NRUN)
+                                { fwrite(&nidx,sizeof(int64),1,nstr);
+                                  fwrite(&MAX_NRUN,sizeof(int),1,nstr);
+#ifdef SHOW_PACKETS
+                                  if (PACKET < 0)
+                                    printf("   %6lld: %5d/%2d: %.*s  N*-packet (%d)\n",
+                                           nidx,pfst,MAX_NRUN+KM1,MAX_NRUN+KM1,r+pfst,MAX_NRUN);
+#endif
+                                  nidx += 1;
+                                }
+                              plst = (MAX_NRUN+plst)-pfst;
+                              fwrite(&nidx,sizeof(int64),1,nstr);
+                              fwrite(&plst,sizeof(int),1,nstr);
+#ifdef SHOW_PACKETS
+                              if (PACKET < 0)
+                                printf("   %6lld: %5d/%2d: %.*s  N!-packet (%d)\n",
+                                       nidx,pfst,plst+KM1,plst+KM1,r+pfst,plst);
+#endif
+                            }
+                          plst = -1;
+                          nidx += 1;
+                        }
+                      n = nfst-last;
+                    }
                 }
-
               else
-                { ptr = Stuff_Seq(r+last,n,ptr,bit,flp[m & MOD_MSK],prep);
-                  trg->fours[pref] += 1;
-                }
+                n = p-last;
+
+              if (n > 0)
+                { trg = out + b;
+                  trg->kmers += n--;
+                  trg->nmers += 1;
+
+                  ptr = trg->bptrs;
+                  bit = &(trg->bbits);
+
+                  ptr = Stuff_Int(n,SLEN_BITS,ptr,bit);
+                  n += KMER;
+
+                  if (DO_PROFILE)
+                    { int   tbits;
+                      int64 tlim;
+
+                      ptr = Stuff_Seq(r+last,n,ptr,bit,0,prep);
+                      trg->fours[pref] += 1;
+
+                      while (nidx >= nlim)
+                        { nlim <<= 1;
+                          nbits += 1;
+                        }
+
+                      tbits = trg->nbits;
+                      while (tbits < nbits)
+                        { tlim = (0x1ll << (tbits-1));
+                          ptr = Stuff_Int(tlim,tbits,ptr,bit);
+                          if (ptr >= trg->data)
+                            { IO_UTYPE *start = trg->data - IO_BUF_LEN;
+                              write(trg->stream,start,IO_UBYTES*(ptr-start));
+                              *start = *ptr;
+                              ptr = start;
+                            }
+                          trg->nbits = ++tbits;
+#ifdef SHOW_PACKETS
+                          if (PACKET < 0 || b == PACKET)
+                            printf("Index bumped to %d (%lld / %d)\n",tbits,tlim<<1,b);
+#endif
+                        }
+                      ptr = Stuff_Int(nidx,nbits,ptr,bit);
+                    }
+
+                  else
+                    { ptr = Stuff_Seq(r+last,n,ptr,bit,flp[m & MOD_MSK],prep);
+                      trg->fours[pref] += 1;
+if (pref < 0 || pref > 255)
+  printf("Out of bounds %d (%d / %d)\n",pref,i,p);
+                    }
 
 #ifdef SHOW_PACKETS
-              if (PACKET < 0 || b == PACKET)
-                printf("   %6lld: %5d/%2d: %.*s[%c,%02x]\n",
-                       nidx,last,n,n,r+last,flp[m & MOD_MSK]?'-':'+',pref);
-              fflush(stdout);
+                  if (PACKET < 0 || b == PACKET)
+                    printf("   %6lld: %5d/%2d: %.*s[%c,%02x]\n",
+                           nidx,last,n,n,r+last,flp[m & MOD_MSK]?'-':'+',pref);
+                  fflush(stdout);
 #endif
 
-              nidx += 1;
-              if (ptr >= trg->data)
-                { IO_UTYPE *start = trg->data - IO_BUF_LEN;
-                  write(trg->stream,start,IO_UBYTES*(ptr-start));
-                  *start = *ptr;
-                  ptr = start;
+                  nidx += 1;
+                  if (ptr >= trg->data)
+                    { IO_UTYPE *start = trg->data - IO_BUF_LEN;
+                      write(trg->stream,start,IO_UBYTES*(ptr-start));
+                      *start = *ptr;
+                      ptr = start;
+                    }
+                  trg->bptrs = ptr;
                 }
-              trg->bptrs = ptr;
 
               if (force)
                 { mc = min[(++m) & MOD_MSK];
                   for (n = m+1; n <= p; n++)
                     { mp = min[n & MOD_MSK];
-                      if (mp < mc)
+                      if (mp <= mc)
                         { m  = n;
                           mc = mp;
                         }
@@ -1219,6 +1298,15 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                   mc = mp;
                 }
               last = p;
+            }
+
+          if (Dran[x] >= 4)
+            { if (p > nlst)
+                { pfst = nfst;
+                  plst = nlst;
+                  nfst = p;
+                }
+              nlst = p+KMER;
             }
 
 #ifdef DEBUG_DISTRIBUTE
@@ -1232,13 +1320,41 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
         }
 
       if (p == q)
-        { mp = mc;
+        { x = 'a';
+          mp = mc;
           force = 1;
           goto one_more;
         }
 
-      if (DO_PROFILE)
-        { if (i < nreads-1 || block->rem == 0)
+      if (nlst >= q)
+        { nlst = q;
+          if (DO_PROFILE)
+            { for (nlst -= MAX_NRUN; nfst < nlst; nfst += MAX_NRUN)
+                { fwrite(&nidx,sizeof(int64),1,nstr);
+                  fwrite(&MAX_NRUN,sizeof(int),1,nstr);
+#ifdef SHOW_PACKETS
+                  if (PACKET < 0)
+                    printf("   %6lld: %5d/%2d: %.*s  N-packet (%d)\n",
+                           nidx,nfst,MAX_NRUN+KM1,MAX_NRUN+KM1,r+nfst,MAX_NRUN);
+#endif
+                  nidx += 1;
+                }
+              nlst = (MAX_NRUN+nlst)-nfst;
+              if (i < nreads-1 || block->rem == 0)
+                nidx |= 0x8000000000000000ll;
+              fwrite(&nidx,sizeof(int64),1,nstr);
+              fwrite(&nlst,sizeof(int),1,nstr);
+              nidx &= 0x7fffffffffffffffll;
+#ifdef SHOW_PACKETS
+              if (PACKET < 0)
+                printf("   %6lld: %5d/%2d: %.*s  N-packet (%d) *EOF*\n",
+                       nidx,nfst,nlst+KM1,nlst+KM1,r+nfst,nlst);
+#endif
+            }
+          nidx += 1;
+        }
+      else
+        { if (DO_PROFILE && (i < nreads-1 || block->rem == 0))
             { trg->bptrs = Stuff_Int(MAX_SUPER,SLEN_BITS,ptr,bit);
 #ifdef SHOW_PACKETS
               if (PACKET < 0 || b == PACKET)
@@ -1282,9 +1398,12 @@ void Split_Kmers(Input_Partition *io, char *root)
            + ((64 + 2*SLEN_BITS + 2*(MAX_SUPER+KMER-1)) - 1)/IO_UBITS
            + 1;
 
+  MAX_NRUN = 1+126*MAX_SUPER;
+
   out     = (Min_File *) Malloc(nfiles*sizeof(Min_File),"Allocating buffers");
   buffers = (IO_UTYPE *) Malloc(nfiles*overflow*IO_UBYTES,"Allocating buffers");
-  if (out == NULL || buffers == NULL)
+  nstream = (FILE **) Malloc(ITHREADS*sizeof(FILE *),"Allocating buffer");
+  if (out == NULL || buffers == NULL || nstream == NULL)
     exit (1);
 
   if (VERBOSE)
@@ -1337,6 +1456,17 @@ void Split_Kmers(Input_Partition *io, char *root)
           write(f,zero,sizeof(int64));
           write(f,out[p].fours,sizeof(int64)*256);
           p += 1;
+        }
+
+    if (DO_PROFILE)
+      for (t = 0; t < ITHREADS; t++)
+        { sprintf(fname,"%s/%s.NS.T%d",SORT_PATH,root,t);
+          nstream[t] = fopen(fname,"w");
+          if (nstream[t] == NULL)
+            { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
+                             Prog_Name,SORT_PATH);
+              exit (1);
+            }
         }
 
     free(fname);
@@ -1484,6 +1614,10 @@ void Split_Kmers(Input_Partition *io, char *root)
     if (KMAX_BYTES < 2)  //  CMER_BYTES = KMAX_BYTES+1 must be 3 or more
       KMAX_BYTES = 2;
 
+    if (DO_PROFILE)
+      for (t = 0; t < ITHREADS; t++)
+        fclose(nstream[t]);
+
     p = 0;
     for (t = 0; t < ITHREADS; t++)
       for (n = 0; n < NPARTS; n++)
@@ -1516,6 +1650,7 @@ void Split_Kmers(Input_Partition *io, char *root)
 #else
   NUM_RID = nfirst;
 #endif
+  free(nstream);
   free(buffers);
   free(out);
 
@@ -1617,7 +1752,7 @@ static void *distribute_table(void *arg)
 
           mc = PAD_TOT;
           c = u = 0;
-	  for (p = 0, k = ishft; p < ibps; p++, k -= 2)
+          for (p = 0, k = ishft; p < ibps; p++, k -= 2)
             { x = (lstpre >> k) & 0x3;
               c = ((c << 2) | Sran[x]) & PAD_MSK;
               u = (u >> 2) | Bran[x];
@@ -1697,7 +1832,7 @@ static void *distribute_table(void *arg)
             }
 #ifdef DEBUG_KMER_SPLIT
           printf("\n"); fflush(stdout);
-	  fflush(stdout);
+          fflush(stdout);
 #endif  
         }
 
@@ -1734,7 +1869,7 @@ static void *distribute_table(void *arg)
       if (CLOCK && i >= nxtkmr)
         { fprintf(stderr,"\r  %3d%%",(int) ((100.*i)/end));
           fflush(stderr);
-	  nxtkmr = i+pct1;
+          nxtkmr = i+pct1;
         }
     }
 

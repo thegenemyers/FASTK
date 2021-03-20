@@ -163,10 +163,12 @@ int main(int argc, char *argv[])
               printf("    %5d: %12lld   %5.1f%%\n",j,hist[j],(100.*ssum)/stotal);
           }
 
-        if (HIST_LOW == 1)
-          printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
-        else
-          printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
+        if (HIST_HGH > 1)
+          { if (HIST_LOW == 1)
+              printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
+            else
+              printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
+          }
       }
   }
 

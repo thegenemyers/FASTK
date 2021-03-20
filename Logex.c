@@ -730,22 +730,22 @@ typedef struct
   } Assignment;
 
 static Assignment *parse_assignment(char *ass, int ntabs)
-{ char       *expr;
+{ char       *expr, *s;
   Assignment *A;
 
   A = Malloc(sizeof(Assignment),"Allocating assignment\n");
   if (A == NULL)
     exit (1);
 
-  expr = index(ass,'=');
-  while (isspace(expr[-1]))
-    expr -= 1;
-  *expr++ = '\0';
+  expr = s = index(ass,'=');
+  while (isspace(s[-1]))
+    s -= 1;
+  *s++ = '\0';
 
   A->ntabs   = ntabs;
   A->root    = Root(ass,".ktab");
   A->path    = PathTo(ass);
-  A->expr    = parse_expression(expr,&(A->varg),ntabs);
+  A->expr    = parse_expression(expr+1,&(A->varg),ntabs);
   A->filter  = compile_expression(A->expr,ntabs);
   A->logical = (A->expr->op == OP_NUM);
   return (A);
@@ -783,17 +783,16 @@ static void free_assignment(Assignment *A)
 
 typedef struct
   { int           tid;
-    char        **arg;
     Kmer_Stream **S;
     int           narg;
     Assignment  **A;
     int           nass;
+    FILE        **out;
+    int64       **prefx;
     int64        *begs;
     int64        *ends;
     int64       **hist;
   } TP;
-
-#define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
 
 static inline int mycmp(uint8 *a, uint8 *b, int n)
 { while (n-- > 0)
@@ -806,22 +805,22 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
 static void *merge_thread(void *args)
 { TP *parm = (TP *) args;
   int           tid   = parm->tid;
-  char        **arg   = parm->arg;
   Assignment  **A     = parm->A;
   int           ntabs = parm->narg;
   int           nass  = parm->nass;
-  Kmer_Stream **T     = parm->S;
+  Kmer_Stream **S     = parm->S;
+  Kmer_Stream **T;
   int64        *begs  = parm->begs;
   int64        *ends  = parm->ends;
+  int64       **prefx = parm->prefx;
+  FILE        **out   = parm->out;
 
   int one   = 1;
-  int kbyte = T[0]->kbyte;
-  int hbyte = T[0]->kbyte - T[0]->ibyte;
-  int kmer  = T[0]->kmer;
+  int hbyte = S[0]->hbyte;
+  int kmer  = S[0]->kmer;
   int hgram = (HIST_LOW > 0);
 
   Kmer_Stream *bp;
-  FILE  **out  = NULL;
   int64 **hist = NULL;
   int64  *nels;
   int    *filter, need_counts;
@@ -835,6 +834,7 @@ static void *merge_thread(void *args)
   if (hgram)
     { hist = Malloc(sizeof(int64 *)*nass,"Allocating thread working memory");
       hist[0] = Malloc(sizeof(int64)*((HIST_HGH-HIST_LOW)+3)*nass,"Allocating histogram");
+      bzero(hist[0],sizeof(int64)*((HIST_HGH-HIST_LOW)+3)*nass);
       hist[0] -= HIST_LOW;
       for (i = 1; i < nass; i++)
         hist[i] = hist[i-1] + ((HIST_HGH-HIST_LOW)+3);
@@ -854,18 +854,11 @@ static void *merge_thread(void *args)
 
   if (tid != 0)
     { T = Malloc(sizeof(Kmer_Stream *)*ntabs,"Allocating thread working memory");
-      for (c = 1; c <= ntabs; c++)
-        T[c-1] = Open_Kmer_Stream(arg[c]);
+      for (c = 0; c < ntabs; c++)
+        T[c] = Clone_Kmer_Stream(S[c]);
     }
-  else if (DO_TABLE)
-    { for (i = 0; i < nass; i++)
-        { FILE *f = fopen(Catenate(A[i]->path,"/",A[i]->root,".ktab"),"w");
-          fwrite(&kmer,sizeof(int),1,f);
-          fwrite(&NTHREADS,sizeof(int),1,f);
-          fwrite(&one,sizeof(int),1,f);
-          fclose(f);
-        }
-    }
+  else
+    T = S;
 
 #ifdef DEBUG_TRACE
   buffer = Current_Kmer(T[0],NULL);
@@ -883,11 +876,8 @@ static void *merge_thread(void *args)
     }
 
   if (DO_TABLE)
-    { out = Malloc(sizeof(FILE *)*nass,"Allocating thread working memory");
-      for (i = 0; i < nass; i++)
-        { out[i] = fopen(Catenate(A[i]->path,"/.",A[i]->root,
-                                        Numbered_Suffix(".ktab.",tid+1,"")),"w");
-          nels[i] = 0;
+    { for (i = 0; i < nass; i++)
+        { nels[i] = 0;
           fwrite(&kmer,sizeof(int),1,out[i]);
           fwrite(nels+i,sizeof(int64),1,out[i]);
         }
@@ -949,8 +939,9 @@ static void *merge_thread(void *args)
             if (A[i]->filter[v])
               { if (A[i]->logical)
                   { if (DO_TABLE)
-                      { fwrite(bp,kbyte,1,out[i]);
+                      { fwrite(bp->csuf,hbyte,1,out[i]);
                         fwrite(&one,sizeof(short),1,out[i]);
+                        prefx[i][bp->cpre] += 1;
                         nels[i] += 1;
                       }
                     if (hgram)
@@ -965,18 +956,19 @@ static void *merge_thread(void *args)
                   { c = eval_expression(A[i]->expr,cnt);
                     if (c > 0)
                       { if (DO_TABLE)
-                          { fwrite(bp,kbyte,1,out[i]);
+                          { fwrite(bp->csuf,hbyte,1,out[i]);
                             fwrite(&c,sizeof(short),1,out[i]);
+                            prefx[i][bp->cpre] += 1;
                             nels[i] += 1;
                           }
                         if (hgram)
-                          { if (c <= HIST_LOW)
-                              { hist[i][HIST_LOW] += 1;
-                                hist[i][HIST_HGH+1] += c;
-                              }
-                            else if (c >= HIST_HGH)
+                          { if (c >= HIST_HGH)
                               { hist[i][HIST_HGH] += 1;
                                 hist[i][HIST_HGH+2] += c;
+                              }
+                            else if (c <= HIST_LOW)
+                              { hist[i][HIST_LOW] += 1;
+                                hist[i][HIST_HGH+1] += c;
                               }
                             else
                               hist[i][c] += 1;
@@ -1010,7 +1002,6 @@ static void *merge_thread(void *args)
           fwrite(nels+i,sizeof(int64),1,out[i]);
           fclose(out[i]);
         }
-      free(out);
     }
 
   if (tid != 0)
@@ -1036,7 +1027,7 @@ static void *merge_thread(void *args)
  *****************************************************************************************/
 
 int main(int argc, char *argv[])
-{ int           nass, narg;
+{ int           nass, narg, kmer;
   Assignment  **A;
   Kmer_Stream **S;
 
@@ -1107,7 +1098,7 @@ int main(int argc, char *argv[])
       } 
   }   
   
-  { int c, kmer;
+  { int c;
 
     for (c = 1; c < argc; c++)
       if (index(argv[c],'=') == NULL)
@@ -1212,26 +1203,48 @@ int main(int argc, char *argv[])
     pthread_t threads[NTHREADS];
 #endif
     TP        parm[NTHREADS];
+    FILE    **out[NTHREADS];
+    int64    *prefx[nass];
+    int       ixlen;
     char     *seq;
     uint8    *ent;
     int       t, a, i;
     int64     p;
 
+    if (DO_TABLE)
+      { ixlen = (0x1 << (8*S[0]->ibyte));
+        prefx[0] = Malloc(sizeof(int64)*ixlen*nass,"Allocating prefix tables");
+        bzero(prefx[0],sizeof(int64)*ixlen*nass);
+        for (a = 1; a < nass; a++)
+          prefx[a] = prefx[a-1] + ixlen;
+
+        out[0] = Malloc(sizeof(FILE *)*nass*NTHREADS,"Allocating thread working memory");
+        for (t = 1; t < NTHREADS; t++)
+          out[t] = out[t-1] + nass;
+        for (t = 0; t < NTHREADS; t++)
+          for (a = 0; a < nass; a++)
+            out[t][a] = fopen(Catenate(A[a]->path,"/.",A[a]->root,
+                                        Numbered_Suffix(".ktab.",t+1,"")),"w");
+      }
+
     for (a = 0; a < narg; a++)
       { range[0][a] = 0;
         range[NTHREADS][a] = S[a]->nels;
       }
+
     seq = Current_Kmer(S[0],NULL);
     ent = Current_Entry(S[0],NULL);
     for (t = 1; t < NTHREADS; t++)
       { p = (S[0]->nels*t)/NTHREADS; 
         GoTo_Kmer_Index(S[0],p);
-        ent = Current_Entry(S[0],ent);
 #ifdef DEBUG
+        printf("\n%d: %0*x\n",t,2*S[0]->ibyte,S[0]->cpre);
         printf(" %lld: %s\n",p,Current_Kmer(S[0],seq));
 #endif
-        range[t][0] = p;
-        for (a = 1; a < narg; a++)
+        ent = Current_Entry(S[0],ent);                //  Break at prefix boundaries
+        for (i = S[0]->ibyte; i < S[0]->kbyte; i++)
+          ent[i] = 0;
+        for (a = 0; a < narg; a++)
           { GoTo_Kmer_Entry(S[a],ent);
 #ifdef DEBUG
             printf(" %lld: %s\n",S[a]->cidx,Current_Kmer(S[a],seq));
@@ -1242,14 +1255,17 @@ int main(int argc, char *argv[])
     free(seq);
 
     for (t = 0; t < NTHREADS; t++)
-      { parm[t].tid  = t;
-        parm[t].arg  = argv+nass;
-        parm[t].S    = S;
-        parm[t].narg = narg;
-        parm[t].A    = A;
-        parm[t].nass = nass;
-        parm[t].begs = range[t];
-        parm[t].ends = range[t+1];
+      { parm[t].tid   = t;
+        parm[t].S     = S;
+        parm[t].narg  = narg;
+        parm[t].A     = A;
+        parm[t].nass  = nass;
+        parm[t].begs  = range[t];
+        parm[t].ends  = range[t+1];
+        if (DO_TABLE)
+          { parm[t].prefx = prefx;
+            parm[t].out   = out[t];
+          }
       }
 
 #ifdef DEBUG_THREADS
@@ -1262,6 +1278,29 @@ int main(int argc, char *argv[])
     for (t = 1; t < NTHREADS; t++)
       pthread_join(threads[t],NULL);
 #endif
+
+    if (DO_TABLE)
+      { int one = 1;
+
+        for (a = 0; a < nass; a++)
+          { FILE  *f   = fopen(Catenate(A[a]->path,"/",A[a]->root,".ktab"),"w");
+            int64 *prf = prefx[a];
+
+            fwrite(&kmer,sizeof(int),1,f);
+            fwrite(&NTHREADS,sizeof(int),1,f);
+            fwrite(&one,sizeof(int),1,f);
+            fwrite(&(S[0]->ibyte),sizeof(int),1,f);
+
+            for (i = 1; i < ixlen; i++)
+              prf[i] += prf[i-1];
+
+            fwrite(prf,sizeof(int64),ixlen,f);
+            fclose(f);
+          }
+
+        free(out[0]);
+        free(prefx[0]);
+      }
 
     if (HIST_LOW > 0)
       { int64 *hist0, *histt;
