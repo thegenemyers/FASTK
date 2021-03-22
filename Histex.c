@@ -15,7 +15,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = " [-uA] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
+static char *Usage = " [-uAG] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
 
 int main(int argc, char *argv[])
 { Histogram *H;
@@ -24,6 +24,7 @@ int main(int argc, char *argv[])
   int    HIST_HGH;
   int    UNIQUE;
   int    ASCII;
+  int    GSCOPE;
 
   //  Process arguments
 
@@ -44,7 +45,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("uA")
+            ARG_FLAGS("uAG")
             break;
           case 'h':
             HIST_SET = 1;
@@ -80,6 +81,7 @@ int main(int argc, char *argv[])
 
     ASCII  = flags['A'];
     UNIQUE = flags['u'];
+    GSCOPE = flags['G'];
     if (HIST_HGH > 0x7fff)
       HIST_HGH = 0x7fff;
 
@@ -89,6 +91,15 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -h: Output histogram of counts in range given\n");
         fprintf(stderr,"      -u: Output histogram of unique k-mer counts (vs. instances)\n");
         exit (1);
+      }
+
+    if (GSCOPE)
+      { if (ASCII || UNIQUE)
+          fprintf(stderr,"%s: Warning, -G overrides both -A and -u flags\n",Prog_Name);
+        ASCII = UNIQUE = 1;
+        if (HIST_LOW != 1)
+          fprintf(stderr,"%s: Warning: -G forces histogram range to start at 1\n",Prog_Name);
+        HIST_LOW = 1;
       }
   }
 
@@ -126,7 +137,9 @@ int main(int argc, char *argv[])
     hist = H->hist;
 
     if (ASCII)
-      { for (j = HIST_LOW; j <= HIST_HGH; j++)
+      { if (GSCOPE)
+          hist[HIST_HGH] = hist[HIST_HGH+2]/HIST_HGH;
+        for (j = HIST_LOW; j <= HIST_HGH; j++)
           if (hist[j] > 0)
             printf("%d %lld\n",j,hist[j]);
       }
