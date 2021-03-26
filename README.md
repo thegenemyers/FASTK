@@ -170,7 +170,7 @@ FastK is not working for k greater than roughly 128.  Again this is an unusually
 
 <a name="histex"></a>
 ```
-1. Histex [-uG] [-h[<int(1)>:]<int(100)>] <source>[.hist]
+1. Histex [-kAG] [-h[<int(1)>:]<int(100)>] <source>[.hist]
 ```
 
 This command and also Tabex and Profex are presented specifically to
@@ -182,14 +182,18 @@ Given a histogram file \<source>.hist produced by FastK,
 one can view the histogram of k&#8209;mer counts with **Histex** where the &#8209;h specifies the 
 interval of frequencies to be displayed where 1 is assumed if the lower bound is not given.
 
-If the &#8209;u option is set then the counts of the histogram are of the # of unique
-k-mers U(f) that occur with the given frequency f in the input data set, otherwise the counts are
-of the # of k-mer instances I(f) that occur with the given frequency.  I(f) = f&middot;U(f)
+If the &#8209;k option is *not* set then the counts of the histogram are of the # of unique
+k-mers U(f) that occur with the given frequency f in the input data set, but if it is set then
+the counts are of the # of k-mer instances I(f) that occur with the given frequency.  I(f) = f&middot;U(f)
 except for possibly the lowest and highest frequency of the histogram as these entries
 include the counts for the frequencies below and above them, respectively.
 
-If the -G option is set, then Histex outputs a simple ASCII listing suitable for
-input into GenomeScope, i.e. their so-called .histo files.
+If the -A option is set, then Histex outputs a simple ASCII listing suitable for
+input to other programs.  If the -G option is set, then Histex produces a special ASCII
+histogram where the last entry is specifically adjusted so that **GeneScope.FK**
+outputs a correct estimate of genome size and % repetitiveness.  (**GenomeScope2.0**
+requires an unbounded histogram whereas GeneScope.FK typically only requires the
+first 1000 or so frequencies.)
 
 <a name="tabex"></a>
 ```

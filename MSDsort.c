@@ -27,6 +27,15 @@ static char *fmer[256], _fmer[1280];
 #define SMAX  20
 #define NMAX   3
 
+#define THR0 15
+#define THR1 15
+#define THR2  8
+#define GAP1  7
+#define GAP2  3
+
+static int S_thr0, S_thr1, S_thr2;
+static int S_gap1, S_gap2;
+
 static int    RSIZE;
 static int    KSIZE;
 static int64 *PARTS;
@@ -38,8 +47,6 @@ static inline void mycpy(uint8 *a, uint8 *b, int n)
     *a++ = *b++;
 }
 
-#ifdef IS_SORTED
-
 static inline int mycmp(uint8 *a, uint8 *b, int n)
 { while (n--)
     { if (*a++ != *b++)
@@ -47,6 +54,8 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
     }
   return (0);
 }
+
+#ifdef IS_SORTED
 
 static inline void sorted(uint8 *array, int64 asize, int digit)
 { int64 p, i;
@@ -72,129 +81,49 @@ static inline void sorted(uint8 *array, int64 asize, int digit)
 
 #endif
 
-static int  ROFF;
-static int  RSHIFT;
+static inline void gap_sort(uint8 *array, int asize, int gap, int cmp, int rem)
+{ int    i, j;
+  uint8  temp[RSIZE];
+  uint8 *garray;
 
-static inline void count_smers(uint8 *array, int64 asize, Range *rng)
-{ int    sln, k;
-  uint8 *asp;
-
-  int    fb, fl, fs;
-  int    rb, rl, rs;
-  int    kb, hb;
-  uint8 *f, *r;
-  int64 *khist = rng->khist;
-
-  (void) asize;
-
-  asp = array+SMER_BYTES;
-  sln = *asp++;
-  for (k = 1; k < SLEN_BYTES; k++)
-    sln = (sln << 8) + *asp++;
-
-  *array = rng->byte1;
-
-#ifdef DEBUG_CANONICAL
-  printf(" %3d:",sln);
-  f = array;
-  for (k = 0; k < sln+KMER; k += 4)
-    printf(" %s",fmer[*f++]);
-  printf("\n");
-  printf(" %3d:",sln);
-  f = array;
-  for (k = 0; k < sln+KMER; k += 4)
-    printf(" %s",fmer[Comp[*f++]]);
-  printf("\n");
-#endif
-
-  f  = array;
-  fl = *f;
-  fs = 0;
-
-  r  = array + ROFF;
-  rs = RSHIFT;
-  rl = Comp[*r];
-  rb = 0;
-  if (RSHIFT != 8)
-    rb = (rl << 8) | Comp[r[-1]];
-
-  for (k = 0; k <= sln; k += 1)
-    { if (fs == 0)
-        { kb  = fl;
-          fl  = *++f;
-          fb  = (kb << 8) | fl;
-          fs  = 6;
+  garray = array + gap;
+  for (i = gap; i < asize; i += RSIZE)
+    { j = i-gap;
+      if (mycmp(array+j,array+i,cmp) <= 0)
+        continue;
+      mycpy(temp,array+i,rem);
+      mycpy(array+i,array+j,rem);
+      for(j -= gap; j >= 0; j -= gap)
+        { if (mycmp(array+j,temp,cmp) <= 0)
+            break;
+          mycpy(garray+j,array+j,rem);
         }
-      else
-        { kb = (fb >> fs) & 0xff;
-          fs -= 2;
-        }
-      if (rs == 8)
-        { hb  = rl;
-          rl  = Comp[*++r];
-          rb  = (rl << 8) | hb;
-          rs  = 2;
-        }
-      else
-        { hb = (rb >> rs) & 0xff;
-          rs += 2;
-        }
-#ifdef DEBUG_CANONICAL
-      printf("   %d / %s%s[%s] / %s\n",fs, fmer[fb>>8], fmer[fb&0xff], fmer[fl], fmer[kb]);
-      printf("     %d / %s%s[%s] / %s\n",rs, fmer[rb&0xff], fmer[rb>>8], fmer[rl], fmer[hb]);
-#endif
-      if (kb < hb)
-        khist[kb] += 1;
-      else
-        khist[hb] += 1;
+      mycpy(garray+j,temp,rem);
     }
-
-  *array = 1;
 }
 
-static inline void hist_kmers(uint8 *array, int64 asize, Range *rng)
-{ int k, cnt;
+static inline void shell_sort(uint8 *array, int asize, int digit, Range *rng)
+{ int    cmp, rem;
+  int    i, j;
+  uint8 *garray;
+  
+  cmp    = KSIZE-digit;
+  rem    = RSIZE-digit;
+  garray = array+digit;
 
-  cnt = 0;
-  for (k = KMER_BYTES; k < asize; k += RSIZE)
-    cnt += *((uint16 *) (array + k));
+  // if (asize > S_thr1)
+    // gap_sort(garray,asize,S_gap1,cmp,rem);
+  if (asize > S_thr2)
+    gap_sort(garray,asize,S_gap2,cmp,rem);
+  gap_sort(garray,asize,RSIZE,cmp,rem);
 
-  if (cnt >= 0x7fff)
-    { rng->count[0x7fff] += 1;
-      rng->max_inst += cnt;
-      cnt = 0x7fff;
-    }
-  else
-    rng->count[cnt] += 1;
-
-  *((uint16 *) (array + KMER_BYTES)) = cnt;
-
-  *array = 1;
-}
-
-static inline void invert_kmers(uint8 *array, int64 asize, Range *rng)
-{ int    k, cnt;
-  int64 *khist = rng->khist;
-
-  cnt = 0;
-  for (k = KMER_BYTES; k < asize; k += RSIZE)
-    cnt += *((uint16 *) (array + k));
-
-  if (cnt >= 0x7fff)
-    { rng->count[0x7fff] += 1;
-      rng->max_inst += cnt;
-      cnt = 0x7fff;
-    }
-  else
-    rng->count[cnt] += 1;
-
-  for (k = KMER_BYTES; k < asize; k += RSIZE)
-    *((uint16 *) (array + k)) = cnt;
-
-  for (k = RSIZE-1; k < asize; k += RSIZE)
-    khist[array[k]] += 1;
-
-  *array = 1;
+  j = 0; 
+  for (i = RSIZE; i < asize; i += RSIZE)
+    if (mycmp(garray+j,array+i,cmp) != 0)
+      { COUNT(array+j,i-j,rng);
+        j = i;
+      }
+  COUNT(array+j,asize-j,rng);
 }
 
 static void radix_sort(uint8 *array, int64 asize, int digit, int64 *alive, Range *rng)
@@ -315,8 +244,10 @@ static void radix_sort(uint8 *array, int64 asize, int digit, int64 *alive, Range
   if (digit < KSIZE)
     for (y = 0; y < ntop; y++)
       { n = len[nzero[y]];
-        if (n > RSIZE)
+        if (n > S_thr0)
           radix_sort(array, n, digit, alive, rng);
+        else if (n > RSIZE)
+          shell_sort(array, n, digit, rng);
         else if (n > 0)
           COUNT(array,n,rng);
         array += n;
@@ -328,6 +259,8 @@ static void radix_sort(uint8 *array, int64 asize, int digit, int64 *alive, Range
         array += n;
       }
 }
+
+static int INIT_COUNTS;
 
 static void *sort_thread(void *arg) 
 { Range *param = (Range *) arg;
@@ -347,7 +280,7 @@ static void *sort_thread(void *arg)
   for (x = 0; x < 256; x++)
     alive[x] = khist[x] = 0;
 
-  if (COUNT != count_smers)
+  if (INIT_COUNTS)
     { for (x = 0; x < 0x8000; x++)
         count[x] = 0;
       param->max_inst = 0;
@@ -387,6 +320,12 @@ static void msd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
   PARTS = part;
   RSIZE = rsize;
   KSIZE = ksize;
+
+  S_thr0 = THR0*RSIZE;
+  S_thr1 = THR1*RSIZE;
+  S_thr2 = THR2*RSIZE;
+  S_gap1 = GAP1*RSIZE;
+  S_gap2 = GAP2*RSIZE;
 
   n   = 0;
   thr = asize / nthreads;
@@ -436,6 +375,86 @@ static void msd_sort(uint8 *array, int64 nelem, int rsize, int ksize,
   array[asize] = 1;
 }
 
+static int  ROFF;
+static int  RSHIFT;
+
+static inline void count_smers(uint8 *array, int64 asize, Range *rng)
+{ int    sln, k;
+  uint8 *asp;
+
+  int    fb, fl, fs;
+  int    rb, rl, rs;
+  int    kb, hb;
+  uint8 *f, *r;
+  int64 *khist = rng->khist;
+
+  (void) asize;
+
+  asp = array+SMER_BYTES;
+  sln = *asp++;
+  for (k = 1; k < SLEN_BYTES; k++)
+    sln = (sln << 8) + *asp++;
+
+  *array = rng->byte1;
+
+#ifdef DEBUG_CANONICAL
+  printf(" %3d:",sln);
+  f = array;
+  for (k = 0; k < sln+KMER; k += 4)
+    printf(" %s",fmer[*f++]);
+  printf("\n");
+  printf(" %3d:",sln);
+  f = array;
+  for (k = 0; k < sln+KMER; k += 4)
+    printf(" %s",fmer[Comp[*f++]]);
+  printf("\n");
+#endif
+
+  f  = array;
+  fl = *f;
+  fs = 0;
+
+  r  = array + ROFF;
+  rs = RSHIFT;
+  rl = Comp[*r];
+  rb = 0;
+  if (RSHIFT != 8)
+    rb = (rl << 8) | Comp[r[-1]];
+
+  for (k = 0; k <= sln; k += 1)
+    { if (fs == 0)
+        { kb  = fl;
+          fl  = *++f;
+          fb  = (kb << 8) | fl;
+          fs  = 6;
+        }
+      else
+        { kb = (fb >> fs) & 0xff;
+          fs -= 2;
+        }
+      if (rs == 8)
+        { hb  = rl;
+          rl  = Comp[*++r];
+          rb  = (rl << 8) | hb;
+          rs  = 2;
+        }
+      else
+        { hb = (rb >> rs) & 0xff;
+          rs += 2;
+        }
+#ifdef DEBUG_CANONICAL
+      printf("   %d / %s%s[%s] / %s\n",fs, fmer[fb>>8], fmer[fb&0xff], fmer[fl], fmer[kb]);
+      printf("     %d / %s%s[%s] / %s\n",rs, fmer[rb&0xff], fmer[rb>>8], fmer[rl], fmer[hb]);
+#endif
+      if (kb < hb)
+        khist[kb] += 1;
+      else
+        khist[hb] += 1;
+    }
+
+  *array = 1;
+}
+
 void Supermer_Sort(uint8 *array, int64 nelem, int rsize, int ksize,
                    int64 *part, int nthreads, Range *panel)
 { ROFF   = ((KMER-1)>>2);
@@ -443,6 +462,7 @@ void Supermer_Sort(uint8 *array, int64 nelem, int rsize, int ksize,
   if (RSHIFT == 0)
     RSHIFT = 8;
   COUNT = count_smers;
+  INIT_COUNTS = 0;
 
 #ifdef DEBUG_CANONICAL
   { char *t;
@@ -468,11 +488,57 @@ void Supermer_Sort(uint8 *array, int64 nelem, int rsize, int ksize,
   return (msd_sort(array,nelem,rsize,ksize,part,nthreads,panel));
 }
 
+static inline void hist_kmers(uint8 *array, int64 asize, Range *rng)
+{ int k, cnt;
+
+  cnt = 0;
+  for (k = KMER_BYTES; k < asize; k += RSIZE)
+    cnt += *((uint16 *) (array + k));
+
+  if (cnt >= 0x7fff)
+    { rng->count[0x7fff] += 1;
+      rng->max_inst += cnt;
+      cnt = 0x7fff;
+    }
+  else
+    rng->count[cnt] += 1;
+
+  *((uint16 *) (array + KMER_BYTES)) = cnt;
+
+  *array = 1;
+}
+
+static inline void invert_kmers(uint8 *array, int64 asize, Range *rng)
+{ int    k, cnt;
+  int64 *khist = rng->khist;
+
+  cnt = 0;
+  for (k = KMER_BYTES; k < asize; k += RSIZE)
+    cnt += *((uint16 *) (array + k));
+
+  if (cnt >= 0x7fff)
+    { rng->count[0x7fff] += 1;
+      rng->max_inst += cnt;
+      cnt = 0x7fff;
+    }
+  else
+    rng->count[cnt] += 1;
+
+  for (k = KMER_BYTES; k < asize; k += RSIZE)
+    *((uint16 *) (array + k)) = cnt;
+
+  for (k = RSIZE-1; k < asize; k += RSIZE)
+    khist[array[k]] += 1;
+
+  *array = 1;
+}
+
 void Weighted_Kmer_Sort(uint8 *array, int64 nelem, int rsize, int ksize,
                         int64 *part, int nthreads, Range *panel)
 { if (DO_PROFILE)
     COUNT = invert_kmers;
   else
     COUNT = hist_kmers;
+  INIT_COUNTS = 1;
   return (msd_sort(array,nelem,rsize,ksize,part,nthreads,panel));
 }

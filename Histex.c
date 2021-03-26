@@ -15,7 +15,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = " [-uAG] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
+static char *Usage = " [-kAG] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
 
 int main(int argc, char *argv[])
 { Histogram *H;
@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("uAG")
+            ARG_FLAGS("kAG")
             break;
           case 'h':
             HIST_SET = 1;
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
     argc = j;
 
     ASCII  = flags['A'];
-    UNIQUE = flags['u'];
+    UNIQUE = 1-flags['k'];
     GSCOPE = flags['G'];
     if (HIST_HGH > 0x7fff)
       HIST_HGH = 0x7fff;
