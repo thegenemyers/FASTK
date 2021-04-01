@@ -94,8 +94,8 @@ int main(int argc, char *argv[])
       }
 
     if (GSCOPE)
-      { if (ASCII || UNIQUE)
-          fprintf(stderr,"%s: Warning, -G overrides both -A and -u flags\n",Prog_Name);
+      { if (ASCII || !UNIQUE)
+          fprintf(stderr,"%s: Warning, -G overrides both -A and -k flags\n",Prog_Name);
         ASCII = UNIQUE = 1;
         if (HIST_LOW != 1)
           fprintf(stderr,"%s: Warning: -G forces histogram range to start at 1\n",Prog_Name);

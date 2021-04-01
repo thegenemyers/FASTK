@@ -136,7 +136,7 @@ static int64 *get_dazz_offsets(FILE *idx, int64 *zsize);
 
 static void Fetch_File(char *arg, File_Object *input, int gz_ok)
 { static char *suffix[] = { ".cram", ".bam", ".sam", ".db", ".dam",
-                            ".fastq", ".fasta", ".fq", ".fq",
+                            ".fastq", ".fasta", ".fq", ".fa",
                             ".fastq.gz", ".fasta.gz", ".fastq", ".fasta",
                             ".fq.gz",  ".fa.gz", ".fq", ".fa" };
   static char *extend[] = { ".cram", ".bam", ".sam", ".db", ".dam",
