@@ -145,7 +145,7 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
                             ".fq.gz",  ".fa.gz", ".fq.gz", ".fa.gz" };
 
   struct stat stats;
-  char  *pwd, *root, *path;
+  char  *pwd, *root, *path, *temp;
   int    fid, i;
   int64  fsize, zsize, *zoffs;
   int    ftype, zipd;
@@ -190,8 +190,11 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
       else
         { if (VERBOSE)
             fprintf(stderr,"  Gzipped file %s being temporarily uncompressed\n",arg);
-          system(Catenate("gunzip -k ",path,"",""));
-          path[strlen(path)-3] = '\0';
+          temp = Strdup(Catenate(SORT_PATH,"/",root,extend[i]),"Allocating full path name");
+          temp[strlen(temp)-3] = '\0';
+          system(Catenate("gunzip -c ",path," >",temp));
+          free(path);
+          path = temp;
           zipd  = 0;
           if (lstat(path,&stats) == -1)
             { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,path);
