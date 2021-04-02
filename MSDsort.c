@@ -30,8 +30,8 @@ static char *fmer[256], _fmer[1280];
 #define THR0 15
 #define THR1 15
 #define THR2  8
-#define GAP1  7
-#define GAP2  3
+#define GAP1  9
+#define GAP2  4
 
 static int S_thr0, S_thr1, S_thr2;
 static int S_gap1, S_gap2;
@@ -119,7 +119,7 @@ static inline void shell_sort(uint8 *array, int asize, int digit, Range *rng)
 
   j = 0; 
   for (i = RSIZE; i < asize; i += RSIZE)
-    if (mycmp(garray+j,array+i,cmp) != 0)
+    if (mycmp(garray+j,garray+i,cmp) != 0)
       { COUNT(array+j,i-j,rng);
         j = i;
       }

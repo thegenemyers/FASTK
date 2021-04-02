@@ -19,7 +19,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = "[-g<int>:<int>] <source>[.ktab]";
+static char *Usage = " -H [-g<int>:<int>] <source>[.ktab]";
 
 /****************************************************************************************
  *
@@ -28,6 +28,7 @@ static char *Usage = "[-g<int>:<int>] <source>[.ktab]";
  *****************************************************************************************/
 
 #define  COUNT_OF(p) (*((uint16 *) (p+kbyte)))
+#define  ID_PTR(p)   ((uint32 *) (p+kbyte))
 
 static char dna[4] = { 'a', 'c', 'g', 't' };
 
@@ -285,7 +286,175 @@ void Find_Haplo_Pairs(Kmer_Stream *T)
         }
     }
 }
-          
+
+void Find_Haplo_Pairs2(Kmer_Stream *T)
+{ int    kmer  = T->kmer;
+  int    tbyte = T->tbyte;
+  int    kbyte = T->kbyte;
+  int    ibyte = tbyte + 2;
+
+  int    khalf;
+  uint8  prefs[] = { 0x3f, 0x0f, 0x03, 0x00 };
+  int    mask, offs, rem;
+
+  uint8 *nptr;
+  uint8 *cache, *cptr, *ctop;
+
+  int    f, i;
+  int    index[4];
+  uint8 *finger[4];
+  uint8 *flimit[4];
+
+  int    a, advn[4];
+  int    c, good[4];
+  int    mc, hc;
+  uint8 *mr, *hr;
+
+  int    ictr;
+
+  setup_fmer_table();
+
+  khalf = kmer/2;
+  mask  = prefs[khalf&0x3]; 
+  offs  = (khalf >> 2) + 1;
+  rem   = ((kmer+3) >> 2) - offs;
+
+#ifdef DEBUG_PARTITION
+  printf("Extension = K[%d]&%02x . K[%d..%d)\n",offs-1,mask,offs,offs+rem);
+#endif
+
+  cache = Malloc(4097*ibyte,"Allocating entry buffer");
+  cptr  = cache;
+  ctop  = cache + 4096*ibyte;
+
+  ictr = 0;
+  First_Kmer_Entry(T);
+  while (T->csuf != NULL)
+    { f = 0;
+      cptr = cache;
+      index[f++] = 0;
+      Current_Entry(T,cptr);
+      nptr = cptr+ibyte;
+      for (Next_Kmer_Entry(T); T->csuf != NULL; Next_Kmer_Entry(T))
+        { int x = mypref(cptr,Current_Entry(T,nptr),khalf); 
+          if (x < khalf)
+            break;
+          if (x == khalf)
+            index[f++] = nptr-cache;
+          if (nptr >= ctop)
+            { int64 cidx = ctop-cache;
+              int64 cmax = ((cidx*14)/(10*ibyte) + 2048)*ibyte; 
+              cache = Realloc(cache,cmax+ibyte,"Reallocting entry buffer");
+              ctop  = cache + cmax;
+              nptr  = cache + cidx;
+            }
+          cptr = nptr;
+          nptr = cptr+ibyte;
+        }
+
+#ifdef DEBUG_PARTITION
+      printf("part %d",f);
+      for (i = 0; i < f; i++)
+        printf(" %d",index[i]/ibyte);
+      printf(" %ld\n",(nptr-cache)/ibyte);
+#endif
+
+      if (f <= 1)
+        continue;
+
+      for (i = 0; i < f; i++)
+        finger[i] = cache + index[i];
+      for (i = 1; i < f; i++)
+        flimit[i-1] = finger[i];
+      flimit[f-1] = nptr;
+
+#define ADD(i)					\
+{ int cn = COUNT_OF(finger[i]);			\
+  advn[a++] = i;				\
+  if (HAPLO_LOW <= cn && cn <= HAPLO_HGH)	\
+    good[c++] = i;				\
+}
+
+#define SET(i)	\
+{ mc = hc;	\
+  mr = hr;	\
+  a = c = 0;	\
+  ADD(i);	\
+}
+
+      while (1)
+        { for (i = 0; i < f; i++)
+            if (finger[i] < flimit[i])
+              break;
+          if (i >= f)
+            break;
+          hr = finger[i]+offs;
+          hc = hr[-1] & mask;
+          SET(i);
+          for (i++; i < f; i++)
+            if (finger[i] < flimit[i])
+              { hr = finger[i]+offs;
+                hc = hr[-1] & mask;
+                if (hc == mc)
+                  { int v = mycmp(hr,mr,rem);
+                    if (v == 0)
+                      ADD(i)
+                    else if (v < 0)
+                      SET(i)
+                  }
+                else if (hc < mc)
+                  SET(i)
+              }
+
+#ifdef DEBUG_PARTITION
+          { int j;
+
+            j = 0;
+            for (i = 0; i < a; i++)
+              { printf(" %d",advn[i]);
+                if (j < c && advn[i] == good[j])
+                  { printf("+");
+                    j += 1;
+                  }
+              }
+            printf("\n");
+          }
+#endif
+
+          for (i = 0; i < a; i++)
+            *ID_PTR(finger[advn[i]]) = 0;
+
+          if (c > 1) 
+            { ictr += 4;
+              for (i = 0; i < c; i++)
+                { uint8 *fp = finger[good[i]];
+                  *ID_PTR(fp) = ictr | good[i];
+                }
+            }
+
+          for (i = 0; i < a; i++)
+            finger[advn[i]] += ibyte;
+
+#ifdef DEBUG_PARTITION
+          for (i = 0; i < f; i++)
+            printf(" %ld",(finger[i]-cache)/ibyte);
+          printf("\n");
+#endif
+        }
+
+      for (cptr = cache; cptr < nptr; cptr += ibyte)
+        { f = *ID_PTR(cptr); 
+          if (f > 0)
+            { printf(" %6d: %c ",f>>2,dna[f&0x2]);
+              print_hap(cptr,kmer,khalf);
+              printf("\n");
+            }
+        }
+    }
+
+  printf("A total of %d hetero-sites found\n",ictr>>2);
+}
+
 
 /****************************************************************************************
  *
@@ -295,6 +464,7 @@ void Find_Haplo_Pairs(Kmer_Stream *T)
 
 int main(int argc, char *argv[])
 { Kmer_Stream *T;
+  int FOR_HAYNES;
 
   { int    i, j, k;
     int    flags[128];
@@ -312,7 +482,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("")
+            ARG_FLAGS("H")
             break;
           case 'g':
             HAPLO_LOW = strtol(argv[i]+2,&eptr,10);
@@ -345,6 +515,8 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
+    FOR_HAYNES = flags['H'];
+
     if (argc != 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
@@ -359,7 +531,10 @@ int main(int argc, char *argv[])
       exit (1);
     }
 
-  Find_Haplo_Pairs(T);
+  if (FOR_HAYNES)
+    Find_Haplo_Pairs2(T);
+  else
+    Find_Haplo_Pairs(T);
 
   Free_Kmer_Stream(T);
 
