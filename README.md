@@ -8,14 +8,12 @@
   - [FastK](#fastk)
   - [Fastrm, Fastcp, & Fastmv](#fastrm)
 
-- [Sample Applications](#sample-applications)
+- [Core Applications](#sample-applications)
   - [Histex](#histex): Display a FastK histogram
   - [Tabex](#tabex): List, Check, or find a k&#8209;mer in a FastK table
   - [Profex](#profex): Display a FastK profile
   - [Logex](#logex): Combine kmer,count tables with logical expressions & filter with count cutoffs
   - [Vennex](#vennex): Produce histograms for the Venn diagram of 2 or more tables
-  - [Haplex](#haplex): Find k&#8209;mer pairs with a SNP in the middle
-  - [Homex](#homex): Estimate homopolymer error rates
 
 - [C-Library Interface](#c-library-interface)
   - [K-mer Histogram Class](#k-mer-histogram-class)
@@ -166,7 +164,7 @@ FastK is not working for k greater than roughly 128.  Again this is an unusually
 
 &nbsp;
 
-## Sample Applications
+## Core Applications
 
 <a name="histex"></a>
 ```
@@ -221,8 +219,6 @@ the remainder of the command line.  The index of the first read is 1 (not 0).
 ```
 4. Logex [-T<int(4)>] [-[hH][<int(1)>:]<int>] <name=expr> ... <source>[.ktab] ...
 ```
-
-*UNDER CONSTRUCTION*
 
 Logex takes one or more k&#8209;mer table "assignments" as its initial arguments and applies these to the ordered merge of the k&#8209;mer count tables that follow, each yielding a new k&#8209;mer tables with the assigned names, of the k&#8209;mers satisfying the logic of the associated expression along with counts computed per the "modulators" of the expression.  For example,
 `Logex 'AnB = A &. B' Tab1 Tab2` would produce a new table stub file AnB.ktab
@@ -316,76 +312,6 @@ default but may be specified with the -h option.
 
 It may interest one to observe that the command `Vennex Alpha Beta` is equivalent to the command
 `Logex -H100 'ALPHA.BETA=#A&B' 'ALPHA.beta=#A-B' 'alpha.BETA=#B-A' Alpha Beta` further illustrating the flexibility of the Logex command.
-
-<a name="haplex"></a>
-```
-6. Haplex [-g<int>:<int>] <source>[.ktab]
-```
-
-In a scan of \<source> identify all bundles of 2&#8209;4 k&#8209;mers that differ only in their
-middle base, i.e. the &lfloor;k/2&rfloor;<sup>th</sup> base.  If the &#8209;g option is
-given then only bundles where the count of each k&#8209;mer is in the specified integer
-range (inclusively) are reported.  Each bundle is output to the standard output with
-each k&#8209;mer followed by its count on a line and a blank line between bundles.  For example,
-
-```
-...
-
-cgatcctatcacttctaggaCccccatatgaatatagata 21
-cgatcctatcacttctaggaTccccatatgaatatagata 12
-
-cgatcctatctgtgcagattCccagcagcaccaataagaa 7
-cgatcctatctgtgcagattTccagcagcaccaataagaa 19
-
-cgatcctcaaccccggtgtgAgggtttgtttggccccgca 17
-cgatcctcaaccccggtgtgGgggtttgtttggccccgca 19
-
-cgatcctcacacttattcgaAcgctttttcggtactcgcc 18
-cgatcctcacacttattcgaCcgctttttcggtactcgcc 21
-cgatcctcacacttattcgaGcgctttttcggtactcgcc 8
-
-cgatcctcacactttttcgaCgctttttcggtactcgccc 30
-cgatcctcacactttttcgaTgctttttcggtactcgccc 26
-
-...
-```
-in response to <code>Haplex -h7:36 CB.ktab</code> where CB is a 50X HiFi data set of
-Cabernet Sauvignon.
-
-<a name="homex"></a>
-```
-7. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
-```
-In a scan of \<source> identify all k&#8209;mers that contain a homopolymer straddling the
-mid-point with count in the range given by the &#8209;g parameter.  Consider the k&#8209;mers with
-one extra or one less homopolymer base aded to the right end of the homopolymer.  If
-those k&#8209;mers have count no more than &#8209;e they they are considered homopolymer errors.
-The total # of correct and erroneous homopolymer instances for each puridine and pyrimidine and of each length up to 10 is collected and reported.  For example,
-<code>Homex -e6 -g10:60 CB.ktab</code> where CB is a 50X HiFi data set of
-Cabernet Sauvignon, the following table is output (in about a minute).
-
-```
-              -1      Good          +1      Error Rate
-  2 at:    1083037 1444004873    1354886 -> 0.2%
-  3 at:    2280582  544204150    1342588 -> 0.7%
-  4 at:    2967419  231095068    1234288 -> 1.8%
-  5 at:    2376973   87922494    1025822 -> 3.7%
-  6 at:    1290169   29863257     587888 -> 5.9%
-  7 at:     704839   11839930     368393 -> 8.3%
-  8 at:     411238    5250289     217606 -> 10.7%
-  9 at:     244298    2493850     129673 -> 13.0%
- 10 at:     189475    1603996      98766 -> 15.2%
-
-  2 cg:    1023595  764923391     626469 -> 0.2%
-  3 cg:    1092236  168190300     307076 -> 0.8%
-  4 cg:     608471   33793608     115702 -> 2.1%
-  5 cg:     257885    7252509      45142 -> 4.0%
-  6 cg:      84391    1570406      16852 -> 6.1%
-  7 cg:      22940     351055       6788 -> 7.8%
-  8 cg:       3655      49731       1563 -> 9.5%
-  9 cg:       1369      15226        719 -> 12.1%
- 10 cg:       1167      11200        751 -> 14.6%
-```
 
 &nbsp;
 
@@ -822,4 +748,4 @@ If the 2 highest order bits of the current byte are zero, then the next x+1 coun
 same as the most recent count, where x is the lower 6-bits interpreted as an unsigned integer.
 If the 2 highest order bit of the current byte are 01, then the remaining 6 bits are interpreted
 as a *1's complement* integer and the difference is one more or less than said value depending
-on the sign.  The single byte encoding is used whenever possible.
+on the sign.  The single byte encoding is used whenever possible.-
