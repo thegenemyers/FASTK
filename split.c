@@ -1036,7 +1036,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   int        m, n, b, y, o;
   int        last;
   int        nfst, nlst;
-  int        plst,pfst;
+  int        plst, pfst = 0;
 
   int        pref, *prep = &pref;
   Min_File  *trg;
@@ -1706,7 +1706,7 @@ static void *distribute_table(void *arg)
   int    ibps, ishft;
 
   int    lstpre;
-  uint8  lstb[3];
+  uint8  lstb[3] = { 0, 0, 0 };
   uint64 lstmc, lstc, lstu;
 
   int64 nxtkmr, pct1;

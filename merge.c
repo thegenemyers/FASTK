@@ -106,7 +106,7 @@ static void *merge_profile_thread(void *arg)
 
   FILE *nfile;  //  Invalid k-mers file
   int64 iridx;
-  int   ileng, ilast;
+  int   ileng, ilast = 0;
 
   int64  pct1, partin, nextin;
   int    CLOCK;

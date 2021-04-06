@@ -1205,7 +1205,7 @@ int main(int argc, char *argv[])
     TP        parm[NTHREADS];
     FILE    **out[NTHREADS];
     int64    *prefx[nass];
-    int       ixlen;
+    int       ixlen = 0;
     char     *seq;
     uint8    *ent;
     int       t, a, i;

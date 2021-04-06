@@ -578,7 +578,7 @@ static void *fast_output_thread(void *arg)
 
   File_Object *inp;
   int          f, fid;
-  gzFile       gzid;
+  gzFile       gzid = NULL;
   int64        blk, off;
   int64        epos, eblk, eoff;
   int64        totread;
