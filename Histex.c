@@ -89,7 +89,7 @@ int main(int argc, char *argv[])
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -h: Output histogram of counts in range given\n");
-        fprintf(stderr,"      -u: Output histogram of unique k-mer counts (vs. instances)\n");
+        fprintf(stderr,"      -k: Output histogram of k-mer instance counts (vs. unique k-mers)\n");
         exit (1);
       }
 

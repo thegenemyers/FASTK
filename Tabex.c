@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
 
     ARG_INIT("Tabex");
 
-    CUT = 1;
+    CUT = 0;
 
     j = 1;
     for (i = 1; i < argc; i++)
