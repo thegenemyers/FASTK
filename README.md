@@ -313,6 +313,18 @@ default but may be specified with the -h option.
 It may interest one to observe that the command `Vennex Alpha Beta` is equivalent to the command
 `Logex -H100 'ALPHA.BETA=#A&B' 'ALPHA.beta=#A-B' 'alpha.BETA=#B-A' Alpha Beta` further illustrating the flexibility of the Logex command.
 
+```
+6. Haplex [-g<int>:<int>] <source>[.ktab]
+```
+
+**Deprecated**.  Code is still available but no longer maintained.
+
+```
+7. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
+```
+
+**Deprecated**.  Code is still available but no longer maintained.
+
 &nbsp;
 
 &nbsp;
