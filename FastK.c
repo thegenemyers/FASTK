@@ -307,7 +307,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -M: Use -M GB of memory in downstream sorting steps of KMcount.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -k: k-mer size.\n");
-        fprintf(stderr,"      -t: Produce table of sorted k-mer & counts >= level specified\n");
+        fprintf(stderr,"      -t: Produce table of sorted k-mers & counts >= level specified\n");
         fprintf(stderr,"      -p: Produce sequence count profiles (w.r.t. table if given)\n");
         fprintf(stderr,"     -bc: Ignore prefix of each read of given length (e.g. bar code)\n");
         fprintf(stderr,"      -c: Homopolymer compress every sequence\n");

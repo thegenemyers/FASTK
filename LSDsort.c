@@ -24,8 +24,8 @@
 typedef unsigned char uint8;
 typedef long long     int64;
 
-#undef  TEST_LSORT
-#define CHECK_SORT
+#undef  TEST_SORT
+#undef  CHECK_SORT
 
 static int    RSIZE;    //  Span between records
 
@@ -225,7 +225,7 @@ void *LSD_Sort(int64 nelem, void *src, void *trg, int rsize, int *bytes)
       LEX_src = LEX_trg;
       LEX_trg = xch;
 
-#ifdef TEST_LSORT
+#ifdef TEST_SORT
       { int64  c;
         uint8 *psort = LEX_src-RSIZE;
 
@@ -236,9 +236,14 @@ void *LSD_Sort(int64 nelem, void *src, void *trg, int rsize, int *bytes)
               printf(" %02x",LEX_src[c+j]);
             printf("\n");
           }
+      }
 #endif
 
-#ifdef CHECK_LSORT
+#ifdef CHECK_SORT
+      { int64  c;
+        uint8 *psort = LEX_src-RSIZE;
+
+        printf("\nLSORT %d\n",LEX_byte);
         for (c = RSIZE; c < asize; c += RSIZE)
           { for (j = b; j >= 0; j--)
               if (LEX_src[c+bytes[j]] > psort[c+bytes[j]])

@@ -602,12 +602,13 @@ static void *merge_profile_thread(void *arg)
   data->nreads = nreads;
 
   fclose(nfile);
-  free(fname);
 
 #ifndef DEVELOPER
   sprintf(fname,"%s.NS.T%d",data->root,data->wch);
   unlink(fname);
 #endif
+
+  free(fname);
 
   if (CLOCK)
     fprintf(stderr,"\r         \r");

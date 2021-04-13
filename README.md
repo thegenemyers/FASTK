@@ -760,4 +760,4 @@ If the 2 highest order bits of the current byte are zero, then the next x+1 coun
 same as the most recent count, where x is the lower 6-bits interpreted as an unsigned integer.
 If the 2 highest order bit of the current byte are 01, then the remaining 6 bits are interpreted
 as a *1's complement* integer and the difference is one more or less than said value depending
-on the sign.  The single byte encoding is used whenever possible.-
+on the sign.  The single byte encoding is used whenever possible.
