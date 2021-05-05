@@ -990,6 +990,7 @@ static inline IO_UTYPE *Stuff_Seq(char *s, int len, IO_UTYPE *buf, int *bitp, in
 
 typedef struct
   { int       stream;      //  Open stream
+    char     *sname;       //  File name for stream
     int64     kmers;       //  Number of k-mers
     int64     nmers;       //  Numer of super-mers
     int64     fours[256];  //  fours[i] = Count of canonical super-mers with first byte i
@@ -1006,8 +1007,9 @@ static int64     *nfirst;   //  # of super-mers generated so far
 static int       *nmbits;   //  # of bits currently being used for super-mer indices (if -p)
 static int       *totrds;   //  # of reads processed
 static int64     *totbps;   //  # of bps processed
-static int        short_read;  //   There was at least one read < KMER (after prefix removal)
+static int    short_read;   //   There was at least one read < KMER (after prefix removal)
 static FILE     **nstream;  //  Thread file for invalid intervals
+static char     **nname;    //  Thread file name for invalid intervals
 
 void Distribute_Block(DATA_BLOCK *block, int tid)
 { int    nreads  = block->nreads;
@@ -1043,6 +1045,12 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
   IO_UTYPE  *ptr;
   int       *bit;
 
+#if defined(SHOW_PACKETS)
+  int rbase = totrds[tid];
+  if (DO_PROFILE)
+    printf("Index at %lld (%d/%lld)\n",nidx,nbits,nlim);
+#endif
+
   if (block->rem > 0)
     { totrds[tid] += nreads-1;
       totbps[tid] += block->totlen - (KMER-1);
@@ -1052,10 +1060,6 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
       totbps[tid] += block->totlen;
     }
 
-#if defined(SHOW_PACKETS)
-  if (DO_PROFILE)
-    printf("Index at %lld (%d/%lld)\n",nidx,nbits,nlim);
-#endif
 
   trg = out; 
   ptr = trg->bptrs;
@@ -1074,13 +1078,13 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
         { nidx += 1;
 #ifdef SHOW_PACKETS
           if (PACKET < 0)
-            printf("READ %d %lld\n  %6lld:   EMPTY\n",i+1,nidx-1,nidx-1);
+            printf("READ %d %lld\n  %6lld:   EMPTY\n",rbase+(i+1),nidx-1,nidx-1);
 #endif
           continue;
         }
 
 #if defined(DEBUG_DISTRIBUTE) || defined(SHOW_PACKETS)
-      printf("READ %d %lld\n",i+1,nidx);
+      printf("READ %d %lld\n",rbase+(i+1),nidx);
       fflush(stdout);
 #endif
       m  = 0;
@@ -1159,7 +1163,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
 #endif
 
               if (nlst >= last)
-                { if (nlst < p)
+                { if (nlst <= p)
                     { last = nlst;
                       if (DO_PROFILE)
                         { for (nlst -= MAX_NRUN; nfst < nlst; nfst += MAX_NRUN)
@@ -1174,7 +1178,11 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                             }
                           nlst = (MAX_NRUN+nlst)-nfst;
                           fwrite(&nidx,sizeof(int64),1,nstr);
-                          fwrite(&nlst,sizeof(int),1,nstr);
+                          if (fwrite(&nlst,sizeof(int),1,nstr) < 0)
+                            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                             Prog_Name,nname[tid]);
+                              exit (1);
+                            }
 #ifdef SHOW_PACKETS
                           if (PACKET < 0)
                             printf("   %6lld: %5d/%2d: %.*s  N-packet (%d)\n",
@@ -1201,7 +1209,11 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                                 }
                               plst = (MAX_NRUN+plst)-pfst;
                               fwrite(&nidx,sizeof(int64),1,nstr);
-                              fwrite(&plst,sizeof(int),1,nstr);
+                              if (fwrite(&plst,sizeof(int),1,nstr) != 1)
+                                { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                                 Prog_Name,nname[tid]);
+                                  exit (1);
+                                }
 #ifdef SHOW_PACKETS
                               if (PACKET < 0)
                                 printf("   %6lld: %5d/%2d: %.*s  N!-packet (%d)\n",
@@ -1246,7 +1258,11 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                           ptr = Stuff_Int(tlim,tbits,ptr,bit);
                           if (ptr >= trg->data)
                             { IO_UTYPE *start = trg->data - IO_BUF_LEN;
-                              write(trg->stream,start,IO_UBYTES*(ptr-start));
+                              if (write(trg->stream,start,IO_UBYTES*(ptr-start)) < 0)
+                                { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                                 Prog_Name,trg->sname);
+                                  exit (1);
+                                }
                               *start = *ptr;
                               ptr = start;
                             }
@@ -1262,21 +1278,23 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                   else
                     { ptr = Stuff_Seq(r+last,n,ptr,bit,flp[m & MOD_MSK],prep);
                       trg->fours[pref] += 1;
-if (pref < 0 || pref > 255)
-  printf("Out of bounds %d (%d / %d)\n",pref,i,p);
                     }
 
 #ifdef SHOW_PACKETS
                   if (PACKET < 0 || b == PACKET)
-                    printf("   %6lld: %5d/%2d: %.*s[%c,%02x]\n",
-                           nidx,last,n,n,r+last,flp[m & MOD_MSK]?'-':'+',pref);
+                    printf("   %6lld: %5d/%2d: %.*s[%c,%02x] %d\n",
+                           nidx,last,n,n,r+last,flp[m & MOD_MSK]?'-':'+',pref,b);
                   fflush(stdout);
 #endif
 
                   nidx += 1;
                   if (ptr >= trg->data)
                     { IO_UTYPE *start = trg->data - IO_BUF_LEN;
-                      write(trg->stream,start,IO_UBYTES*(ptr-start));
+                      if (write(trg->stream,start,IO_UBYTES*(ptr-start)) < 0)
+                        { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                         Prog_Name,trg->sname);
+                          exit (1);
+                        }
                       *start = *ptr;
                       ptr = start;
                     }
@@ -1319,7 +1337,7 @@ if (pref < 0 || pref > 255)
 #endif
         }
 
-      if (p == q)
+      if (p == q && nlst != q)
         { x = 'a';
           mp = mc;
           force = 1;
@@ -1343,7 +1361,11 @@ if (pref < 0 || pref > 255)
               if (i < nreads-1 || block->rem == 0)
                 nidx |= 0x8000000000000000ll;
               fwrite(&nidx,sizeof(int64),1,nstr);
-              fwrite(&nlst,sizeof(int),1,nstr);
+              if (fwrite(&nlst,sizeof(int),1,nstr) != 1)
+                { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                 Prog_Name,nname[tid]);
+                  exit (1);
+                }
               nidx &= 0x7fffffffffffffffll;
 #ifdef SHOW_PACKETS
               if (PACKET < 0)
@@ -1403,7 +1425,8 @@ void Split_Kmers(Input_Partition *io, char *root)
   out     = (Min_File *) Malloc(nfiles*sizeof(Min_File),"Allocating buffers");
   buffers = (IO_UTYPE *) Malloc(nfiles*overflow*IO_UBYTES,"Allocating buffers");
   nstream = (FILE **) Malloc(ITHREADS*sizeof(FILE *),"Allocating buffer");
-  if (out == NULL || buffers == NULL || nstream == NULL)
+  nname   = (char **) Malloc(ITHREADS*sizeof(char *),"Allocating buffer");
+  if (out == NULL || buffers == NULL || nstream == NULL || nname == NULL)
     exit (1);
 
   if (VERBOSE)
@@ -1435,6 +1458,9 @@ void Split_Kmers(Input_Partition *io, char *root)
             }
 
           out[p].stream = f;
+          out[p].sname  = Strdup(fname,"Allocating stream name");
+          if (out[p].sname == NULL)
+            exit (1);
           out[p].kmers  = 0;
           out[p].nmers  = 0;
           for (i = 0; i < 256; i++)
@@ -1454,7 +1480,10 @@ void Split_Kmers(Input_Partition *io, char *root)
 #endif
           write(f,zero,sizeof(int64));
           write(f,zero,sizeof(int64));
-          write(f,out[p].fours,sizeof(int64)*256);
+          if (write(f,out[p].fours,sizeof(int64)*256) < 0)
+            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+              exit (1);
+            }
           p += 1;
         }
 
@@ -1467,6 +1496,9 @@ void Split_Kmers(Input_Partition *io, char *root)
                              Prog_Name,SORT_PATH);
               exit (1);
             }
+          nname[t] = Strdup(fname,"Allocating stream name");
+          if (nname[t] == NULL)
+            exit (1);
         }
 
     free(fname);
@@ -1616,7 +1648,9 @@ void Split_Kmers(Input_Partition *io, char *root)
 
     if (DO_PROFILE)
       for (t = 0; t < ITHREADS; t++)
-        fclose(nstream[t]);
+        { fclose(nstream[t]);
+          free(nname[t]);
+        }
 
     p = 0;
     for (t = 0; t < ITHREADS; t++)
@@ -1639,8 +1673,13 @@ void Split_Kmers(Input_Partition *io, char *root)
 #endif
           write(f,&(out[p].kmers),sizeof(int64));
           write(f,&(out[p].nmers),sizeof(int64));
-          write(f,out[p].fours,sizeof(int64)*256);
+          if (write(f,out[p].fours,sizeof(int64)*256) < 0)
+            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                             Prog_Name,out[p].sname);
+              exit (1);
+            }
           close(f);
+          free(out[p].sname);
           p += 1;
         }
   }
@@ -1650,6 +1689,7 @@ void Split_Kmers(Input_Partition *io, char *root)
 #else
   NUM_RID = nfirst;
 #endif
+  free(nname);
   free(nstream);
   free(buffers);
   free(out);
@@ -1670,6 +1710,7 @@ void Split_Kmers(Input_Partition *io, char *root)
 
 typedef struct
   { int       stream;     //  Open stream
+    char     *sname;      //  File name for stream
     uint8    *data;       //  Start of buffer
     uint8    *ptr;        //  Current buffer fill pointer
     uint8    *end;        //  End of buffer
@@ -1853,7 +1894,10 @@ static void *distribute_table(void *arg)
       trg = out + b;
       ptr = trg->ptr;
       if (ptr >= trg->end)
-        { write(trg->stream,trg->data,ptr-trg->data);
+        { if (write(trg->stream,trg->data,ptr-trg->data) < 0)
+            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,trg->sname);
+              exit (1);
+            }
           ptr = trg->data;
         }
 
@@ -1930,6 +1974,9 @@ void Split_Table(char *root)
             }
 
           out[p].stream = f;
+          out[p].sname  = Strdup(fname,"Allocating stream name");
+          if (out[p].sname == NULL)
+            exit (1);
           out[p].data   = buffers + p*bufsize;
           out[p].ptr    = out[p].data;
           out[p].end    = out[p].data + bufsize;
@@ -1937,7 +1984,10 @@ void Split_Table(char *root)
           bzero(out[p].index,sizeof(int64)*256);
 
           write(f,zero,sizeof(int));
-          write(f,zero,sizeof(int64));
+          if (write(f,zero,sizeof(int64)) < 0)
+            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+              exit (1);
+            }
           p += 1;
         }
   }
@@ -2003,7 +2053,11 @@ void Split_Table(char *root)
             write(f,out[p].data,out[p].ptr-out[p].data);
           lseek(f,0,SEEK_SET);
           write(f,&PRO_TABLE->kmer,sizeof(int));
-          write(f,&(out[p].kmers),sizeof(int64));
+          if (write(f,&(out[p].kmers),sizeof(int64)) < 0)
+            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                             Prog_Name,out[p].sname);
+              exit (1);
+            }
           close(f);
           p += 1;
         }
@@ -2047,7 +2101,10 @@ void Split_Table(char *root)
         write(f,&NTHREADS,sizeof(int));
         write(f,&PRO_TABLE->minval,sizeof(int));
         write(f,&one,sizeof(int));
-        write(f,out[n].index,sizeof(int64)*257);
+        if (write(f,out[n].index,sizeof(int64)*257) < 0)
+          { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+            exit (1);
+          }
         close(f);
       }
 

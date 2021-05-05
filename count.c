@@ -556,7 +556,8 @@ typedef struct
     int       beg;
     int       end;
     int64     off;
-    int       kfile;        // used by table_write_threaad
+    int       kfile;
+    char     *kname;
     int64     tmers;
   } Twrite_Arg;
 
@@ -586,7 +587,11 @@ static void *table_write_thread(void *arg)
           lptr += KMER_WORD;
         if (ct >= DO_TABLE)
           { if (fill >= bend)
-              { write(kfile,bufr,fill-bufr);
+              { if (write(kfile,bufr,fill-bufr) < 0)
+                  { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                   Prog_Name,data->kname);
+                    exit (1);
+                  }
                 fill = bufr;
               }
 
@@ -601,7 +606,10 @@ static void *table_write_thread(void *arg)
           }
       }
   if (fill > bufr)
-    write(kfile,bufr,fill-bufr);
+    if (write(kfile,bufr,fill-bufr) < 0)
+      { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,data->kname);
+        exit (1);
+      }
 
   data->tmers = tmer;
   return (NULL);
@@ -1070,14 +1078,20 @@ static void *profile_write_thread(void *arg)
               write(pfile,&PLEN_BYTES,sizeof(int));
               write(pfile,&MAX_SUPER,sizeof(int));
             }
-          write(pfile,&data->nidxs,sizeof(int64));
+          if (write(pfile,&data->nidxs,sizeof(int64)) < 0)
+            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+              exit (1);
+            }
         }
 #endif
 
       fill = bufr;
       while (psort < next)
         { if (fill >= bend)
-            { write(pfile,bufr,fill-bufr);
+            { if (write(pfile,bufr,fill-bufr) < 0)
+                { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+                  exit (1);
+                }
               fill = bufr;
             }
 
@@ -1154,7 +1168,11 @@ static void *profile_write_thread(void *arg)
           for (k = 0; k < len; k++)
             *fill++ = *prof++;
         }
-      write(pfile,bufr,fill-bufr);
+
+      if (write(pfile,bufr,fill-bufr) < 0)
+        { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+          exit (1);
+        }
       close(pfile);
     }
 
@@ -1563,11 +1581,18 @@ void Sorting(char *path, char *root)
                   parmt[t].end = 256;
                 sprintf(fname,"%s/%s.%d.L%d",SORT_PATH,root,p,t);
                 parmt[t].kfile = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
+                parmt[t].kname = Strdup(fname,"Allocating stream name");
+                if (parmt[t].kname == NULL)
+                  exit (1);
               }
 #ifdef DEVELOPER
             if (p == NPARTS-1)
               { int zero = 0;
-                write(parmt[0].kfile,&zero,sizeof(int));
+                if (write(parmt[0].kfile,&zero,sizeof(int)) < 0)
+                  { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                   Prog_Name,parmt[0].kname);
+                    exit (1);
+                  }
               }
 #endif
 
@@ -1594,12 +1619,18 @@ void Sorting(char *path, char *root)
                   IDX_BYTES = 1;
 #ifdef DEVELOPER
                 lseek(parmt[0].kfile,0,SEEK_SET);
-                write(parmt[0].kfile,&IDX_BYTES,sizeof(int));
+                if (write(parmt[0].kfile,&IDX_BYTES,sizeof(int)) < 0)
+                  { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                   Prog_Name,parmt[0].kname);
+                    exit (1);
+                  }
 #endif
               }
  
             for (t = 0; t < NTHREADS; t++)
-              close(parmt[t].kfile);
+              { free(parmt[t].kname);
+                close(parmt[t].kfile);
+              }
           }
 
         if (! DO_PROFILE)
@@ -1854,7 +1885,10 @@ void Sorting(char *path, char *root)
       write(f,&i,sizeof(int));
       write(f,counts+1,sizeof(int64));
       write(f,&max_inst,sizeof(int64));
-      write(f,counts+1,0x7fff*sizeof(int64));
+      if (write(f,counts+1,0x7fff*sizeof(int64)) < 0)
+        { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+          exit (1);
+        }
       close(f);
     }
 

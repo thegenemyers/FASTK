@@ -148,6 +148,7 @@ typedef struct
   { IO_block **heap;    //  heap of (read,post) items
     IO_block  *in;      //  input & output buffers
     IO_block  *out;
+    char      *oname;
     int        id;
     int64      tsize;   //  output table size in bytes
   } Track_Arg;
@@ -163,6 +164,7 @@ static void *merge_table_thread(void *arg)
   IO_block   **heap  = data->heap;
   IO_block    *in    = data->in;
   IO_block    *out   = data->out;
+  char        *oname = data->oname;
 
   int    afile;
   int64  anum;
@@ -210,8 +212,12 @@ static void *merge_table_thread(void *arg)
   //  Fill output file prolog (rewind & complete at end)
 
   anum = 0;
+
   write(afile,&KMER,sizeof(int));
-  write(afile,&anum,sizeof(int64));
+  if (write(afile,&anum,sizeof(int64)) < 0)
+    { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,oname);
+      exit (1);
+    }
 
   //  Initialize the heap
 
@@ -259,7 +265,10 @@ static void *merge_table_thread(void *arg)
           printf("Write %d bytes\n",c);
 #endif
           anum += c;
-          write(afile,abuf,c);
+          if (write(afile,abuf,c) < 0)
+            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,oname);
+              exit (1);
+            }
           aptr = abuf;
           if (CLOCK && anum > nextin)
             { fprintf(stderr,"\r  %3d%%",(int) ((100.*anum)/totin));
@@ -309,7 +318,10 @@ static void *merge_table_thread(void *arg)
     { int c = aptr-abuf;
 
       anum += c;
-      write(afile,abuf,c);
+      if (write(afile,abuf,c) < 0)
+        { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,oname);
+          exit (1);
+        }
     }
 
   //  Set # of k-mers into output file prolog
@@ -318,7 +330,10 @@ static void *merge_table_thread(void *arg)
 
   anum /= PMER_WORD;
   lseek(afile,sizeof(int),SEEK_SET);
-  write(afile,&anum,sizeof(int64));
+  if (write(afile,&anum,sizeof(int64)) < 0)
+    { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,oname);
+      exit (1);
+    }
 
   if (CLOCK)
     fprintf(stderr,"\r         \r");
@@ -428,6 +443,9 @@ void Merge_Tables(char *path, char *root)
       parmk[t].heap  = heap + t*(NPARTS+1);
       parmk[t].in    = io + t*NPARTS + NTHREADS;
       parmk[t].id    = t;
+      parmk[t].oname = Strdup(fname,"Allocating stream name");
+      if (parmk[t].oname == NULL)
+        exit (1);
     }
 
   //  In parallel merge part-files for each thread
@@ -447,8 +465,10 @@ void Merge_Tables(char *path, char *root)
 
   p = 0;
   for (t = 0; t < NTHREADS; t++)
-    for (n = 0; n <= NPARTS; n++)
-      close(io[p++].stream);
+    { for (n = 0; n <= NPARTS; n++)
+        close(io[p++].stream);
+      free(parmk[t].oname);
+    }
 
 #ifndef DEVELOPER
   for (p = 0; p < NPARTS; p++)
@@ -475,7 +495,10 @@ void Merge_Tables(char *path, char *root)
     write(f,&NTHREADS,sizeof(int));
     write(f,&DO_TABLE,sizeof(int));
     write(f,&IDX_BYTES,sizeof(int));
-    write(f,pindex,sizeof(int64)*pidxlen);
+    if (write(f,pindex,sizeof(int64)*pidxlen) < 0)
+      { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+        exit (1);
+      }
 
     close(f);
   }

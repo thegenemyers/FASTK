@@ -76,7 +76,9 @@ typedef struct
     Entry    *chord;   //  super-mer profiles vector
     int       wch;     //  Number of this thread
     int       afile;   //  A-file output
+    char     *aname;
     int       dfile;   //  D-file output
+    char     *dname;
     int64     nreads;  //  # of reads seen by this thread
     int64     nbase;   //  First rid for thread
   } Track_Arg;
@@ -393,7 +395,9 @@ static void *merge_profile_thread(void *arg)
 
       { uint8 *o, *ptr;
         int64  p;
+        uint8  lz;
 
+        lz = 0;
         o = dbuf;
         for (n = 0, p = panel; p < nanel; n++, p++)
           { len = chord[n].len;
@@ -402,7 +406,11 @@ static void *merge_profile_thread(void *arg)
             if (len == 0)
               { if (iridx+nbase != p)           //  read < KMER bp long
                   { if (aptr >= atop)
-                      { write(afile,abuf,BUFLEN_IBYTE);
+                      { if (write(afile,abuf,BUFLEN_IBYTE) < 0)
+                          { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                           Prog_Name,data->aname);
+                            exit (1);
+                          }
                         aptr = abuf;
                       }
                     *aptr++ = offset + (o-dbuf);
@@ -415,57 +423,90 @@ static void *merge_profile_thread(void *arg)
                     nreads += 1;
                   }
                 else
-                  { 
+                  { if (wlast)
+                      { *o++ = 0;
+                        lz = 0;
 #ifdef SHOW_RUN
-                    if (wlast)
-                      printf("READ %d\n  %5d:: N=%d {0}",nreads,n,ileng);
-                    else
-                      printf("  %5d:: N=%d {0}",n,ileng);
+                        printf("READ %d\n  %5d:: N=%d {0} [%02x]",nreads,n,ileng,o[-1]);
 #endif
-
-                    if (wlast)
-                      *o++ = 0;
+                      }
                     else
                       { d = -lcont;
+#ifdef SHOW_RUN
+                        printf("  %5d:: N=%d {0}",n,ileng);
+#endif
                         if (d == 0)
-                          *o++ = 0x01;
-                        else if (d > 0xffe1 || d < 32)
-                          *o++ = 0x40 | (d & 0x3f);
+                          { lz += 1;
+                            if (lz >= 63)
+                              { *o++ = 63;
+                                lz = 0;
+#ifdef SHOW_RUN
+                                printf(" @");
+#endif
+                              }
+                          }
                         else
+                          { if (lz)
+                              { *o++ = lz;
+#ifdef SHOW_RUN
+                                printf(" %02x",lz);
+#endif
+                                lz = 0;
+                              }
+                            if (d > 0xffe1 || d < 32)
+                              { *o++ = 0x40 | (d & 0x3f);
+#ifdef SHOW_RUN
+                                printf(" %02x",o[-1]);
+#endif
+                              }
+                            else
 #if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
-                          { *o++ = db[1] | 0x80;
-                            *o++ = db[0];
+                              { *o++ = db[1] | 0x80;
+                                *o++ = db[0];
 #else
-                          { *o++ = db[0] | 0x80;
-                            *o++ = db[1];
+                              { *o++ = db[0] | 0x80;
+                                *o++ = db[1];
 #endif
 #ifdef SHOW_RUN
-                            printf("+");
+                                printf(" %02x.%02x",o[-2],o[-1]);
 #endif
+                              }
                           }
                       } 
 
                     if (ileng > 1)
-                      { for (ileng -= 1; ileng > 63; ileng -= 63)
-                          { *o++ = 0x3f;
+                      { ileng += lz;
+                        for (ileng -= 1; ileng >= 63; ileng -= 63)
+                          { *o++ = 63;
 #ifdef SHOW_RUN
-                            printf(" 0x3f");
+                            printf(" @");
 #endif
                           }
-                        *o++ = ileng;
+                        lz = ileng;
 #ifdef SHOW_RUN
-                        printf(" %02x {0}\n",o[-1]);
+                        printf(" {0} <%d>\n",lz);
 #endif
                       }
 #ifdef SHOW_RUN
                     else
-                      printf("\n");
+                      printf(" {0} <%d>\n",lz);
 #endif
                     lcont = 0;
 
                     if (ilast)
-                      { if (aptr >= atop)
-                          { write(afile,abuf,BUFLEN_IBYTE);
+                      { if (lz)
+                          { *o++ = lz;
+#ifdef SHOW_RUN
+                            printf("  TAILI:: %02x\n",lz);
+#endif
+                            lz = 0;
+                          }
+                        if (aptr >= atop)
+                          { if (write(afile,abuf,BUFLEN_IBYTE) < 0)
+                              { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                               Prog_Name,data->aname);
+                                exit (1);
+                              }
                             aptr = abuf;
                           }
                         *aptr++ = offset + (o-dbuf);
@@ -494,18 +535,16 @@ static void *merge_profile_thread(void *arg)
 
             d = *((uint16 *) ptr);
             ptr += 2;
-#ifdef SHOW_RUN
-            if (wlast)
-              printf("READ %d\n  %5d:: %3d: {%hu}",nreads,n,len,d);
-            else
-              printf("  %5d:: %3d: {%hd}",n,len,d);
-#endif
 
             //  If start of read then encode as absolute
 
             if (wlast)
               { if (d < 128)
-                  *o++ = d;
+                  { *o++ = d;
+#ifdef SHOW_RUN
+                    printf("READ %d\n  %5d:: %3d: {%hu} [%02x]",nreads,n,len,d,o[-1]);
+#endif
+                  }
                 else
 #if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
                   { *o++ = db[1] | 0x80;
@@ -515,53 +554,131 @@ static void *merge_profile_thread(void *arg)
                     *o++ = db[1];
 #endif
 #ifdef SHOW_RUN
-                    printf("+");
+                    printf("READ %d\n  %5d:: %3d: {%hu} [%02x.%02x]",nreads,n,len,d,o[-2],o[-1]);
 #endif
                   }
                 lcont = d;
+                lz = 0;
               }
 
             //  Otherwise encode 1st forward difference
 
             else
-              { d -= lcont;
+              {
+#ifdef SHOW_RUN
+                printf("  %5d:: %3d: {%hd}",n,len,d);
+#endif
+                d -= lcont;
                 if (d == 0)
-                  *o++ = 0x01;
-                else if (d > 0xffe1 || d < 32)
-                  *o++ = 0x40 | (d & 0x3f);
+                  { lz += 1;
+                    if (lz >= 63)
+                      { *o++ = 63;
+                        lz = 0;
+#ifdef SHOW_RUN
+                        printf(" @");
+#endif
+                      }
+                  }
                 else
+                  { if (lz)
+                      { *o++ = lz;
+#ifdef SHOW_RUN
+                        printf(" %02x",lz);
+#endif
+                        lz = 0;
+                      }
+                    if (d > 0xffe1 || d < 32)
+                      { *o++ = 0x40 | (d & 0x3f);
+#ifdef SHOW_RUN
+                        printf(" %02x",o[-1]);
+#endif
+                      }
+                    else
 #if __ORDER_LITTLE_ENDIAN__ == __BYTE_ORDER__
-                  { *o++ = db[1] | 0x80;
-                    *o++ = db[0];
+                      { *o++ = db[1] | 0x80;
+                        *o++ = db[0];
 #else
-                  { *o++ = db[0] | 0x80;
-                    *o++ = db[1];
+                      { *o++ = db[0] | 0x80;
+                        *o++ = db[1];
 #endif
 #ifdef SHOW_RUN
-                    printf("+");
+                        printf(" %02x.%02x",o[-2],o[-1]);
 #endif
-                  }
+                      }
+                  } 
                 lcont += d;
               } 
 
-            //  Transfer remainder of profile keeping track of absolute count
+            //  Transfer remainder of super-mer profile
           
             if (len > 2)
               { len -= 4;
-                memmove(o,ptr,len);
                 lcont = *((uint16 *) (ptr+len));
-#ifdef SHOW_RUN
-                { int u;
 
-                  for (u = 0; u < len; u++)
-                    printf(" %02x",ptr[u]);
-                  printf(" {%d}",lcont);
-                }
+                if (lz)
+                  { while (len > 0 && *ptr < 64)
+                      { lz += *ptr;
+                        if (lz >= 63)
+                          { *o++ = 63;
+#ifdef SHOW_RUN
+                            printf(" @");
 #endif
-                o += len;
-              }
+                            lz -= 63;
+                          }
+                        ptr += 1;
+                        len -= 1;
+                      }
+                  }
 
+                if (len > 0)
+                  { if (lz)
+                      { *o++ = lz;
 #ifdef SHOW_RUN
+                        printf(" %02x",lz);
+#endif
+                        lz = 0;
+                      }
+
+                    { int u, one;
+
+                      one = 1;
+                      for (u = 0; u < len; u++)
+                        if ((ptr[u] & 0x80) != 0)
+                          { one = 0;
+                            u += 1;
+                          }
+                        else
+                          one = 1;
+
+                      if (one)
+                        { lz = ptr[len-1];
+                          if (lz < 63)
+                            len -= 1;
+                          else
+                            lz = 0;
+                        }
+                    }
+
+                    memmove(o,ptr,len);
+#ifdef SHOW_RUN
+                    { int u;
+
+                      for (u = 0; u < len; u++)
+                        if ((ptr[u] & 0x80) != 0)
+                          { printf(" %02x.%02x",ptr[u],ptr[u+1]);
+                            u += 1;
+                          }
+                        else
+                          printf(" %02x",ptr[u]);
+                    }
+#endif
+                    o += len;
+                  }
+              }
+#ifdef SHOW_RUN
+            printf(" {%d}",lcont);
+            if (lz)
+              printf(" <%d>",lz);
             printf("\n");
 #endif
 
@@ -569,8 +686,19 @@ static void *merge_profile_thread(void *arg)
 
             wlast = chord[n].lst;
             if (wlast)
-              { if (aptr >= atop)
-                  { write(afile,abuf,BUFLEN_IBYTE);
+              { if (lz)
+                  { *o++ = lz;
+#ifdef SHOW_RUN
+                    printf("  TAILZ:: %02x\n",lz);
+#endif
+                    lz = 0;
+                  }
+                if (aptr >= atop)
+                  { if (write(afile,abuf,BUFLEN_IBYTE) < 0)
+                      { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                                       Prog_Name,data->aname);
+                        exit (1);
+                      }
                     aptr = abuf;
                   }
                 *aptr++ = offset + (o-dbuf);
@@ -580,7 +708,17 @@ static void *merge_profile_thread(void *arg)
 
         //  Write the merged, compressed profiles for the range
 
-        write(dfile,dbuf,o-dbuf);
+        if (lz)
+          { *o++ = lz;
+#ifdef SHOW_RUN
+            printf("  TAILE:: %02x\n",lz);
+#endif
+          }
+        if (write(dfile,dbuf,o-dbuf) < 0)
+          { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                           Prog_Name,data->dname);
+             exit (1);
+          }
         offset += o-dbuf;
 
         //  Check clock
@@ -597,7 +735,11 @@ static void *merge_profile_thread(void *arg)
   //  Flush the A-file buffer
 
   if (aptr > abuf)
-    write(afile,abuf,(aptr-abuf)*sizeof(int64));
+    if (write(afile,abuf,(aptr-abuf)*sizeof(int64)) < 0)
+      { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                       Prog_Name,data->aname);
+         exit (1);
+      }
 
   data->nreads = nreads;
 
@@ -727,13 +869,17 @@ void Merge_Profiles(char *dpwd, char *dbrt)
         exit (1);
       }
     write(f,&KMER,sizeof(int));
-    write(f,&ITHREADS,sizeof(int));
+    if (write(f,&ITHREADS,sizeof(int)) < 0)
+      { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
+         exit (1);
+      }
     close(f);
   }
 
   //  Open up A- and D-files, assign blocks for the inputs, and setup thread params 
 
   { char *root;
+    char *aname, *dname;
     int   t, n, p;
     
     root = Malloc(strlen(SORT_PATH) + strlen(dbrt) + 10,"File name buffer");
@@ -752,17 +898,25 @@ void Merge_Profiles(char *dpwd, char *dbrt)
           { fprintf(stderr,"%s: Cannot open external file %s\n",Prog_Name,fname);
             exit (1);
           }
+        aname = Strdup(fname,"Allocating stream names");
+
         sprintf(fname,"%s/.%s.prof.%d",dpwd,dbrt,t+1);
         g = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
         if (g == -1)
           { fprintf(stderr,"%s: Cannot open external file %s\n",Prog_Name,fname);
             exit (1);
           }
+        dname = Strdup(fname,"Allocating stream names");
+
+        if (aname == NULL || dname == NULL)
+          exit (1);
         
         parmk[t].root  = root;
         parmk[t].wch   = t;
         parmk[t].afile = f;
+        parmk[t].aname = aname;
         parmk[t].dfile = g;
+        parmk[t].dname = dname;
         parmk[t].io    = io + p;
         parmk[t].chord = chord + PAN_SIZE*t;
 
@@ -771,7 +925,10 @@ void Merge_Profiles(char *dpwd, char *dbrt)
 
         write(f,&KMER,sizeof(int));
         write(f,&zero,sizeof(int64));
-        write(f,&zero,sizeof(int64));
+        if (write(f,&zero,sizeof(int64)) < 0)
+          { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,aname);
+             exit (1);
+          }
       }
 
     //  Setup the fragment buffers for each range chord
@@ -819,11 +976,17 @@ void Merge_Profiles(char *dpwd, char *dbrt)
 
           lseek(f,sizeof(int),SEEK_SET);
           write(f,&nreads,sizeof(int64));
-          write(f,&(parmk[t].nreads),sizeof(int64));
+          if (write(f,&(parmk[t].nreads),sizeof(int64)) < 0)
+            { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
+                             Prog_Name,parmk[t].aname);
+               exit (1);
+            }
           nreads += parmk[t].nreads;
 
-          close(f);
           close(parmk[t].dfile);
+          close(f);
+          free(parmk[t].dname);
+          free(parmk[t].aname);
         }
     }
 

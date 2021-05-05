@@ -2,7 +2,7 @@
   
 <font size ="4">**_Author:  Gene Myers_**<br>
 **_First:   July 22, 2020_**<br>
-**_Current: November 18, 2020_**</font>
+**_Current: April 18, 2021_**</font>
 
 - [Command Line](#command-line)
   - [FastK](#fastk)
@@ -14,6 +14,7 @@
   - [Profex](#profex): Display a FastK profile
   - [Logex](#logex): Combine kmer,count tables with logical expressions & filter with count cutoffs
   - [Vennex](#vennex): Produce histograms for the Venn diagram of 2 or more tables
+  - [Symmex](#symmex): Produce a symmetric k-mer table from a canonical one
 
 - [C-Library Interface](#c-library-interface)
   - [K-mer Histogram Class](#k-mer-histogram-class)
@@ -313,14 +314,34 @@ default but may be specified with the -h option.
 It may interest one to observe that the command `Vennex Alpha Beta` is equivalent to the command
 `Logex -H100 'ALPHA.BETA=#A&B' 'ALPHA.beta=#A-B' 'alpha.BETA=#B-A' Alpha Beta` further illustrating the flexibility of the Logex command.
 
+<a name="symmex"></a>
 ```
-6. Haplex [-g<int>:<int>] <source>[.ktab]
+6. Symmex [-v] [-T<int(4)>] [-P<dir(/tmp)] <source_root>[.ktab] <dest_root>[.ktab]
+```
+
+Recall that a FastK table contains every k-mer occuring in a data set in cannonical form
+(i.e. the small, lexicographically, of the k-mer in both orientations).  Symmex takes such
+a table and produces one in which every k-mer occurs both in its forward and reverse forms,
+unless it is a Watson-Crick palindrome, in which case it occurs once.  The non-cannonical
+instance of the k-mer has the same count as its cannonical counterpart.  We call such a
+table, a **symmetric** table as opposed to the **canonical** tables produced by FastK.
+
+For some applications, a much faster code can be realized by streaming a symmetric table
+and hence the introduction of this routine.  Producing a sorted symmetric table and then
+streaming it is 100's of time faster than looking up the symmetric list in a canonical
+table.
+
+The -T option controls the number of threads used for sorting, and the -P option indicates
+where the temporary files for the sorting should be placed.
+
+```
+7. Haplex [-g<int>:<int>] <source>[.ktab]
 ```
 
 **Deprecated**.  Code is still available but no longer maintained.
 
 ```
-7. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
+8. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
 ```
 
 **Deprecated**.  Code is still available but no longer maintained.
