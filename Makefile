@@ -14,7 +14,10 @@ deflate.lib: LIBDEFLATE
 	cd LIBDEFLATE; make; cd ..
 
 libhts.a: HTSLIB
-	cd HTSLIB; make; cd ..
+	cd HTSLIB; make libhts.a; cd ..
+
+HTSLIB/htslib_static.mk:
+	cd HTSLIB; make htslib_static.mk; cd ..
 
 libfastk.c : gene_core.c
 libfastk.h : gene_core.h
