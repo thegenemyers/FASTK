@@ -1178,7 +1178,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                             }
                           nlst = (MAX_NRUN+nlst)-nfst;
                           fwrite(&nidx,sizeof(int64),1,nstr);
-                          if (fwrite(&nlst,sizeof(int),1,nstr) < 0)
+                          if (fwrite(&nlst,sizeof(int),1,nstr) != 1)
                             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                              Prog_Name,nname[tid]);
                               exit (1);
