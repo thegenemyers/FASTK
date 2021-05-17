@@ -645,9 +645,9 @@ static void compress_comp(char *s, int len, uint8 *t)
   s2 = s1-1;
   s3 = s2-1;
 
-  c = s0[0];
-  d = s1[0];
-  e = s2[0];
+  c = s1[0];
+  d = s2[0];
+  e = s3[0];
   s1[0] = s2[0] = s3[0] = 't';
 
   for (i = len-1; i >= 0; i -= 4)
