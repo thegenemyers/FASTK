@@ -902,7 +902,7 @@ Kmer_Stream *Clone_Kmer_Stream(Kmer_Stream *O)
 { _Kmer_Stream *S;
   int copn;
 
-  S        = Malloc(sizeof(_Kmer_Stream),"Allocating table record");
+  S = Malloc(sizeof(_Kmer_Stream),"Allocating table record");
   if (S == NULL)
     exit (1);
 
