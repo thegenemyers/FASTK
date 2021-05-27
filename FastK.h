@@ -114,6 +114,8 @@ typedef void *Input_Partition;
 
   //  Stages
 
+void Clean_Exit(int status);
+
 int Determine_Scheme(DATA_BLOCK *block);
 
 void Split_Kmers(Input_Partition *io, char *root);

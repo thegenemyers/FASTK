@@ -129,7 +129,7 @@ static void *merge_profile_thread(void *arg)
 
   fname = Malloc(strlen(data->root) + 100,"File name buffer");
   if (fname == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   //  Set up clock if required
 
@@ -158,7 +158,7 @@ static void *merge_profile_thread(void *arg)
   if (nfile == NULL)
     { fprintf(stderr,"\n%s: Cannot open external file %s in %s\n",
                      Prog_Name,fname,SORT_PATH);
-      exit (1);
+      Clean_Exit(1);
     }
   if (fread(&iridx,sizeof(int64),1,nfile) < 1)
     iridx = 0x7fffffffffffffffll;
@@ -217,7 +217,7 @@ static void *merge_profile_thread(void *arg)
           if (f == -1)
             { fprintf(stderr,"\n%s: Cannot open external file %s in %s\n",
                              Prog_Name,fname,SORT_PATH);
-              exit (1);
+              Clean_Exit(1);
             }
 
 #ifdef DEVELOPER
@@ -342,7 +342,7 @@ static void *merge_profile_thread(void *arg)
                   if (f == -1)
                     { fprintf(stderr,"\n%s: A Cannot open external file %s in %s\n",
                                      Prog_Name,fname,SORT_PATH);
-                      exit (1);
+                      Clean_Exit(1);
                     }
                   sptr = src->block;
                   src->stream = f;
@@ -409,7 +409,7 @@ static void *merge_profile_thread(void *arg)
                       { if (write(afile,abuf,BUFLEN_IBYTE) < 0)
                           { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                            Prog_Name,data->aname);
-                            exit (1);
+                            Clean_Exit(1);
                           }
                         aptr = abuf;
                       }
@@ -505,7 +505,7 @@ static void *merge_profile_thread(void *arg)
                           { if (write(afile,abuf,BUFLEN_IBYTE) < 0)
                               { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                                Prog_Name,data->aname);
-                                exit (1);
+                                Clean_Exit(1);
                               }
                             aptr = abuf;
                           }
@@ -697,7 +697,7 @@ static void *merge_profile_thread(void *arg)
                   { if (write(afile,abuf,BUFLEN_IBYTE) < 0)
                       { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                        Prog_Name,data->aname);
-                        exit (1);
+                        Clean_Exit(1);
                       }
                     aptr = abuf;
                   }
@@ -717,7 +717,7 @@ static void *merge_profile_thread(void *arg)
         if (write(dfile,dbuf,o-dbuf) < 0)
           { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                            Prog_Name,data->dname);
-             exit (1);
+             Clean_Exit(1);
           }
         offset += o-dbuf;
 
@@ -738,7 +738,7 @@ static void *merge_profile_thread(void *arg)
     if (write(afile,abuf,(aptr-abuf)*sizeof(int64)) < 0)
       { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                        Prog_Name,data->aname);
-         exit (1);
+         Clean_Exit(1);
       }
 
   data->nreads = nreads;
@@ -779,18 +779,18 @@ void Merge_Profiles(char *dpwd, char *dbrt)
 
   fname = Malloc(3*(strlen(dpwd) + strlen(SORT_PATH) + strlen(dbrt)) + 100,"File name buffer");
   if (fname == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   //  Allocate all working data structures
 
   parmk = Malloc(sizeof(Track_Arg)*ITHREADS,"Allocating control data");
   if (parmk == NULL)
-    exit (1);
+    Clean_Exit(1);
 
 #ifndef DEBUG
   threads = Malloc(sizeof(THREAD)*ITHREADS,"Allocating control data");
   if (threads == NULL)
-    exit (1);
+    Clean_Exit(1);
 #endif
 
   { int   t;
@@ -806,7 +806,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
         if (f == -1)
           { fprintf(stderr,"%s: A Cannot find file %s.0.P%d.0 in directory %s\n",
                            Prog_Name,dbrt,t,SORT_PATH);
-            exit (1);
+            Clean_Exit(1);
           }
   
 #ifdef DEVELOPER
@@ -851,7 +851,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
   chord  = (Entry *) Malloc(PAN_SIZE*sizeof(Entry)*ITHREADS,"Allocating IO buffers");
   _chord = (uint8 *) Malloc(PAN_SIZE*2*(MAX_SUPER+1)*ITHREADS,"Allocating IO buffers");
   if (io == NULL || blocks == NULL || chord == NULL || _chord == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   //  Remove previous profile result if any
 
@@ -866,12 +866,12 @@ void Merge_Profiles(char *dpwd, char *dbrt)
     f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
     if (f == -1)
       { fprintf(stderr,"%s: Cannot open external file %s for writing\n",Prog_Name,fname);
-        exit (1);
+        Clean_Exit(1);
       }
     write(f,&KMER,sizeof(int));
     if (write(f,&ITHREADS,sizeof(int)) < 0)
       { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-         exit (1);
+         Clean_Exit(1);
       }
     close(f);
   }
@@ -884,7 +884,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
     
     root = Malloc(strlen(SORT_PATH) + strlen(dbrt) + 10,"File name buffer");
     if (root == NULL)
-      exit (1);
+      Clean_Exit(1);
     sprintf(root,"%s/%s",SORT_PATH,dbrt);
 
     p = 0;
@@ -896,7 +896,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
         f = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
         if (f == -1)
           { fprintf(stderr,"%s: Cannot open external file %s\n",Prog_Name,fname);
-            exit (1);
+            Clean_Exit(1);
           }
         aname = Strdup(fname,"Allocating stream names");
 
@@ -904,12 +904,12 @@ void Merge_Profiles(char *dpwd, char *dbrt)
         g = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
         if (g == -1)
           { fprintf(stderr,"%s: Cannot open external file %s\n",Prog_Name,fname);
-            exit (1);
+            Clean_Exit(1);
           }
         dname = Strdup(fname,"Allocating stream names");
 
         if (aname == NULL || dname == NULL)
-          exit (1);
+          Clean_Exit(1);
         
         parmk[t].root  = root;
         parmk[t].wch   = t;
@@ -927,7 +927,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
         write(f,&zero,sizeof(int64));
         if (write(f,&zero,sizeof(int64)) < 0)
           { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,aname);
-             exit (1);
+             Clean_Exit(1);
           }
       }
 
@@ -979,7 +979,7 @@ void Merge_Profiles(char *dpwd, char *dbrt)
           if (write(f,&(parmk[t].nreads),sizeof(int64)) < 0)
             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                              Prog_Name,parmk[t].aname);
-               exit (1);
+               Clean_Exit(1);
             }
           nreads += parmk[t].nreads;
 

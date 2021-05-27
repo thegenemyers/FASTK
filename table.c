@@ -216,7 +216,7 @@ static void *merge_table_thread(void *arg)
   write(afile,&KMER,sizeof(int));
   if (write(afile,&anum,sizeof(int64)) < 0)
     { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,oname);
-      exit (1);
+      Clean_Exit(1);
     }
 
   //  Initialize the heap
@@ -267,7 +267,7 @@ static void *merge_table_thread(void *arg)
           anum += c;
           if (write(afile,abuf,c) < 0)
             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,oname);
-              exit (1);
+              Clean_Exit(1);
             }
           aptr = abuf;
           if (CLOCK && anum > nextin)
@@ -320,7 +320,7 @@ static void *merge_table_thread(void *arg)
       anum += c;
       if (write(afile,abuf,c) < 0)
         { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,oname);
-          exit (1);
+          Clean_Exit(1);
         }
     }
 
@@ -332,7 +332,7 @@ static void *merge_table_thread(void *arg)
   lseek(afile,sizeof(int),SEEK_SET);
   if (write(afile,&anum,sizeof(int64)) < 0)
     { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,oname);
-      exit (1);
+      Clean_Exit(1);
     }
 
   if (CLOCK)
@@ -362,7 +362,7 @@ void Merge_Tables(char *path, char *root)
 
   fname = Malloc(2*(strlen(SORT_PATH) + strlen(path) + strlen(root)) + 100,"File name buffer");
   if (fname == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   //  Allocate all working data structures
  
@@ -374,7 +374,7 @@ void Merge_Tables(char *path, char *root)
   io     = (IO_block *) Malloc(sizeof(IO_block)*(NPARTS+1)*NTHREADS,"Allocating IO buffers");
   blocks = (uint8 *) Malloc(BUFLEN_UINT8*(NPARTS+1)*NTHREADS,"Allocating IO buffers");
   if (heap == NULL || io == NULL || blocks == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   //  Open all input files
 
@@ -386,7 +386,7 @@ void Merge_Tables(char *path, char *root)
         if (f == -1)
           { fprintf(stderr,"\n%s: Cannot open external file %s in %s\n",
                            Prog_Name,fname,SORT_PATH);
-            exit (1);
+            Clean_Exit(1);
           }
         io[p].block  = blocks + p*BUFLEN_UINT8;
         io[p].stream = f;
@@ -402,7 +402,7 @@ void Merge_Tables(char *path, char *root)
   pidxlen   = (1 << (8*IDX_BYTES));
   pindex    = (int64 *) Malloc(sizeof(int64)*pidxlen,"Allocating index table");
   if (pindex == NULL)
-    exit (1);
+    Clean_Exit(1);
   bzero(pindex,sizeof(int64)*pidxlen);
 
   //  Get size in bytes of table file thread 0 will produce for the clock
@@ -434,7 +434,7 @@ void Merge_Tables(char *path, char *root)
       f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
       if (f == -1)
         { fprintf(stderr,"\n%s: Cannot open external file %s for writing\n",Prog_Name,fname);
-          exit (1);
+          Clean_Exit(1);
         }
       io[t].block  = blocks + t*BUFLEN_UINT8;
       io[t].stream = f;
@@ -445,7 +445,7 @@ void Merge_Tables(char *path, char *root)
       parmk[t].id    = t;
       parmk[t].oname = Strdup(fname,"Allocating stream name");
       if (parmk[t].oname == NULL)
-        exit (1);
+        Clean_Exit(1);
     }
 
   //  In parallel merge part-files for each thread
@@ -489,7 +489,7 @@ void Merge_Tables(char *path, char *root)
     f = open(fname,O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
     if (f == -1)
       { fprintf(stderr,"\n%s: Cannot open external file %s for writing\n",Prog_Name,fname);
-        exit (1);
+        Clean_Exit(1);
       }
     write(f,&KMER,sizeof(int));
     write(f,&NTHREADS,sizeof(int));
@@ -497,7 +497,7 @@ void Merge_Tables(char *path, char *root)
     write(f,&IDX_BYTES,sizeof(int));
     if (write(f,pindex,sizeof(int64)*pidxlen) < 0)
       { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-        exit (1);
+        Clean_Exit(1);
       }
 
     close(f);

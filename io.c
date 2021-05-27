@@ -160,7 +160,7 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
   if (fid < 0)
     { fprintf(stderr,"\n%s: Cannot open %s as a .cram|[bs]am|f{ast}[aq][.gz]|db|dam file\n",
                      Prog_Name,arg);
-      exit (1);
+      Clean_Exit(1);
     }
 
   if (i == 3 || i == 4)
@@ -182,7 +182,7 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
     { if (gz_ok)
         { if (lstat(path,&stats) == -1)
             { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,path);
-              exit (1);
+              Clean_Exit(1);
             }
           fsize = stats.st_size;
           zsize = (fsize-1)/IO_BLOCK+1;
@@ -198,7 +198,7 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
           zipd  = 0;
           if (lstat(path,&stats) == -1)
             { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,path);
-              exit (1);
+              Clean_Exit(1);
             }
           fsize = stats.st_size;
           zsize = (fsize-1)/IO_BLOCK+1;
@@ -216,17 +216,17 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
       fid = open(path,O_RDONLY);
       if (fid < 0)
         { fprintf(stderr,"\n%s: Dazzler DB %s does not have a .bps file ! ?\n",Prog_Name,root);
-          exit (1);
+          Clean_Exit(1);
         }
       if (fstat(fid, &stats) == -1)
         { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,arg);
-          exit (1);
+          Clean_Exit(1);
         }
       fsize = stats.st_size;
       idx = fopen(Catenate(pwd,"/.",root,".idx"),"r");
       if (idx == NULL)
         { fprintf(stderr,"\n%s: Dazzler DB %s does not have a .idx file ! ?\n",Prog_Name,root);
-          exit (1);
+          Clean_Exit(1);
         }
       zoffs = get_dazz_offsets(idx,&zsize);
       zoffs[zsize] = fsize;
@@ -235,7 +235,7 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
   else
     { if (fstat(fid, &stats) == -1)
         { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,arg);
-          exit (1);
+          Clean_Exit(1);
         }
       fsize = stats.st_size;
       if (ftype == CRAM)
@@ -893,7 +893,7 @@ static void bam_get(BAM_FILE *file, uint8 *data, int len)
         { chk = blen-bptr;
           if (file->last)
             { fprintf(stderr,"\n%s: Corrupted BAM file\n",Prog_Name);
-              exit (1);
+              Clean_Exit(1);
             }
           memmove(buf,block,chk);
           blen = chk + read(file->fid,buf+chk,IO_BLOCK-chk);
@@ -911,7 +911,7 @@ static void bam_get(BAM_FILE *file, uint8 *data, int len)
 
       if (libdeflate_gzip_decompress(file->decomp,block,bsize,bam,BAM_BLOCK,&tsize) != 0)
         { fprintf(stderr,"\n%s: Bad gzip block\n",Prog_Name);
-          exit (1);
+          Clean_Exit(1);
         }
       ssize = tsize;
       boff = 0;
@@ -977,7 +977,7 @@ static uint8 *sam_getline(BAM_FILE *file)
   if (d == NULL)
     { if (file->last)
         { fprintf(stderr,"\n%s: Corrupted SAM file",Prog_Name);
-          exit (1);
+          Clean_Exit(1);
         }
       memmove(buf,buf+bptr,rem);
       blen = rem + read(file->fid,buf+rem,IO_BLOCK-rem);
@@ -992,7 +992,7 @@ static uint8 *sam_getline(BAM_FILE *file)
             fprintf(stderr,"\n%s: Corrupted SAM file",Prog_Name);
           else
             fprintf(stderr,"\n%s: SAM-line is longer than max %lld\n",Prog_Name,IO_BLOCK);
-          exit (1);
+          Clean_Exit(1);
         }
     }
   d += 1;
@@ -1046,7 +1046,7 @@ static void skip_bam_header(Thread_Arg *parm)
   bam_get(bam,data,4);
   if (memcmp(data,"BAM\1",4) != 0)
     { fprintf(stderr,"\n%s: Corrupted BAM header %.4s\n",Prog_Name,data);
-      exit (1);
+      Clean_Exit(1);
     }
 
   bam_get(bam,data,4);
@@ -1107,7 +1107,7 @@ static void bam_nearest(Thread_Arg *parm)
       fpos += bptr;      //   Get more data at level of IO blocks
       if (last)
         { fprintf(stderr,"\n%s: Could not find bam block structure!\n",Prog_Name);
-          exit (1);
+          Clean_Exit(1);
         }
       else
         { uint32 x = blen-bptr;
@@ -1324,20 +1324,20 @@ static int bam_record_scan(BAM_FILE *sf, samRecord *theR)
 
     if (ldata < 0 || lseq < 0 || lname < 1)
       { fprintf(stderr,"\n%s: Non-sensical BAM record, file corrupted?\n",Prog_Name);
-        exit (1);
+        Clean_Exit(1);
       }
 
     aux = lname + ((lseq + 1)>>1) + lseq + (lcigar<<2);
     if (aux > ldata)
       { fprintf(stderr,"\n%s: Non-sensical BAM record, file corrupted?\n",Prog_Name);
-        exit (1);
+        Clean_Exit(1);
       }
 
     if (lseq > theR->lmax)
       { theR->lmax = 1.2*lseq + 1000;
         theR->seq  = (char *) Realloc(theR->seq,2*theR->lmax,"Reallocating sequence buffer");
         if (theR->seq == NULL)
-          exit (1);
+          Clean_Exit(1);
         theR->qvs  = theR->seq + theR->lmax;
       }
 
@@ -1345,7 +1345,7 @@ static int bam_record_scan(BAM_FILE *sf, samRecord *theR)
       { theR->dmax = 1.2*ldata + 1000;
         theR->data = (uint8 *) Realloc(theR->data,theR->dmax,"Reallocating data buffer");
         if (theR->data == NULL)
-          exit (1);
+          Clean_Exit(1);
       }
 
     bam_get(sf,theR->data,ldata);
@@ -1406,7 +1406,7 @@ static char  IUPAC_2_DNA[256] =
 #define CHECK(cond, msg)                                \
 { if ((cond))                                           \
     { fprintf(stderr,"\n%s: %s\n",Prog_Name, msg);      \
-       exit (1); 	                                \
+       Clean_Exit(1); 	                                \
     }                                                   \
 }
 
@@ -1456,7 +1456,7 @@ static int sam_record_scan(BAM_FILE *sf, samRecord *theR)
       { theR->lmax = 1.2*qlen + 1000;
         theR->seq  = (char *) Realloc(theR->seq,2*theR->lmax,"Reallocating sequence buffer");
         if (theR->seq == NULL)
-          exit (1);
+          Clean_Exit(1);
         theR->qvs  = theR->seq + theR->lmax;
       }
 
@@ -1535,12 +1535,12 @@ static void *bam_output_thread(void *arg)
     { theR->dmax = 50000;
       theR->data = Malloc(theR->dmax,"Allocating sequence array");
       if (theR->data == NULL)
-        exit (1);
+        Clean_Exit(1);
     }
   theR->lmax = 75000;
   theR->seq  = Malloc(2*theR->lmax,"Allocating sequence array");
   if (theR->seq == NULL)
-    exit (1);
+    Clean_Exit(1);
   theR->qvs = theR->seq + theR->lmax;
 
   bam->decomp = parm->decomp;
@@ -1768,7 +1768,7 @@ static int64 *genes_cram_index(char *path, int64 fsize, int64 *zsize)
       if (s == fsize)
         { zoff = Malloc(sizeof(int64)*i,"Allocating cram index"); 
           if (zoff == NULL)
-            exit (1);
+            Clean_Exit(1);
           for (j = 0; j < i; i++)
             zoff[j] = cash[i];
           *zsize = i-1;
@@ -1779,7 +1779,7 @@ static int64 *genes_cram_index(char *path, int64 fsize, int64 *zsize)
   e = ((fsize-(cash[0]+38))/(cash[9]-cash[0])+1)*9 + 100;
   zoff = Malloc(sizeof(int64)*e,"Allocating cram index"); 
   if (zoff == NULL)
-    exit (1);
+    Clean_Exit(1);
   for (j = 0; j < i; j++)
     zoff[j] = cash[j];
 
@@ -1789,7 +1789,7 @@ static int64 *genes_cram_index(char *path, int64 fsize, int64 *zsize)
         { e = ((fsize-(zoff[0]+38.))/(zoff[i-1]-zoff[0]))*(i-1) + 100;
           zoff = Realloc(zoff,sizeof(int64)*e,"Allocating cram index"); 
           if (zoff == NULL)
-            exit (1);
+            Clean_Exit(1);
         }
     }
 
@@ -2000,7 +2000,7 @@ static void read_DB_stub(char *path, int *cut, int *all)
   dbfile = fopen(path,"r");
   if (dbfile == NULL)
     { fprintf(stderr,"\n%s: Cannot open stub file %s\n",Prog_Name,path);
-      exit (1);
+      Clean_Exit(1);
     }
 
   if (fscanf(dbfile,"files = %9d\n",&nfiles) != 1)
@@ -2022,7 +2022,7 @@ static void read_DB_stub(char *path, int *cut, int *all)
 stub_trash:
   fprintf(stderr,"\n%s: Stub file %s is junk\n",Prog_Name,path);
   fclose(dbfile);
-  exit (1);
+  Clean_Exit(1);
 }
 
 static int64 *get_dazz_offsets(FILE *idx, int64 *zsize)
@@ -2288,7 +2288,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
   parm = (Thread_Arg *) Malloc(sizeof(Thread_Arg)*NTHREADS,"Allocating input threads");
   fobj = (File_Object *) Malloc (sizeof(File_Object)*nfiles,"Allocating file records"); 
   if (parm == NULL || fobj == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   //  Find partition points dividing data in all files into NTHREADS roughly equal parts
   //    and then in parallel threads produce the output for each part.
@@ -2318,7 +2318,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
         if (f > 0)
           { if (fobj[f].ftype != ftype)
               { fprintf(stderr,"\n%s: All files must be of the same type\n",Prog_Name);
-                exit (1);
+                Clean_Exit(1);
               }
           }
         else
@@ -2380,7 +2380,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
         if (need_buf)
           { bf = Malloc(ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
             if (bf == NULL)
-              exit (1);
+              Clean_Exit(1);
           }
         else
           bf = NULL;
@@ -2423,7 +2423,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
     if (need_buf)
       { bf = Malloc(ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
         if (bf == NULL)
-          exit (1);
+          Clean_Exit(1);
       }
     else
       bf = NULL;
@@ -2511,7 +2511,7 @@ Input_Partition *Partition_Input(int argc, char *argv[])
       { if (need_buf)
           { bf = Realloc(bf,t*IO_BLOCK,"Allocating IO_Buffer\n");
             if (bf == NULL)
-              exit (1);
+              Clean_Exit(1);
             for (i = 0; i < t; i++)
               if (need_buf)
                 parm[i].buf = bf + i*IO_BLOCK;
@@ -2606,7 +2606,7 @@ DATA_BLOCK *Get_First_Block(Input_Partition *parts, int64 numbp)
 
 #ifdef DEBUG_TRAIN
   Print_Block(&cust.block,0);
-  exit (1);
+  Clean_Exit(1);
 #endif
 
   return (&cust.block);

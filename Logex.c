@@ -12,9 +12,9 @@
 #include <ctype.h>
 #include <pthread.h>
 
-#undef   DEBUG
-#undef   DEBUG_THREADS
-#undef   DEBUG_TRACE
+#undef  DEBUG
+#undef  DEBUG_THREADS
+#undef  DEBUG_TRACE
 
 #include "libfastk.h"
 
@@ -38,8 +38,9 @@ static int HIST_LOW, HIST_HGH;
 #define OP_MIN 2
 #define OP_XOR 3
 #define OP_CNT 4
-#define OP_NUM 5
-#define OP_ARG 6
+#define OP_GC  5
+#define OP_NUM 6
+#define OP_ARG 7
 
 #define MOD_AVE 0
 #define MOD_SUM 1
@@ -52,7 +53,7 @@ static int HIST_LOW, HIST_HGH;
 #ifdef DEBUG
 
 static char *Operator[] =
-  { "OR", "AND", "MIN", "XOR", "CNT", "NUM", "ARG" };
+  { "OR", "AND", "MIN", "XOR", "CNT", "GC", "NUM", "ARG" };
 
 static char *Modulator[] =
   { "AVE", "SUM", "SUB", "MIN", "MAX", "LFT", "1" };
@@ -69,8 +70,9 @@ typedef struct _node
 static char *Scan;
 static int   Error;
 static int   VarV;
-static int   hasFilter;
-static char *hasNoMode;
+static int   hasFilter;   //  There is a filter operator in the expression
+static char *hasNoMode;   //  Ptr @ modeless op in current #-rooted subtree if one, NULL otherwise
+static int   needGC;      //  There is a {} filter operator in the expression
 static int   Narg;
 static Node *or();
 
@@ -83,7 +85,7 @@ static char *Error_Messages[] =
   { "Out of memory",					// 0
     "Expecting an argument or (",			// 1
     "Expecting )",					// 2
-    "Modeless operator iniside argument of []",		// 3
+    "Modeless operator inside argument of [] or {}",	// 3
     "Premature end of expression",			// 4
     "Expecting a -",					// 5
     "Expecting a , or ]",				// 6
@@ -91,6 +93,7 @@ static char *Error_Messages[] =
     "Largest argument possible is H/h",			// 8
     "Modeless operator not in # argument",		// 9
     "Invalid modulator"	                		// 10
+    "Expecting a , or }",				// 11
   };
 
 static Node *node(int op, int mode, Node *lft, Node *rgt)
@@ -110,7 +113,7 @@ static void free_tree(Node *v)
 { if (v->op < OP_ARG)
     { if (v->lft != NULL)
         free_tree(v->lft);
-      if (v->op == OP_CNT)
+      if (v->op == OP_CNT || v->op == OP_GC)
         free(v->rgt);
       else if (v->op == OP_NUM && v->mode)
         free(v->rgt);
@@ -213,7 +216,7 @@ static int RSORT(const void *l, const void *r)
 
 static Node *filter()
 { Node *v;
-  char *hM;
+  char *hM, Close;
 
   hM = hasNoMode;
   hasNoMode = NULL;
@@ -223,10 +226,17 @@ static Node *filter()
 
   while (isspace(*Scan))
     Scan += 1;
-  while (*Scan == '[')
+  while (*Scan == '[' || *Scan == '{')
     { int   len, *f;
       char *beg;
       int   i, p;
+
+      if (*Scan == '[')
+        Close = ']';
+      else
+        { Close = '}';
+          needGC = 1;
+        }
 
       if (hasNoMode != NULL)
         { free_tree(v);
@@ -245,7 +255,7 @@ static Node *filter()
         { if (*Scan != '-')
             { if (isdigit(*Scan))
                 get_number();
-              if (*Scan == ']')
+              if (*Scan == Close)
                 { len += 2;
                   break;
                 }
@@ -267,11 +277,14 @@ static Node *filter()
           if (isdigit(*Scan))
             get_number();
           len += 2;
-          if (*Scan == ']')
+          if (*Scan == Close)
             break;
           if (*Scan != ',')
             { free_tree(v);
-              ERROR(6)
+              if (Close == ']')
+                ERROR(6)
+              else
+                ERROR(11)
             }
           Scan += 1;
           while (isspace(*Scan))
@@ -292,7 +305,7 @@ static Node *filter()
                 { f[len] = f[len+1] = get_number();
                   len += 2;
                 }
-              if (*Scan == ']')
+              if (*Scan == Close)
                 break;
               if (*Scan == ',')
                 { Scan += 1;
@@ -312,7 +325,7 @@ static Node *filter()
             f[len-1] = get_number();
           else
             f[len-1] = 0x7fff;
-          if (*Scan == ']')
+          if (*Scan == Close)
             break;
           Scan += 1;
           while (isspace(*Scan))
@@ -335,10 +348,13 @@ static Node *filter()
           }
       len = p+2;
 
-      v = node(OP_CNT,len,v,(Node *) f);
+      if (Close == '}')
+        v = node(OP_GC,len,v,(Node *) f);
+      else
+        v = node(OP_CNT,len,v,(Node *) f);
     } 
 
-  if (v->op == OP_CNT || hM != NULL)
+  if (v->op == OP_CNT || v->op == OP_GC || hM != NULL)
     hasNoMode = hM;
   return (v);
 }
@@ -474,7 +490,7 @@ static Node *or()
 #ifdef DEBUG
 
 static void print_tree(Node *v, int level)
-{ if (v->op == OP_CNT)
+{ if (v->op == OP_CNT || v->op == OP_GC)
     { int *f, i;
 
       printf("%*s%s",level,"",Operator[v->op]);
@@ -570,6 +586,7 @@ static int eval_logic(Node *t, int i)
       y = eval_logic(t->rgt,i);
       return (x && y);
     case OP_CNT:
+    case OP_GC:
       return (eval_logic(t->lft,i));
     case OP_NUM:
       x = eval_logic(t->lft,i);
@@ -639,10 +656,14 @@ static inline int modulate(int x, int y, int mode)
 static int eval_expression(Node *t, int *cnts)
 { switch (t->op)
   { case OP_NUM:
-      if (eval_expression(t->lft,cnts) > 0)
-        return (1);
+      if (t->rgt == NULL)
+        { if (eval_expression(t->lft,cnts) > 0)
+            return (1);
+          else
+            return (0);
+        }
       else
-        return (0);
+        return (((int *) (t->rgt))[cnts[-1]]);
 
     case OP_OR:
       { int x, y;
@@ -704,6 +725,20 @@ static int eval_expression(Node *t, int *cnts)
         return (0);
       }
 
+    case OP_GC:
+      { int i, x, *r;
+
+        x = cnts[-2];
+        r = (int *) (t->rgt);
+        for (i = 0; i < t->mode; i += 2)
+          { if (x < r[i])
+              return (0);
+            else if (x <= r[i+1])
+              return (eval_expression(t->lft,cnts));
+          }
+        return (0);
+      }
+     
     case OP_ARG:
       return (cnts[(int64) (t->lft)]);
 
@@ -726,6 +761,7 @@ typedef struct
     char *path;
     int  *filter;
     int   logical;
+    int   needGC;
     int   ntabs;
   } Assignment;
 
@@ -745,9 +781,12 @@ static Assignment *parse_assignment(char *ass, int ntabs)
   A->ntabs   = ntabs;
   A->root    = Root(ass,".ktab");
   A->path    = PathTo(ass);
+
+  needGC = 0;
   A->expr    = parse_expression(expr+1,&(A->varg),ntabs);
+  A->needGC  = needGC;
   A->filter  = compile_expression(A->expr,ntabs);
-  A->logical = (A->expr->op == OP_NUM);
+  A->logical = (A->expr->op == OP_NUM && A->expr->rgt != NULL);
   return (A);
 }
 
@@ -794,6 +833,41 @@ typedef struct
     int64       **hist;
   } TP;
 
+static int    GC[256];
+static int    GCR[256];
+
+static void gc_setup(int kmer)
+{ static int isgc[4] = { 0, 100, 100, 0 };
+  uint32 x;
+
+  for (x = 0; x < 256; x++)
+    { GC[x] = isgc[(x>>6)&0x3] + isgc[(x>>4)&0x3] + isgc[(x>>2)&0x3] + isgc[x&0x3];
+      switch( kmer % 4)
+      { case 0:
+          GCR[x] = GC[x];
+          break;
+        case 1:
+          GCR[x] = isgc[(x>>6)&0x3];
+          break;
+        case 2:
+          GCR[x] = isgc[(x>>6)&0x3] + isgc[(x>>4)&0x3];
+          break;
+        case 3:
+          GCR[x] = isgc[(x>>6)&0x3] + isgc[(x>>4)&0x3] + isgc[(x>>2)&0x3];
+          break;
+      }
+    }
+}
+
+static inline int gcontent(uint8 *a, int kbyte)
+{ int i, cnt;
+
+  cnt = 0;
+  for (i = 1; i < kbyte; i++)
+    cnt += GC[*a++];
+  return (cnt+GCR[*a]);
+}
+
 static inline int mycmp(uint8 *a, uint8 *b, int n)
 { while (n-- > 0)
     { if (*a++ != *b++)
@@ -817,13 +891,14 @@ static void *merge_thread(void *args)
 
   int one   = 1;
   int hbyte = S[0]->hbyte;
+  int kbyte = S[0]->kbyte;
   int kmer  = S[0]->kmer;
   int hgram = (HIST_LOW > 0);
 
-  Kmer_Stream *bp;
   int64 **hist = NULL;
   int64  *nels;
-  int    *filter, need_counts;
+  uint8 **ent, *bst;
+  int    *filter, need_counts, need_GC;
   int    itop, *in, *cnt;
   int    c, v, x, i;
 
@@ -841,9 +916,12 @@ static void *merge_thread(void *args)
     }
 
   in     = Malloc(sizeof(int)*ntabs,"Allocating thread working memory");
-  cnt    = Malloc(sizeof(int)*ntabs,"Allocating thread working memory");
+  cnt    = Malloc(sizeof(int)*(ntabs+2),"Allocating thread working memory");
   nels   = Malloc(sizeof(int64)*nass,"Allocating thread working memory");
   filter = Malloc(sizeof(int)*(1<<ntabs),"Allocating thread working memory");
+  ent    = Malloc(sizeof(uint8 *)*ntabs,"Allocating thread working memory");
+
+  cnt += 2;  // cnt[-1] = v cnt[-2] = gc percent (if needed)
 
 #ifdef DEBUG_THREADS
   printf("Doing %d:",tid);
@@ -865,6 +943,7 @@ static void *merge_thread(void *args)
 #endif
 
   need_counts = 0;
+  need_GC     = 0;
   for (v = 0; v < (1 << ntabs); v++)
     filter[v] = 0;
   for (i = 0; i < nass; i++)
@@ -872,7 +951,10 @@ static void *merge_thread(void *args)
       for (v = 0; v < (1 << ntabs); v++)
         filter[v] |= table[v];
       if ( ! A[i]->logical)
-        need_counts = 1;
+        { need_counts = 1;
+          if (A[i]->needGC)
+            need_GC = 1;
+        }
     }
 
   if (DO_TABLE)
@@ -888,6 +970,9 @@ static void *merge_thread(void *args)
       cnt[c] = 0;
     }
 
+  for (c = 0; c < ntabs; c++)
+    ent[c] = Current_Entry(T[c],NULL);
+
   while (1)
     { for (c = 0; c < ntabs; c++)
         if (T[c]->cidx < ends[c])
@@ -896,17 +981,12 @@ static void *merge_thread(void *args)
         break;
       itop  = 1;
       in[0] = c;
-      bp    = T[c];
+      bst = ent[c];
       v = (1 << c);
       for (c++; c < ntabs; c++)
         { if (T[c]->cidx >= ends[c])
             continue;
-          if (T[c]->cpre < bp->cpre)
-            x = -1;
-          else if (T[c]->cpre > bp->cpre)
-            x = 1;
-          else
-            x = mycmp(T[c]->csuf,bp->csuf,hbyte);
+          x = mycmp(ent[c],bst,kbyte);
           if (x == 0)
             { in[itop++] = c;
               v |= (1 << c);
@@ -914,7 +994,7 @@ static void *merge_thread(void *args)
           else if (x < 0)
             { itop  = 1;
               in[0] = c;
-              bp    = T[c];
+              bst = ent[c];
               v = (1 << c);
             }
         }
@@ -933,15 +1013,19 @@ static void *merge_thread(void *args)
                 { x = in[c];
                   cnt[x] = Current_Count(T[x]);
                 }
+              cnt[-1] = v;
+              if (need_GC)
+                cnt[-2] = gcontent(bst,kbyte)/kmer;
             }
 
           for (i = 0; i < nass; i++)
             if (A[i]->filter[v])
               { if (A[i]->logical)
                   { if (DO_TABLE)
-                      { fwrite(bp->csuf,hbyte,1,out[i]);
+                      { fwrite(bst+3,hbyte,1,out[i]);
                         fwrite(&one,sizeof(short),1,out[i]);
-                        prefx[i][bp->cpre] += 1;
+                        x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
+                        prefx[i][x] += 1;
                         nels[i] += 1;
                       }
                     if (hgram)
@@ -956,9 +1040,10 @@ static void *merge_thread(void *args)
                   { c = eval_expression(A[i]->expr,cnt);
                     if (c > 0)
                       { if (DO_TABLE)
-                          { fwrite(bp->csuf,hbyte,1,out[i]);
+                          { fwrite(bst+3,hbyte,1,out[i]);
                             fwrite(&c,sizeof(short),1,out[i]);
-                            prefx[i][bp->cpre] += 1;
+                            x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
+                            prefx[i][x] += 1;
                             nels[i] += 1;
                           }
                         if (hgram)
@@ -979,20 +1064,18 @@ static void *merge_thread(void *args)
                       }
                   }
               }
-
-          if (need_counts)
-            for (c = 0; c < itop; c++)
-              { x = in[c];
-                cnt[x] = 0;
-                Next_Kmer_Entry(T[x]);
-              }
-          else
-            for (c = 0; c < itop; c++)
-              Next_Kmer_Entry(T[in[c]]);
         }
-      else
-        for (c = 0; c < itop; c++)
-          Next_Kmer_Entry(T[in[c]]);
+
+      for (c = 0; c < itop; c++)
+        { Kmer_Stream *t;
+
+          x = in[c];
+          cnt[x] = 0;
+          t = T[x];
+          Next_Kmer_Entry(t);
+          if (t->csuf != NULL)
+            Current_Entry(t,ent[x]);
+        }
     }
 
   if (DO_TABLE)
@@ -1004,15 +1087,19 @@ static void *merge_thread(void *args)
         }
     }
 
+  for (c = 0; c < ntabs; c++)
+    free(ent[c]);
+
   if (tid != 0)
     { for (c = 0; c < ntabs; c++) 
         Free_Kmer_Stream(T[c]);
       free(T);
     }
 
+  free(ent);
   free(filter);
   free(nels);
-  free(cnt);
+  free(cnt-2);
   free(in);
 
   parm->hist = hist;
@@ -1170,6 +1257,8 @@ int main(int argc, char *argv[])
           }
         S[c-1] = s;
       }
+
+    gc_setup(kmer);
   }
 
   { int c, varg;
@@ -1212,7 +1301,7 @@ int main(int argc, char *argv[])
     int64     p;
 
     if (DO_TABLE)
-      { ixlen = (0x1 << (8*S[0]->ibyte));
+      { ixlen = 0x1000000;
         prefx[0] = Malloc(sizeof(int64)*ixlen*nass,"Allocating prefix tables");
         bzero(prefx[0],sizeof(int64)*ixlen*nass);
         for (a = 1; a < nass; a++)
@@ -1281,6 +1370,7 @@ int main(int argc, char *argv[])
 
     if (DO_TABLE)
       { int one = 1;
+        int three = 3;
 
         for (a = 0; a < nass; a++)
           { FILE  *f   = fopen(Catenate(A[a]->path,"/",A[a]->root,".ktab"),"w");
@@ -1289,7 +1379,7 @@ int main(int argc, char *argv[])
             fwrite(&kmer,sizeof(int),1,f);
             fwrite(&NTHREADS,sizeof(int),1,f);
             fwrite(&one,sizeof(int),1,f);
-            fwrite(&(S[0]->ibyte),sizeof(int),1,f);
+            fwrite(&three,sizeof(int),1,f);
 
             for (i = 1; i < ixlen; i++)
               prf[i] += prf[i-1];

@@ -174,11 +174,44 @@ void timeTo(FILE *f, int all)
   Mwall = today;
 }
 
+static char *PATH;
+static char *ROOT;
+
+void Clean_Exit(int status)
+{ char *command;
+
+  command = Malloc(3*strlen(ROOT) + 3*strlen(PATH) + strlen(SORT_PATH) + 500,"Command string");
+  if (command == NULL)
+    goto could_not;
+
+  sprintf(command,"rm -f %s/%s.hist %s/%s.ktab %s/%s.prof",PATH,ROOT,PATH,ROOT,PATH,ROOT);
+  if (system(command) != 0)
+    goto could_not;
+
+  sprintf(command,"rm -f %s/.%s.ktab.* %s/.%s.pidx.* %s/.%s.prof.*",PATH,ROOT,PATH,ROOT,PATH,ROOT);
+  system(command);
+  if (system(command) != 0)
+    goto could_not;
+
+  sprintf(command,"rm -f %s/%s.*.[TLP]*",SORT_PATH,ROOT);
+  system(command);
+  if (system(command) != 0)
+    goto could_not;
+
+  sprintf(command,"Fastrm -f %s/%s.U*.ktab",SORT_PATH,ROOT);
+  system(command);
+  if (system(command) != 0)
+    goto could_not;
+
+  exit (status);
+
+could_not:
+  fprintf(stderr,"%s: Could not clean up before an error exit !\n",Prog_Name);
+  exit (1);
+}
 
 int main(int argc, char *argv[])
-{ char  *root;
-  char  *pwd;
-
+{ 
   startTime();
 
   { int    i, j, k;
@@ -212,7 +245,7 @@ int main(int argc, char *argv[])
           case 'b':
             if (argv[i][2] != 'c')
               { fprintf(stderr,"\n%s: -%s is not a legal optional argument\n",Prog_Name,argv[i]);
-                exit (1);
+                Clean_Exit(1);
               }                
             argv[i] += 1;
             ARG_NON_NEGATIVE(BC_PREFIX,"Bar code prefiex")
@@ -233,10 +266,6 @@ int main(int argc, char *argv[])
                 exit (1);
               }
             DO_PROFILE = 1;
-
-            // fprintf(stderr,"%s: The relative profile option is not yet functional\n",Prog_Name);
-            // exit (1);
-
             break;
           case 't':
             if (argv[i][2] == '\0' || isalpha(argv[i][2]))
@@ -355,16 +384,16 @@ int main(int argc, char *argv[])
     io = Partition_Input(argc,argv);
 
     if (OUT_NAME == NULL)
-      { root = First_Root(io);
-        pwd  = First_Pwd (io);
+      { ROOT = First_Root(io);
+        PATH = First_Pwd (io);
       }
     else
-      { root = Root(OUT_NAME,"");
-        pwd  = PathTo(OUT_NAME);
+      { ROOT = Root(OUT_NAME,"");
+        PATH = PathTo(OUT_NAME);
       }
 
     if (VERBOSE)
-      fprintf(stderr,"\nDetermining minimizer scheme & partition for %s\n",root);
+      fprintf(stderr,"\nDetermining minimizer scheme & partition for %s\n",ROOT);
 
     //  Determine number of buckets and padded minimzer scheme based on first
     //    block of the data set
@@ -377,7 +406,7 @@ int main(int argc, char *argv[])
     gsize  = block->totlen - KMER*block->nreads;
     if (gsize < block->totlen/3)
       { fprintf(stderr,"\n%s: Sequences are on average smaller than 1.5x k-mer size!\n",Prog_Name);
-        exit (1);
+        Clean_Exit(1);
       }
     gsize = gsize*block->ratio*rsize;
     NPARTS = (gsize-1)/SORT_MEMORY + 1;
@@ -436,7 +465,7 @@ int main(int argc, char *argv[])
       getrlimit(RLIMIT_NOFILE,&rlp);
       if (nfiles > rlp.rlim_max)
         { fprintf(stderr,"\n%s: Cannot open %lld files simultaneously\n",Prog_Name,nfiles);
-          exit (1);
+          Clean_Exit(1);
         }
       rlp.rlim_cur = nfiles;
       setrlimit(RLIMIT_NOFILE,&rlp);
@@ -444,16 +473,16 @@ int main(int argc, char *argv[])
 
 #ifdef DEVELOPER
     if (DO_STAGE == 1)
-      { Split_Kmers(io,root);
+      { Split_Kmers(io,ROOT);
         if (PRO_TABLE != NULL)
-          Split_Table(root);
+          Split_Table(ROOT);
       }
 #else
-    Split_Kmers(io,root);
+    Split_Kmers(io,ROOT);
     if (VERBOSE)
       timeTo(stderr,0);
     if (PRO_TABLE != NULL)
-      { Split_Table(root);
+      { Split_Table(ROOT);
         if (VERBOSE)
           timeTo(stderr,0);
       }
@@ -464,9 +493,9 @@ int main(int argc, char *argv[])
 
 #ifdef DEVELOPER
   if (DO_STAGE == 2)
-    Sorting(pwd,root);
+    Sorting(PATH,ROOT);
 #else
-  Sorting(pwd,root);
+  Sorting(PATH,ROOT);
   if (VERBOSE)
     timeTo(stderr,0);
 #endif
@@ -474,9 +503,9 @@ int main(int argc, char *argv[])
   if (DO_TABLE > 0)
 #ifdef DEVELOPER
     if (DO_STAGE == 3)
-      Merge_Tables(pwd,root);
+      Merge_Tables(PATH,ROOT);
 #else
-    { Merge_Tables(pwd,root);
+    { Merge_Tables(PATH,ROOT);
       if (VERBOSE)
         timeTo(stderr,0);
     }
@@ -485,9 +514,9 @@ int main(int argc, char *argv[])
   if (DO_PROFILE > 0)
 #ifdef DEVELOPER
     if (DO_STAGE == 4)
-      Merge_Profiles(pwd,root);
+      Merge_Profiles(PATH,ROOT);
 #else
-    { Merge_Profiles(pwd,root);
+    { Merge_Profiles(PATH,ROOT);
       if (VERBOSE)
         timeTo(stderr,0);
     }
@@ -497,8 +526,8 @@ int main(int argc, char *argv[])
   free(NUM_RID);
 #endif
 
-  free(pwd);
-  free(root);
+  free(PATH);
+  free(ROOT);
   free(SORT_PATH);
 
   if (PRO_TABLE != NULL)

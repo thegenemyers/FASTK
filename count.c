@@ -590,7 +590,7 @@ static void *table_write_thread(void *arg)
               { if (write(kfile,bufr,fill-bufr) < 0)
                   { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                    Prog_Name,data->kname);
-                    exit (1);
+                    Clean_Exit(1);
                   }
                 fill = bufr;
               }
@@ -608,7 +608,7 @@ static void *table_write_thread(void *arg)
   if (fill > bufr)
     if (write(kfile,bufr,fill-bufr) < 0)
       { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,data->kname);
-        exit (1);
+        Clean_Exit(1);
       }
 
   data->tmers = tmer;
@@ -1068,7 +1068,7 @@ static void *profile_write_thread(void *arg)
       pfile = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
       if (pfile < 0)
         { fprintf(stderr,"\n%s: Could not open %s for writing\n",Prog_Name,fname);
-          exit (1);
+          Clean_Exit(1);
         }
 
 #ifdef DEVELOPER
@@ -1080,7 +1080,7 @@ static void *profile_write_thread(void *arg)
             }
           if (write(pfile,&data->nidxs,sizeof(int64)) < 0)
             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-              exit (1);
+              Clean_Exit(1);
             }
         }
 #endif
@@ -1090,7 +1090,7 @@ static void *profile_write_thread(void *arg)
         { if (fill >= bend)
             { if (write(pfile,bufr,fill-bufr) < 0)
                 { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-                  exit (1);
+                  Clean_Exit(1);
                 }
               fill = bufr;
             }
@@ -1171,7 +1171,7 @@ static void *profile_write_thread(void *arg)
 
       if (write(pfile,bufr,fill-bufr) < 0)
         { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-          exit (1);
+          Clean_Exit(1);
         }
       close(pfile);
     }
@@ -1212,7 +1212,7 @@ void Sorting(char *path, char *root)
 
   fname = Malloc(2*(strlen(SORT_PATH) + strlen(path) + strlen(root)) + 100,"File name buffer");
   if (fname == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   //  First bundle: initialize all sizes & lookup tables
 
@@ -1304,15 +1304,15 @@ void Sorting(char *path, char *root)
 
     if (parms == NULL || parmk == NULL || parmc == NULL ||
         parmt == NULL || parmp == NULL || parmw == NULL)
-      exit (1);
+      Clean_Exit(1);
 
     if (Table_Split == NULL || Sparts == NULL || Kparts == NULL ||
         Panels == NULL || Wkmers == NULL || Ukmers == NULL)
-      exit (1);
+      Clean_Exit(1);
 
 #if !defined(DEBUG) || !defined(SHOW_RUN)
     if (threads == NULL)
-      exit (1);
+      Clean_Exit(1);
 #endif
 
 #ifndef DEVELOPER
@@ -1326,7 +1326,7 @@ void Sorting(char *path, char *root)
       }
     s_sort = Malloc((NMAX+1)*SMER_WORD+1,"Allocating super-mer sort array");
     if (s_sort == NULL)
-      exit (1);
+      Clean_Exit(1);
     *s_sort++ = 0;
 #endif
 
@@ -1345,7 +1345,7 @@ void Sorting(char *path, char *root)
             f = open(fname,O_RDONLY);
             if (f < 0)
               { fprintf(stderr,"\n%s: File %s should exist but doesn't?\n",Prog_Name,fname); 
-                exit (1);
+                Clean_Exit(1);
               }
 
             parms[t].tfile = f;
@@ -1384,7 +1384,7 @@ void Sorting(char *path, char *root)
               }
             s_sort = Malloc((NMAX+1)*SMER_WORD+1,"Allocating super-mer sort array");
             if (s_sort == NULL)
-              exit (1);
+              Clean_Exit(1);
             *s_sort++ = 0;
           }
 #endif
@@ -1583,7 +1583,7 @@ void Sorting(char *path, char *root)
                 parmt[t].kfile = open(fname,O_WRONLY|O_CREAT|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
                 parmt[t].kname = Strdup(fname,"Allocating stream name");
                 if (parmt[t].kname == NULL)
-                  exit (1);
+                  Clean_Exit(1);
               }
 #ifdef DEVELOPER
             if (p == NPARTS-1)
@@ -1591,7 +1591,7 @@ void Sorting(char *path, char *root)
                 if (write(parmt[0].kfile,&zero,sizeof(int)) < 0)
                   { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                    Prog_Name,parmt[0].kname);
-                    exit (1);
+                    Clean_Exit(1);
                   }
               }
 #endif
@@ -1622,7 +1622,7 @@ void Sorting(char *path, char *root)
                 if (write(parmt[0].kfile,&IDX_BYTES,sizeof(int)) < 0)
                   { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                    Prog_Name,parmt[0].kname);
-                    exit (1);
+                    Clean_Exit(1);
                   }
 #endif
               }
@@ -1678,7 +1678,7 @@ void Sorting(char *path, char *root)
             parmc[0].stm = Open_Kmer_Stream(fname);
             if (parmc[0].stm == NULL)
               { fprintf(stderr,"\n%s: Table %s should exist but doesn't?\n",Prog_Name,fname); 
-                exit (1);
+                Clean_Exit(1);
               }
             for (t = 1; t < NTHREADS; t++)
               parmc[t].stm = parmc[0].stm;
@@ -1887,7 +1887,7 @@ void Sorting(char *path, char *root)
       write(f,&max_inst,sizeof(int64));
       if (write(f,counts+1,0x7fff*sizeof(int64)) < 0)
         { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-          exit (1);
+          Clean_Exit(1);
         }
       close(f);
     }

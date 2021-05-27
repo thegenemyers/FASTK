@@ -242,7 +242,7 @@ If there are k &le; 8 table arguments after the assignments, then the assignment
 FastK tables are not just ordered lists of k&#8209;mers, but ordered lists of k&#8209;mers *with a
 count for each*, i.e. k&#8209;mer,count pairs.  So a k&#8209;mer&#8209;count expression must also specify
 how to combine the counts of the k&#8209;mers that satisfy the logical operations.
-This is accomplished by adding two new unary operators, '[]' and '#', and adding a
+This is accomplished by adding three new unary operators, '[]', '{}', and '#', and adding a
 "modulator" character to the logical operators.  Specifically:
 
 * Any sub-expression can be followed by a post-fix modulation operator consisting of a
@@ -256,6 +256,11 @@ in one of the supplied ranges is accepted by this modulator expression.  For exa
 10 (inclusive), and `(A-B)[7-]` accepts all k&#8209;mer that are in the first
 table but not the second and have a count of 7 or more.  With regard to precedence,
 this operator binds more tightly than any of the logical operators.
+
+* In addition to the post-fix []-operator, the {}-operator has the same range syntax but
+rather than filter k-mers on their count, the k-mers are filter on the percent GC bias of
+the k-mer, i.e. the number of G's and C's in the k-mer divided by the k-mer length as a
+percentage between 0 and 100.
 
 * Any sub-expression can be preceded by the prefix modulation operator #, which
 returns the k&#8209;mer of its subexpression with a count of 1 (if the sub-expression
@@ -320,7 +325,7 @@ It may interest one to observe that the command `Vennex Alpha Beta` is equivalen
 ```
 
 Recall that a FastK table contains every k-mer occuring in a data set in cannonical form
-(i.e. the small, lexicographically, of the k-mer in both orientations).  Symmex takes such
+(i.e. the smaller, lexicographically, of the k-mer in both orientations).  Symmex takes such
 a table and produces one in which every k-mer occurs both in its forward and reverse forms,
 unless it is a Watson-Crick palindrome, in which case it occurs once.  The non-cannonical
 instance of the k-mer has the same count as its cannonical counterpart.  We call such a

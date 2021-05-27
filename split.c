@@ -606,7 +606,7 @@ int Determine_Scheme(DATA_BLOCK *block)
 
   count = Malloc(sizeof(int64)*MIN_TOT*NTHREADS,"Allocating count array");
   if (count == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   PAD = 0;
   for (i = 0; i < MIN_TOT; i++)
@@ -677,7 +677,7 @@ int Determine_Scheme(DATA_BLOCK *block)
       if (ktot < (block->totlen - (KMER-1)*block->nreads)/2)
         { fprintf(stderr,"\n%s: Too much of the data is in reads less than the k-mer size\n",
                          Prog_Name);
-          exit (1);
+          Clean_Exit(1);
         }
 
       kthresh = ktot/npieces;
@@ -700,7 +700,7 @@ int Determine_Scheme(DATA_BLOCK *block)
           if (count[i] > biggest)
             biggest = count[i];
         printf("max = %6.3f => %.2f pieces\n",(100.*biggest)/ktot,ktot/(1.*biggest));
-        exit(0);
+        exit (0);
       }
 #endif
 
@@ -719,7 +719,7 @@ int Determine_Scheme(DATA_BLOCK *block)
         for (i = 0; i < numc; i++)
           printf("%5d %5d %6.3f\n",i,perm[i],(100.*count[perm[i]])/ktot);
         printf("max = %6.3f => %.2f pieces\n",(100.*count[perm[0]])/ktot,ktot/(1.*count[perm[0]]));
-        exit(0);
+        exit (0);
       }
 #endif
 
@@ -751,7 +751,7 @@ int Determine_Scheme(DATA_BLOCK *block)
 
       count = Realloc(count,sizeof(int64)*o*NTHREADS,"Expanding count array");
       if (count == NULL)
-        exit (1);
+        Clean_Exit(1);
 
       refine_tree(kthresh,count);
       Min_States = o;
@@ -765,14 +765,14 @@ int Determine_Scheme(DATA_BLOCK *block)
 
   if (KMER < PAD_LEN)
     { fprintf(stderr,"\n%s: K-mer must be at least %d\n",Prog_Name,PAD_LEN);
-      exit (1);
+      Clean_Exit(1);
     }
 
   if (VERBOSE)
     fprintf(stderr,"  Using %d-minimizers with %d core prefixes\n",PAD_LEN,Min_States);
 
 #ifdef FIND_MTHRESH
-  exit (1);
+  Clean_Exit(1);
 #endif
 
 #ifdef DEBUG_SCHEME
@@ -789,7 +789,7 @@ int Determine_Scheme(DATA_BLOCK *block)
 
   Min_Part = Realloc(Min_Part,sizeof(int)*Min_States,"Finalizing count array");
   if (Min_Part == NULL)
-    exit (1);
+    Clean_Exit(1);
 
 #ifdef DEBUG_SCHEME
   printf("\nPadded Assignments: # states = %d\n",Min_States);
@@ -1181,7 +1181,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                           if (fwrite(&nlst,sizeof(int),1,nstr) != 1)
                             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                              Prog_Name,nname[tid]);
-                              exit (1);
+                              Clean_Exit(1);
                             }
 #ifdef SHOW_PACKETS
                           if (PACKET < 0)
@@ -1212,7 +1212,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                               if (fwrite(&plst,sizeof(int),1,nstr) != 1)
                                 { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                                  Prog_Name,nname[tid]);
-                                  exit (1);
+                                  Clean_Exit(1);
                                 }
 #ifdef SHOW_PACKETS
                               if (PACKET < 0)
@@ -1261,7 +1261,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                               if (write(trg->stream,start,IO_UBYTES*(ptr-start)) < 0)
                                 { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                                  Prog_Name,trg->sname);
-                                  exit (1);
+                                  Clean_Exit(1);
                                 }
                               *start = *ptr;
                               ptr = start;
@@ -1293,7 +1293,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
                       if (write(trg->stream,start,IO_UBYTES*(ptr-start)) < 0)
                         { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                          Prog_Name,trg->sname);
-                          exit (1);
+                          Clean_Exit(1);
                         }
                       *start = *ptr;
                       ptr = start;
@@ -1364,7 +1364,7 @@ void Distribute_Block(DATA_BLOCK *block, int tid)
               if (fwrite(&nlst,sizeof(int),1,nstr) != 1)
                 { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                                  Prog_Name,nname[tid]);
-                  exit (1);
+                  Clean_Exit(1);
                 }
               nidx &= 0x7fffffffffffffffll;
 #ifdef SHOW_PACKETS
@@ -1427,7 +1427,7 @@ void Split_Kmers(Input_Partition *io, char *root)
   nstream = (FILE **) Malloc(ITHREADS*sizeof(FILE *),"Allocating buffer");
   nname   = (char **) Malloc(ITHREADS*sizeof(char *),"Allocating buffer");
   if (out == NULL || buffers == NULL || nstream == NULL || nname == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   if (VERBOSE)
     { fprintf(stderr,"\nPhase 1: Partitioning K-mers into %lld Super-mer Files\n",nfiles);
@@ -1442,7 +1442,7 @@ void Split_Kmers(Input_Partition *io, char *root)
 
     fname = (char *) Malloc(strlen(SORT_PATH)+strlen(root)+100,"Allocating file names");
     if (fname == NULL)
-      exit (1);
+      Clean_Exit(1);
 
     p = 0;
     for (t = 0; t < ITHREADS; t++)
@@ -1454,13 +1454,13 @@ void Split_Kmers(Input_Partition *io, char *root)
           if (f == -1)
             { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
                              Prog_Name,SORT_PATH);
-              exit (1);
+              Clean_Exit(1);
             }
 
           out[p].stream = f;
           out[p].sname  = Strdup(fname,"Allocating stream name");
           if (out[p].sname == NULL)
-            exit (1);
+            Clean_Exit(1);
           out[p].kmers  = 0;
           out[p].nmers  = 0;
           for (i = 0; i < 256; i++)
@@ -1482,7 +1482,7 @@ void Split_Kmers(Input_Partition *io, char *root)
           write(f,zero,sizeof(int64));
           if (write(f,out[p].fours,sizeof(int64)*256) < 0)
             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-              exit (1);
+              Clean_Exit(1);
             }
           p += 1;
         }
@@ -1494,11 +1494,11 @@ void Split_Kmers(Input_Partition *io, char *root)
           if (nstream[t] == NULL)
             { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
                              Prog_Name,SORT_PATH);
-              exit (1);
+              Clean_Exit(1);
             }
           nname[t] = Strdup(fname,"Allocating stream name");
           if (nname[t] == NULL)
-            exit (1);
+            Clean_Exit(1);
         }
 
     free(fname);
@@ -1515,7 +1515,7 @@ void Split_Kmers(Input_Partition *io, char *root)
     ogroup = Malloc(sizeof(Min_File *)*ITHREADS,"Allocating distribution globals");
     totrds = nmbits + ITHREADS;
     if (nfirst == NULL || nmbits == NULL || ogroup == NULL)
-      exit (1);
+      Clean_Exit(1);
 
     short_read = 0;
     for (i = 0; i < ITHREADS; i++)
@@ -1676,7 +1676,7 @@ void Split_Kmers(Input_Partition *io, char *root)
           if (write(f,out[p].fours,sizeof(int64)*256) < 0)
             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                              Prog_Name,out[p].sname);
-              exit (1);
+              Clean_Exit(1);
             }
           close(f);
           free(out[p].sname);
@@ -1896,7 +1896,7 @@ static void *distribute_table(void *arg)
       if (ptr >= trg->end)
         { if (write(trg->stream,trg->data,ptr-trg->data) < 0)
             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,trg->sname);
-              exit (1);
+              Clean_Exit(1);
             }
           ptr = trg->data;
         }
@@ -1943,7 +1943,7 @@ void Split_Table(char *root)
   out     = (Pro_File *) Malloc(nfiles*sizeof(Pro_File),"Allocating buffers");
   buffers = (uint8 *) Malloc(nfiles*bufsize,"Allocating buffers");
   if (out == NULL || buffers == NULL)
-    exit (1);
+    Clean_Exit(1);
 
   if (VERBOSE)
     { fprintf(stderr,"\nPhase 1a: Partitioning K-mer table %s.ktab into %d block tables\n",
@@ -1958,7 +1958,7 @@ void Split_Table(char *root)
 
     fname = (char *) Malloc(strlen(SORT_PATH)+strlen(root)+100,"Allocating file names");
     if (fname == NULL)
-      exit (1);
+      Clean_Exit(1);
 
     p = 0;
     for (t = 0; t < NTHREADS; t++)
@@ -1970,13 +1970,13 @@ void Split_Table(char *root)
           if (f == -1)
             { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
                              Prog_Name,SORT_PATH);
-              exit (1);
+              Clean_Exit(1);
             }
 
           out[p].stream = f;
           out[p].sname  = Strdup(fname,"Allocating stream name");
           if (out[p].sname == NULL)
-            exit (1);
+            Clean_Exit(1);
           out[p].data   = buffers + p*bufsize;
           out[p].ptr    = out[p].data;
           out[p].end    = out[p].data + bufsize;
@@ -1986,7 +1986,7 @@ void Split_Table(char *root)
           write(f,zero,sizeof(int));
           if (write(f,zero,sizeof(int64)) < 0)
             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-              exit (1);
+              Clean_Exit(1);
             }
           p += 1;
         }
@@ -2013,7 +2013,7 @@ void Split_Table(char *root)
     parmt   = Malloc(sizeof(Table_Arg)*NTHREADS,"Allocating k-mer distribution controls");
     threads = Malloc(sizeof(THREAD)*NTHREADS,"Allocating k-mer distribution controls");
     if (parmt == NULL || threads == NULL)
-      exit (1);
+      Clean_Exit(1);
 
     nels = PRO_TABLE->nels;
     parmt[0].stm = PRO_TABLE;
@@ -2056,7 +2056,7 @@ void Split_Table(char *root)
           if (write(f,&(out[p].kmers),sizeof(int64)) < 0)
             { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",
                              Prog_Name,out[p].sname);
-              exit (1);
+              Clean_Exit(1);
             }
           close(f);
           p += 1;
@@ -2095,7 +2095,7 @@ void Split_Table(char *root)
         if (f == -1)
           { fprintf(stderr,"\n%s: Cannot open external files in %s\n",
                            Prog_Name,SORT_PATH);
-            exit (1);
+            Clean_Exit(1);
           }
         write(f,&KMER,sizeof(int));
         write(f,&NTHREADS,sizeof(int));
@@ -2103,7 +2103,7 @@ void Split_Table(char *root)
         write(f,&one,sizeof(int));
         if (write(f,out[n].index,sizeof(int64)*257) < 0)
           { fprintf(stderr,"%s: Cannot write to %s.  Enough disk space?\n",Prog_Name,fname);
-            exit (1);
+            Clean_Exit(1);
           }
         close(f);
       }
