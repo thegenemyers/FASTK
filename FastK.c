@@ -180,6 +180,8 @@ static char *ROOT;
 void Clean_Exit(int status)
 { char *command;
 
+  fprintf(stderr,"\n*** Error Exit %d ***\n",status);
+
   command = Malloc(3*strlen(ROOT) + 3*strlen(PATH) + strlen(SORT_PATH) + 500,"Command string");
   if (command == NULL)
     goto could_not;
@@ -206,7 +208,7 @@ void Clean_Exit(int status)
   exit (status);
 
 could_not:
-  fprintf(stderr,"%s: Could not clean up before an error exit !\n",Prog_Name);
+  fprintf(stderr,"\n   Could not clean up !\n");
   exit (1);
 }
 

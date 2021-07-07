@@ -148,7 +148,7 @@ static void Double_Up(Kmer_Stream *T, int nbits, int nblocks, char *output)
   int ibyte  = T->ibyte;
 
   int     nbyte;
-  uint32  nshift;
+  uint32  nshift, tmask;
   int     kb1, kshift, lshift;
   uint8  *ent, *alt;
 
@@ -177,6 +177,7 @@ static void Double_Up(Kmer_Stream *T, int nbits, int nblocks, char *output)
 
   kshift = (8 - 2*(T->kmer & 0x3)) & 0x7;
   lshift = 8-kshift;
+  tmask  = (0xff << kshift) & 0xff;
   kb1    = kbyte - 1;
 
 #ifdef DEBUG
@@ -257,6 +258,7 @@ static void Double_Up(Kmer_Stream *T, int nbits, int nblocks, char *output)
             id = 0;
           e1 = e0;
         }
+      alt[kb1] &= tmask;
 
 #ifdef DEBUG
       print_seq(alt,T->kmer);
@@ -294,7 +296,6 @@ static void Double_Up(Kmer_Stream *T, int nbits, int nblocks, char *output)
       b->bptr += tbyte;
       b->nels += 1;
     }
-
 
   max_el = sum_el = 0;
   for (i = 0; i < nblocks; i++)

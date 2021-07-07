@@ -103,12 +103,13 @@ typedef struct
     int    nparts;   //  # of threads/parts for the profiles
     int    nreads;   //  total # of reads in data set
     int64 *nbase;    //  nbase[i] for i in [0,nparts) = id of last read in part i + 1
-    int   *nfile;    //  nfile[i] for i in [0,nparts) = stream for ".prof" file of part i
     int64 *index;    //  index[i] for i in [0,nreads) = offset in relevant part of
                      //    compressed profile for read i
+    void  *private[4]; // Private fields
   } Profile_Index;
 
 Profile_Index *Open_Profiles(char *name);
+Profile_Index *Clone_Profiles(Profile_Index *P);
 
 void Free_Profiles(Profile_Index *P);
 

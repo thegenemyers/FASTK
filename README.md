@@ -332,7 +332,7 @@ instance of the k-mer has the same count as its cannonical counterpart.  We call
 table, a **symmetric** table as opposed to the **canonical** tables produced by FastK.
 
 For some applications, a much faster code can be realized by streaming a symmetric table
-and hence the introduction of this routine.  Producing a sorted symmetric table and then
+and hence the introduction of this command.  Producing a sorted symmetric table and then
 streaming it is 100's of time faster than looking up the symmetric list in a canonical
 table.
 
@@ -591,7 +591,7 @@ As an example, the code below opens a stream for "foo.ktab", prints out the cont
 Kmer_Stream *S = Open_Kmer_Stream("foo",1);
 char        *s = Current_Kmer(S,NULL);       //  Create buffer s, value ignored
 for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
-  printf("%s : %d\n",Current_Kmer(S,s),Current_Count(S));
+  printf("%s : %d\n",Current_Kmer(S ,s),Current_Count(S));
 free(s);
 Free_Kmer_Stream(S);
 ```
@@ -604,28 +604,29 @@ A Profile\_Index object is a record with 6 fields as described in the comments o
 
 ```
 typedef struct
-  { int    kmer;     //  Kmer length
-    int    nparts;   //  # of threads/parts for the profiles
-    int    nreads;   //  total # of reads in data set
-    int64 *nbase;    //  nbase[i] for i in [0,nparts) = id of last read in part i + 1
-    int   *nfile;    //  nfile[i] for i in [0,nparts) = stream for ".prof" file of part i
-    int64 *index;    //  index[i] for i in [0,nreads] = offset in relevant part file of
-                     //      compressed profile for read i.
+  { int    kmer;       //  Kmer length
+    int    nparts;     //  # of threads/parts for the profiles
+    int    nreads;     //  total # of reads in data set
+    int64 *nbase;      //  nbase[i] for i in [0,nparts) = id of last read in part i + 1
+    int64 *index;      //  index[i] for i in [0,nreads] = offset in relevant part file of
+                       //      compressed profile for read i.
+    void  *private[4]; //  Private fields
   } Profile_Index;
 ```
 
 Like the k&#8209;mer stream class, the set of all profiles is not **loaded** into memory,
 but rather only **opened** so that individual profiles for a sequence
-can be read in and uncompressed on demand.  So `nparts`> indicates how many
-hidden part files constitute the set of all profiles and `>nfile<` is an open
-file stream to each of the npart hidden .prof files containing the compressed profiles.
-On the otherhand, all the .pidx files are loaded into an array of <code>nreads+1</code> offsets into the hidden files pointed at by `index` where the small nparts element table `nbase<` is used to resolve which part file a read is in.
+can be read in and uncompressed on demand.  So `nparts` indicates how many
+hidden part files constitute the set of all profiles.  The .prof part files are opened
+as needed by the fetch routine.
+On the otherhand, all the .pidx files are loaded into an array of `nreads+1` offsets into the hidden .prof files pointed at by `index` where the small nparts element table `nbase` is used to resolve which part file a read is in.
 Specificaly, the reads whose compressed profile are found in part p, are those in [x,nbase[p]] where x is 0 if p = 0 and nbase[p-1] otherwise.
 For those reads whose compressed profile is in part p, the profile is at [y,index[i])
 in the stream nfile[p] where y is 0 if i = x and index[i-1] otherwise.
 
 ```
 Profile_Index *Open_Profiles(char *name);
+Profile_Index *Clone_Profiles(Profile_INdex *P);
 
 void Free_Profiles(Profile_Index *P);
 
@@ -637,6 +638,12 @@ at path name `name`, adding the .prof extension if it is not present.  It return
 to individual compressed profiles in the hidden .prof data files.
 The routine returns NULL if it cannot open the stub file.  If there is insufficient memory available or the hidden files are inconsistent with
 the stub file, it prints an informative message to standard error and exits.
+
+
+`Clone_Profiles` creates a 'Profile_Index' object that shares its read-only indexing tables
+with the profile index 'P'.
+This provides space efficiency when opening a profile index with multiple threads.  One must
+take care to free all clones, prior to freeing the index the clones were spawned from.
 
 `Free_Profiles` removes all memory encoding the profile index object.
 
