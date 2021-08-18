@@ -669,7 +669,7 @@ int64 Find_Kmer(Kmer_Table *_T, char *kseq)
   int64 *index = T->index;
 
   uint8  cmp[T->kbyte], *c;
-  int64  l, r, m;
+  int64  l, r, m, t;
 
   //  kseq must be at least kmer bp long
 
@@ -688,9 +688,9 @@ int64 Find_Kmer(Kmer_Table *_T, char *kseq)
     l = index[m-1];
   if (l >= T->nels)
     return (-1);
-  while (index[m] == l)
-    m += 1;
-  r = index[m];
+  r = t = index[m];
+  if (r <= l)
+    return (-1);
 
   // smallest l s.t. KMER(l) >= (kmer) c  (or nels if does not exist)
 
@@ -702,7 +702,7 @@ int64 Find_Kmer(Kmer_Table *_T, char *kseq)
         r = m;
     }
 
-  if (l >= T->nels || mycmp(table+l*pbyte,c,hbyte) != 0)
+  if (l >= t || mycmp(table+l*pbyte,c,hbyte) != 0)
     return (-1);
 
   return (l);
@@ -1147,10 +1147,7 @@ int GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
 
   uint8  kbuf[hbyte];
   int    p, f;
-  int64  l, r, m, lo;
-
-  if (S->part <= S->nthr)
-    close(S->copn);
+  int64  l, r, m, lo, hi;
 
   m = *entry++;
   for (l = 1; l < ibyte; l++)
@@ -1161,17 +1158,25 @@ int GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
   else
     l = index[m-1];
   if (l >= S->nels)
-    { S->csuf = NULL;
+    { if (S->part <= S->nthr)
+        close(S->copn);
+      S->csuf = NULL;
       S->cidx = S->nels;
       S->cpre = S->ixlen;
       S->part = S->nthr+1;
       return (0);
     }
-  while (index[m] == l)
-    m += 1;
   r = index[m];
+  if (r <= l)
+    { GoTo_Kmer_Index(_S,l);
+      return (0);
+    }
   S->cpre = m;
 
+  if (S->part <= S->nthr)
+    close(S->copn);
+
+  hi = r;
   lo = 0;
   for (p = 1; p <= S->nthr; p++)
     { if (l < S->neps[p-1])
@@ -1200,7 +1205,8 @@ int GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
     }
 
   if (l >= S->nels)
-    { S->csuf = NULL;
+    { close(S->copn);
+      S->csuf = NULL;
       S->cidx = S->nels;
       S->cpre = S->ixlen;
       S->part = S->nthr+1;
@@ -1212,7 +1218,7 @@ int GoTo_Kmer_Entry(Kmer_Stream *_S, uint8 *entry)
   More_Kmer_Stream(S);
   S->cidx = l + lo;
 
-  while (S->csuf != NULL)
+  while (S->cidx < hi)
     { m = mycmp(S->csuf,entry,hbyte);
       if (m >= 0)
         return (m == 0);

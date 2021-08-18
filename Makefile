@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = FastK Fastrm Fastmv Fastcp Histex Tabex Profex Logex Vennex Symmex Haplex Homex
+ALL = FastK Fastrm Fastmv Fastcp Fastmerge Histex Tabex Profex Logex Vennex Symmex Haplex Homex
 
 all: deflate.lib libhts.a $(ALL)
 
@@ -14,7 +14,10 @@ deflate.lib: LIBDEFLATE
 	cd LIBDEFLATE; make; cd ..
 
 libhts.a: HTSLIB
-	cd HTSLIB; make; cd ..
+	cd HTSLIB; make libhts.a; cd ..
+
+HTSLIB/htslib_static.mk:
+	cd HTSLIB; make htslib_static.mk; cd ..
 
 libfastk.c : gene_core.c
 libfastk.h : gene_core.h
@@ -30,6 +33,9 @@ Fastmv: Fastxfer.c gene_core.c gene_core.h
 
 Fastcp: Fastxfer.c gene_core.c gene_core.h
 	$(CC) $(CFLAGS) -UMOVE -o Fastcp Fastxfer.c gene_core.c -lpthread -lm
+
+Fastmerge: Fastmerge.c libfastk.c libfastk.h
+	$(CC) $(CFLAGS) -o Fastmerge Fastmerge.c libfastk.c -lpthread -lm
 
 Histex: Histex.c libfastk.c libfastk.h
 	$(CC) $(CFLAGS) -o Histex Histex.c libfastk.c -lpthread -lm

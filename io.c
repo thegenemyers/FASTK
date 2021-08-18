@@ -180,7 +180,7 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
   zoffs = NULL;
   if (zipd)
     { if (gz_ok)
-        { if (lstat(path,&stats) == -1)
+        { if (stat(path,&stats) == -1)
             { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,path);
               Clean_Exit(1);
             }
@@ -196,7 +196,7 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
           free(path);
           path = temp;
           zipd  = 0;
-          if (lstat(path,&stats) == -1)
+          if (stat(path,&stats) == -1)
             { fprintf(stderr,"\n%s: Cannot get stats for %s\n",Prog_Name,path);
               Clean_Exit(1);
             }
