@@ -265,132 +265,164 @@ int main(int argc, char *argv[])
 
       free(r);
     }
+    
+    narg = argc-2;
   }   
 
-  { int c;
+  if (DO_HIST)
+    { int c, k;
 
-    narg = argc-2;
+      Histogram *H = Load_Histogram(argv[2]);
 
-    S = Malloc(sizeof(Kmer_Stream *)*narg,"Allocating table pointers");
-    if (S == NULL)
-      exit (1);
+      for (c = 3; c <= narg; c++) 
+        { Histogram *G = Load_Histogram(argv[c]);
 
-    kmer = 0;
-    for (c = 2; c <= narg; c++)
-      { Kmer_Stream *s = Open_Kmer_Stream(argv[c]);
-        if (s == NULL)
-          { fprintf(stderr,"%s: Cannot open table %s\n",Prog_Name,argv[c]);
-            exit (1);
-          }
-        if (c == 2)
-          kmer = s->kmer;
-        else
-          { if (s->kmer != kmer)
-              { fprintf(stderr,"%s: K-mer tables do not involve the same K\n",Prog_Name);
+          if (G == NULL)
+            { fprintf(stderr,"%s: Cannot open histogram with root %s\n",Prog_Name,argv[c]);
+              exit (1);
+            }
+
+          if (G->low != H->low || G->high != G->high || G->kmer != H->kmer)
+            { fprintf(stderr,"%s: K-mer histograms do not involve the same K or range\n",Prog_Name);
+              exit (1);
+            }
+
+          for (k = G->low; k < G->high+3; k++)
+            H->hist[k] += G->hist[k];
+
+          Free_Histogram(G);
+        }
+
+      Write_Histogram(Catenate(Opath,"/",Oroot,".hist"), H);
+
+      Free_Histogram(H);
+    }
+
+  if (DO_TABLE)
+    {
+      { int c;
+    
+        S = Malloc(sizeof(Kmer_Stream *)*narg,"Allocating table pointers");
+        if (S == NULL)
+          exit (1);
+    
+        kmer = 0;
+        for (c = 2; c <= narg; c++)
+          { Kmer_Stream *s = Open_Kmer_Stream(argv[c]);
+            if (s == NULL)
+              { fprintf(stderr,"%s: Cannot open table %s\n",Prog_Name,argv[c]);
                 exit (1);
               }
+            if (c == 2)
+              kmer = s->kmer;
+            else
+              { if (s->kmer != kmer)
+                  { fprintf(stderr,"%s: K-mer tables do not involve the same K\n",Prog_Name);
+                    exit (1);
+                  }
+              }
+            S[c-2] = s;
           }
-        S[c-2] = s;
       }
-  }
-
-  { int64     range[NTHREADS+1][narg];
+    
+      { int64     range[NTHREADS+1][narg];
 #ifndef DEBUG_THREADS
-    pthread_t threads[NTHREADS];
+        pthread_t threads[NTHREADS];
 #endif
-    TP        parm[NTHREADS];
-    FILE     *out[NTHREADS];
-    int64    *prefx;
-    int       ixlen = 0;
-    char     *seq;
-    uint8    *ent;
-    int       t, a, i;
-    int64     p;
-
-    ixlen = 0x1000000;
-    prefx = Malloc(sizeof(int64)*ixlen,"Allocating prefix table");
-    bzero(prefx,sizeof(int64)*ixlen);
-
-    for (t = 0; t < NTHREADS; t++)
-      out[t] = fopen(Catenate(Opath,"/.",Oroot,
-                              Numbered_Suffix(".ktab.",t+1,"")),"w");
-
-    for (a = 0; a < narg; a++)
-      { range[0][a] = 0;
-        range[NTHREADS][a] = S[a]->nels;
-      }
-
-    seq = Current_Kmer(S[0],NULL);
-    ent = Current_Entry(S[0],NULL);
-    for (t = 1; t < NTHREADS; t++)
-      { p = (S[0]->nels*t)/NTHREADS; 
-        GoTo_Kmer_Index(S[0],p);
-#ifdef DEBUG
-        printf("\n%d: %0*x\n",t,2*S[0]->ibyte,S[0]->cpre);
-        printf(" %lld: %s\n",p,Current_Kmer(S[0],seq));
-#endif
-        ent = Current_Entry(S[0],ent);                //  Break at prefix boundaries
-        for (i = S[0]->ibyte; i < S[0]->kbyte; i++)
-          ent[i] = 0;
+        TP        parm[NTHREADS];
+        FILE     *out[NTHREADS];
+        int64    *prefx;
+        int       ixlen = 0;
+        char     *seq;
+        uint8    *ent;
+        int       t, a, i;
+        int64     p;
+    
+        ixlen = 0x1000000;
+        prefx = Malloc(sizeof(int64)*ixlen,"Allocating prefix table");
+        bzero(prefx,sizeof(int64)*ixlen);
+    
+        for (t = 0; t < NTHREADS; t++)
+          out[t] = fopen(Catenate(Opath,"/.",Oroot,
+                                  Numbered_Suffix(".ktab.",t+1,"")),"w");
+    
         for (a = 0; a < narg; a++)
-          { GoTo_Kmer_Entry(S[a],ent);
-#ifdef DEBUG
-            printf(" %lld: %s\n",S[a]->cidx,Current_Kmer(S[a],seq));
-#endif
-            range[t][a] = S[a]->cidx;
+          { range[0][a] = 0;
+            range[NTHREADS][a] = S[a]->nels;
           }
-      }
-    free(seq);
-
-    for (t = 0; t < NTHREADS; t++)
-      { parm[t].tid   = t;
-        parm[t].S     = S;
-        parm[t].narg  = narg;
-        parm[t].begs  = range[t];
-        parm[t].ends  = range[t+1];
-        parm[t].prefx = prefx;
-        parm[t].out   = out[t];
-      }
-
-#ifdef DEBUG_THREADS
-    for (t = 0; t < NTHREADS; t++)
-      merge_thread(parm+t);
-#else
-    for (t = 1; t < NTHREADS; t++)
-      pthread_create(threads+t,NULL,merge_thread,parm+t);
-    merge_thread(parm);
-    for (t = 1; t < NTHREADS; t++)
-      pthread_join(threads[t],NULL);
+    
+        seq = Current_Kmer(S[0],NULL);
+        ent = Current_Entry(S[0],NULL);
+        for (t = 1; t < NTHREADS; t++)
+          { p = (S[0]->nels*t)/NTHREADS; 
+            GoTo_Kmer_Index(S[0],p);
+#ifdef DEBUG
+            printf("\n%d: %0*x\n",t,2*S[0]->ibyte,S[0]->cpre);
+            printf(" %lld: %s\n",p,Current_Kmer(S[0],seq));
 #endif
-
-    { int one = 1;
-      int three = 3;
-
-      FILE  *f   = fopen(Catenate(Opath,"/",Oroot,".ktab"),"w");
-      int64 *prf = prefx;
-
-      fwrite(&kmer,sizeof(int),1,f);
-      fwrite(&NTHREADS,sizeof(int),1,f);
-      fwrite(&one,sizeof(int),1,f);
-      fwrite(&three,sizeof(int),1,f);
-
-      for (i = 1; i < ixlen; i++)
-        prf[i] += prf[i-1];
-
-      fwrite(prf,sizeof(int64),ixlen,f);
-      fclose(f);
-
-      free(out);
-      free(prefx);
+            ent = Current_Entry(S[0],ent);                //  Break at prefix boundaries
+            for (i = S[0]->ibyte; i < S[0]->kbyte; i++)
+              ent[i] = 0;
+            for (a = 0; a < narg; a++)
+              { GoTo_Kmer_Entry(S[a],ent);
+#ifdef DEBUG
+                printf(" %lld: %s\n",S[a]->cidx,Current_Kmer(S[a],seq));
+#endif
+                range[t][a] = S[a]->cidx;
+              }
+          }
+        free(seq);
+    
+        for (t = 0; t < NTHREADS; t++)
+          { parm[t].tid   = t;
+            parm[t].S     = S;
+            parm[t].narg  = narg;
+            parm[t].begs  = range[t];
+            parm[t].ends  = range[t+1];
+            parm[t].prefx = prefx;
+            parm[t].out   = out[t];
+          }
+    
+#ifdef DEBUG_THREADS
+        for (t = 0; t < NTHREADS; t++)
+          merge_thread(parm+t);
+#else
+        for (t = 1; t < NTHREADS; t++)
+          pthread_create(threads+t,NULL,merge_thread,parm+t);
+        merge_thread(parm);
+        for (t = 1; t < NTHREADS; t++)
+          pthread_join(threads[t],NULL);
+#endif
+    
+        { int one = 1;
+          int three = 3;
+    
+          FILE  *f   = fopen(Catenate(Opath,"/",Oroot,".ktab"),"w");
+          int64 *prf = prefx;
+    
+          fwrite(&kmer,sizeof(int),1,f);
+          fwrite(&NTHREADS,sizeof(int),1,f);
+          fwrite(&one,sizeof(int),1,f);
+          fwrite(&three,sizeof(int),1,f);
+    
+          for (i = 1; i < ixlen; i++)
+            prf[i] += prf[i-1];
+    
+          fwrite(prf,sizeof(int64),ixlen,f);
+          fclose(f);
+    
+          free(out);
+          free(prefx);
+        }
+      }
+    
+      { int c;
+    
+        for (c = 0; c < narg; c++)
+          Free_Kmer_Stream(S[c]);
+        free(S);
+      }
     }
-  }
-
-  { int c;
-
-    for (c = 0; c < narg; c++)
-      Free_Kmer_Stream(S[c]);
-    free(S);
-  }
 
   free(Oroot);
   free(Opath);

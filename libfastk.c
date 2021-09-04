@@ -1362,20 +1362,24 @@ Profile_Index *Open_Profiles(char *name)
 Profile_Index *Clone_Profiles(Profile_Index *P)
 { _Profile_Index *Q;
   uint8          *count;
+  char           *name;
 
   //  Allocate in-memory table
 
   Q     = Malloc(sizeof(_Profile_Index),"Allocating profile record");
   count = Malloc(PROF_BUF0,"Allocating profile index");
-  if (Q == NULL || count == NULL)
+  name  = Malloc(PROFILE(P)->nlen + 20,"Allocating profile index");
+  if (Q == NULL || count == NULL || name == NULL)
     exit (1);
 
   *Q = *PROFILE(P);
+  strncpy(name,PROFILE(P)->name,Q->nlen);
 
   Q->clone = 1;
   Q->cpart = -1;
   Q->cfile = -1;
   Q->count = count;
+  Q->name  = name;
 
   return ((Profile_Index *) Q);
 }
@@ -1394,10 +1398,10 @@ void Free_Profiles(Profile_Index *_P)
   if (!P->clone)
     { free(P->index);
       free(P->nbase);
-      free(P->name);
     }
   if (P->cfile >= 0)
     close(P->cfile);
+  free(P->name);
   free(P->count);
   free(P);
 }

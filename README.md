@@ -741,10 +741,10 @@ The read profiles are stored in N pairs of file, an index and a data pair, that 
 and identified by a single *stub* file `<source>.prof`.
 This stub file contains just the k&#8209;mer length followed by the number of threads FastK was
 run with as two integers.
-The hidden data files, `.\<base>.prof.[1,N]`, contain the compressed profiles for
+The hidden data files, `.<base>.prof.[1,N]`, contain the compressed profiles for
 each read
 in their order in the input data set, and the hidden index files,
-`.\<base>.pidx.[1,N]`, 
+`.<base>.pidx.[1,N]`, 
 contain arrays of offsets into the P-files giving the start of each compressed profile,
 assuming the path name \<source> = \<dir>/\<base>.
 An A-file contains a brief header followed by an array of offsets.
