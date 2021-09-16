@@ -898,6 +898,7 @@ static void *merge_thread(void *args)
   int64 **hist = NULL;
   int64  *nels;
   uint8 **ent, *bst;
+  uint16  sho;
   int    *filter, need_counts, need_GC;
   int    itop, *in, *cnt;
   int    c, v, x, i;
@@ -1041,7 +1042,11 @@ static void *merge_thread(void *args)
                     if (c > 0)
                       { if (DO_TABLE)
                           { fwrite(bst+3,hbyte,1,out[i]);
-                            fwrite(&c,sizeof(short),1,out[i]);
+                            if (c > 32767)
+                              sho = 32767;
+                            else
+                              sho = c;
+                            fwrite(&sho,sizeof(short),1,out[i]);
                             x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
                             prefx[i][x] += 1;
                             nels[i] += 1;
