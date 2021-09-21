@@ -747,6 +747,97 @@ static int eval_expression(Node *t, int *cnts)
   }
 }
 
+static inline int modulate_mins(int x, int y, int mode)
+{ switch (mode)
+  { case MOD_AVE:
+      return ((x+y) >> 1);
+    case MOD_SUM:
+      return (x+y);
+    case MOD_SUB:
+      x -= y;
+      if (x < 0)
+        x = 0;
+      return (x);
+    case MOD_MIN:
+      if (x < y)
+        return (x);
+      else
+        return (y);
+    case MOD_MAX:
+      if (x > y)
+        return (x);
+      else
+        return (y);
+    case MOD_LFT:
+      return (x);
+    case MOD_ONE:
+    default:
+      return (1);
+  }
+}
+
+static int eval_minimums(Node *t, int *mins)
+{ switch (t->op)
+  { case OP_NUM:
+      return (1);
+
+    case OP_OR:
+      { int x, y;
+
+        x = eval_minimums(t->lft,mins);
+        y = eval_minimums(t->rgt,mins);
+        if (y < x)
+          x = y;
+        y = modulate(x,y,t->mode);
+        if (y < x)
+          x = y;
+        return (x);
+      }
+ 
+    case OP_AND:
+      { int x, y;
+
+        x = eval_minimums(t->lft,mins);
+        y = eval_minimums(t->rgt,mins);
+        return (modulate_mins(x,y,t->mode));
+      }
+
+    case OP_XOR:
+      { int x, y;
+
+        x = eval_minimums(t->lft,mins);
+        y = eval_minimums(t->rgt,mins);
+        if (x < y)
+          return (x);
+        else
+          return (y);
+      }
+
+    case OP_MIN:
+      return (eval_minimums(t->lft,mins));
+
+    case OP_CNT:
+      { int x, *r;
+
+        x = eval_minimums(t->lft,mins);
+        r = (int *) (t->rgt);
+        if (x < r[0])
+          return (r[0]);
+        else
+          return (x);
+      }
+
+    case OP_GC:
+      return (eval_minimums(t->lft,mins));
+     
+    case OP_ARG:
+      return (mins[(int64) (t->lft)]);
+
+    default:
+      return (1);
+  }
+}
+
 
 /****************************************************************************************
  *
@@ -836,6 +927,8 @@ typedef struct
 static int    GC[256];
 static int    GCR[256];
 
+#define IB_OUT  3
+
 static void gc_setup(int kmer)
 { static int isgc[4] = { 0, 100, 100, 0 };
   uint32 x;
@@ -890,7 +983,7 @@ static void *merge_thread(void *args)
   FILE        **out   = parm->out;
 
   int one   = 1;
-  int hbyte = S[0]->hbyte;
+  int hbyte = S[0]->kbyte-IB_OUT;
   int kbyte = S[0]->kbyte;
   int kmer  = S[0]->kmer;
   int hgram = (HIST_LOW > 0);
@@ -1023,7 +1116,7 @@ static void *merge_thread(void *args)
             if (A[i]->filter[v])
               { if (A[i]->logical)
                   { if (DO_TABLE)
-                      { fwrite(bst+3,hbyte,1,out[i]);
+                      { fwrite(bst+IB_OUT,hbyte,1,out[i]);
                         fwrite(&one,sizeof(short),1,out[i]);
                         x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
                         prefx[i][x] += 1;
@@ -1041,7 +1134,7 @@ static void *merge_thread(void *args)
                   { c = eval_expression(A[i]->expr,cnt);
                     if (c > 0)
                       { if (DO_TABLE)
-                          { fwrite(bst+3,hbyte,1,out[i]);
+                          { fwrite(bst+IB_OUT,hbyte,1,out[i]);
                             if (c > 32767)
                               sho = 32767;
                             else
@@ -1337,11 +1430,10 @@ int main(int argc, char *argv[])
       { p = (S[0]->nels*t)/NTHREADS; 
         GoTo_Kmer_Index(S[0],p);
 #ifdef DEBUG
-        printf("\n%d: %0*x\n",t,2*S[0]->ibyte,S[0]->cpre);
-        printf(" %lld: %s\n",p,Current_Kmer(S[0],seq));
+        printf("\n %lld: %s\n",p,Current_Kmer(S[0],seq));
 #endif
         ent = Current_Entry(S[0],ent);                //  Break at prefix boundaries
-        for (i = S[0]->ibyte; i < S[0]->kbyte; i++)
+        for (i = IB_OUT; i < S[0]->kbyte; i++)
           ent[i] = 0;
         for (a = 0; a < narg; a++)
           { GoTo_Kmer_Entry(S[a],ent);
@@ -1379,16 +1471,22 @@ int main(int argc, char *argv[])
 #endif
 
     if (DO_TABLE)
-      { int one = 1;
+      { int minval;
         int three = 3;
+        int mins[narg];
+
+        for (a = 0; a < narg; a++)
+          mins[a] = S[a]->minval;
 
         for (a = 0; a < nass; a++)
           { FILE  *f   = fopen(Catenate(A[a]->path,"/",A[a]->root,".ktab"),"w");
             int64 *prf = prefx[a];
 
+            minval = eval_minimums(A[a]->expr,mins);
+
             fwrite(&kmer,sizeof(int),1,f);
             fwrite(&NTHREADS,sizeof(int),1,f);
-            fwrite(&one,sizeof(int),1,f);
+            fwrite(&minval,sizeof(int),1,f);
             fwrite(&three,sizeof(int),1,f);
 
             for (i = 1; i < ixlen; i++)
