@@ -1,9 +1,10 @@
 /*******************************************************************************************
  *
- *  Merges tables, histograms, and profiles produced by independent HPC runs on sub-parts of a data set
+ *  Merges tables, histograms, and profiles produced by independent HPC runs on sub-parts
+ *     of a data set
  *
  *  Author:  Gene Myers
- *  Date  :  Aug. 20, 2021
+ *  Date  :  Sep. 20, 2021
  *
  ********************************************************************************************/
 
@@ -25,7 +26,7 @@ static int NTHREADS;
 
 /****************************************************************************************
  *
- *  Streaming eval
+ *  Streaming threaded merge of k-mer tables
  *
  *****************************************************************************************/
 
@@ -58,7 +59,7 @@ static void *merge_thread(void *args)
   int64        *prefx = parm->prefx;
   FILE         *out   = parm->out;
 
-  int hbyte = S[0]->hbyte;
+  int hbyte = S[0]->kbyte-3;
   int kbyte = S[0]->kbyte;
   int kmer  = S[0]->kmer;
 
@@ -182,6 +183,44 @@ static void *merge_thread(void *args)
 
 /****************************************************************************************
  *
+ *  Streaming threaded merge of profile indices and data
+ *
+ *****************************************************************************************/
+
+typedef struct
+  { int           tid;
+    char        **argv;
+    FILE         *pout;
+    FILE         *dout;
+    int           fpart;
+    int64         first;
+    int           lpart;
+    int64         last;
+  } PP;
+
+static void *prof_thread(void *args)
+{ PP   *parm   = (PP *) args;
+  int   lpart  = parm->lpart;
+  FILE *dout   = parm->dout;
+  FILE *pout   = parm->pout;
+  int   c;
+
+  (void) dout;
+  (void) pout;
+
+  for (c = parm->fpart; c <= lpart; c++)
+    { if (parm->last == 0)
+        break;
+      // open c;
+      // advance to first;
+    }
+
+  return (NULL);
+}
+
+
+/****************************************************************************************
+ *
  *  Main
  *
  *****************************************************************************************/
@@ -239,42 +278,49 @@ int main(int argc, char *argv[])
     Oroot = Root(argv[1],".ktab");
 
     { FILE *f;
-      char *r;
-
-      r = Root(argv[2],".hist");
-      f = fopen(Catenate(r,".hist","",""),"r");
-      if (f != NULL)
-        { DO_HIST = 1;
-          fclose(f);
-        } 
-      f = fopen(Catenate(r,".ktab","",""),"r");
-      if (f != NULL)
-        { DO_TABLE = 1;
-          fclose(f);
-        } 
-      f = fopen(Catenate(r,".prof","",""),"r");
-      if (f != NULL)
-        { DO_PROF = 1;
-          fclose(f);
-        } 
-
-      if (DO_HIST + DO_TABLE + DO_PROF == 0)
-        { fprintf(stderr,"%s: There are no FastK objects with root %s !?\n",Prog_Name,r);
-          exit (1);
-        }
-
-      free(r);
-    }
     
-    narg = argc-2;
+      narg = argc-2;
+      argv += 2;
+
+      if (strcmp(argv[0]+(strlen(argv[0])-5),".hist") == 0)
+        DO_HIST = 1;
+      else if (strcmp(argv[0]+(strlen(argv[0])-5),".ktab") == 0)
+        DO_TABLE = 1;
+      else if (strcmp(argv[0]+(strlen(argv[0])-5),".prof") == 0)
+        DO_PROF = 1;
+      else
+        { f = fopen(Catenate(argv[0],".hist","",""),"r");
+          if (f != NULL)
+            { DO_HIST = 1;
+              fclose(f);
+            } 
+
+          f = fopen(Catenate(argv[0],".ktab","",""),"r");
+          if (f != NULL)
+            { DO_TABLE = 1;
+              fclose(f);
+            } 
+
+          f = fopen(Catenate(argv[0],".prof","",""),"r");
+          if (f != NULL)
+            { DO_PROF = 1;
+              fclose(f);
+            } 
+
+          if (DO_HIST + DO_TABLE + DO_PROF == 0)
+            { fprintf(stderr,"%s: There are no FastK objects with root %s !?\n",Prog_Name,argv[0]);
+              exit (1);
+            }
+        }
+    }
   }   
 
   if (DO_HIST)
     { int c, k;
 
-      Histogram *H = Load_Histogram(argv[2]);
+      Histogram *H = Load_Histogram(argv[0]);
 
-      for (c = 3; c <= narg; c++) 
+      for (c = 1; c < narg; c++) 
         { Histogram *G = Load_Histogram(argv[c]);
 
           if (G == NULL)
@@ -307,13 +353,13 @@ int main(int argc, char *argv[])
           exit (1);
     
         kmer = 0;
-        for (c = 2; c <= narg; c++)
+        for (c = 0; c < narg; c++)
           { Kmer_Stream *s = Open_Kmer_Stream(argv[c]);
             if (s == NULL)
               { fprintf(stderr,"%s: Cannot open table %s\n",Prog_Name,argv[c]);
                 exit (1);
               }
-            if (c == 2)
+            if (c == 0)
               kmer = s->kmer;
             else
               { if (s->kmer != kmer)
@@ -321,7 +367,7 @@ int main(int argc, char *argv[])
                     exit (1);
                   }
               }
-            S[c-2] = s;
+            S[c] = s;
           }
       }
     
@@ -330,7 +376,6 @@ int main(int argc, char *argv[])
         pthread_t threads[NTHREADS];
 #endif
         TP        parm[NTHREADS];
-        FILE     *out[NTHREADS];
         int64    *prefx;
         int       ixlen = 0;
         char     *seq;
@@ -341,10 +386,6 @@ int main(int argc, char *argv[])
         ixlen = 0x1000000;
         prefx = Malloc(sizeof(int64)*ixlen,"Allocating prefix table");
         bzero(prefx,sizeof(int64)*ixlen);
-    
-        for (t = 0; t < NTHREADS; t++)
-          out[t] = fopen(Catenate(Opath,"/.",Oroot,
-                                  Numbered_Suffix(".ktab.",t+1,"")),"w");
     
         for (a = 0; a < narg; a++)
           { range[0][a] = 0;
@@ -380,7 +421,8 @@ int main(int argc, char *argv[])
             parm[t].begs  = range[t];
             parm[t].ends  = range[t+1];
             parm[t].prefx = prefx;
-            parm[t].out   = out[t];
+            parm[t].out   = fopen(Catenate(Opath,"/.",Oroot,
+                                  Numbered_Suffix(".ktab.",t+1,"")),"w");
           }
     
 #ifdef DEBUG_THREADS
@@ -394,15 +436,20 @@ int main(int argc, char *argv[])
           pthread_join(threads[t],NULL);
 #endif
     
-        { int one = 1;
+        { int minval;
           int three = 3;
     
           FILE  *f   = fopen(Catenate(Opath,"/",Oroot,".ktab"),"w");
           int64 *prf = prefx;
+
+          minval = S[i]->minval;
+          for (i = 1; i < narg; i++)
+            if (S[i]->minval < minval)
+              minval = S[i]->minval;
     
           fwrite(&kmer,sizeof(int),1,f);
           fwrite(&NTHREADS,sizeof(int),1,f);
-          fwrite(&one,sizeof(int),1,f);
+          fwrite(&minval,sizeof(int),1,f);
           fwrite(&three,sizeof(int),1,f);
     
           for (i = 1; i < ixlen; i++)
@@ -411,7 +458,6 @@ int main(int argc, char *argv[])
           fwrite(prf,sizeof(int64),ixlen,f);
           fclose(f);
     
-          free(out);
           free(prefx);
         }
       }
@@ -422,6 +468,101 @@ int main(int argc, char *argv[])
           Free_Kmer_Stream(S[c]);
         free(S);
       }
+    }
+
+  if (DO_PROF)
+    { PP        parm[NTHREADS];
+#ifndef DEBUG_THREADS
+      pthread_t threads[NTHREADS];
+#endif
+      int64 psize[narg];
+
+      char *path, *root;
+      int   imer, nthreads;
+      int64 nreads, totreads, rpt;
+      FILE *f;
+      int   c, t;
+    
+      totreads = 0;
+      for (c = 0; c < narg; c++)
+        { path = PathTo(argv[c]);
+          root = Root(argv[c],".prof");
+          f = fopen(Catenate(path,"/",root,".prof"),"r");
+          if (f == NULL)
+            { fprintf(stderr,"%s: Cannot open profile %s\n",Prog_Name,argv[c]);
+              exit (1);
+            }
+          fread(&imer,sizeof(int),1,f);
+          fread(&nthreads,sizeof(int),1,f);
+          fclose(f);
+
+          if (c == 0)
+            kmer = imer;
+          else
+            { if (imer != kmer)
+                { fprintf(stderr,"%s: K-mer profiles do not involve the same K\n",Prog_Name);
+                  exit (1);
+                }
+            }
+
+          for (t = 1; t <= nthreads; t++)
+            { f = fopen(Catenate(path,"/.",root,Numbered_Suffix(".pidx.",t,"")),"r");
+              if (f == NULL)
+                { fprintf(stderr,"%s: Cannot open profile index for %s\n",Prog_Name,argv[c]);
+                  exit (1);
+                }
+              fread(&imer,sizeof(int),1,f);
+              fread(&nreads,sizeof(int64),1,f);
+              fread(&nreads,sizeof(int64),1,f);
+              totreads += nreads;
+              fclose(f);
+            }
+          psize[c] = totreads;
+        }
+
+      rpt = totreads/NTHREADS;
+
+      c = 0;
+      for (t = 0; t < NTHREADS; t++)
+        { int64 u;
+
+          parm[t].tid   = t;
+          parm[t].argv  = argv;
+
+          u = ((t+1)*totreads)/NTHREADS;
+          while (psize[c] <= u)
+            c += 1;
+          parm[t].lpart = c;
+          parm[t].last  = u - psize[c];
+
+          parm[t].pout  = fopen(Catenate(Opath,"/.",Oroot,
+                                   Numbered_Suffix(".pidx.",t+1,"")),"w");
+          parm[t].dout  = fopen(Catenate(Opath,"/.",Oroot,
+                                   Numbered_Suffix(".prof.",t+1,"")),"w");
+        }
+      parm[0].fpart = 0;
+      parm[0].first = 0;
+      for (t = 1; t < NTHREADS; t++)
+        { parm[t].fpart = parm[t-1].lpart;
+          parm[t].first = parm[t-1].last;
+        }
+
+#ifdef DEBUG_THREADS
+      printf("\n");
+      for (t = 0; t < NTHREADS; t++)
+        printf("%d/%lld - %d/%lld\n",parm[t].fpart,parm[t].first,parm[t].lpart,parm[t].last);
+#endif
+    
+#ifdef DEBUG_THREADS
+      for (t = 0; t < NTHREADS; t++)
+        prof_thread(parm+t);
+#else
+      for (t = 1; t < NTHREADS; t++)
+        pthread_create(threads+t,NULL,prof_thread,parm+t);
+      prof_thread(parm);
+      for (t = 1; t < NTHREADS; t++)
+        pthread_join(threads[t],NULL);
+#endif
     }
 
   free(Oroot);

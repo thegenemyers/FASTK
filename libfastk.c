@@ -913,10 +913,11 @@ Kmer_Stream *Clone_Kmer_Stream(Kmer_Stream *O)
   S->name  = Malloc(S->nlen+20,"Allocating k-mer buffer\n");
   if (S->table == NULL || S->name == NULL)
     exit (1);
+  strncpy(S->name,STREAM(O)->name,S->nlen);
 
   //  Set position to beginning
 
-  sprintf(S->name,"%s%d",STREAM(O)->name,1);
+  sprintf(S->name+S->nlen,"%d",1);
   copn = open(S->name,O_RDONLY);
   lseek(copn,sizeof(int)+sizeof(int64),SEEK_SET);
 
