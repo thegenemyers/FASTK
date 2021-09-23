@@ -1240,12 +1240,7 @@ int main(int argc, char *argv[])
             if (argv[i][1] == 'H')
               DO_TABLE = 0;
             HIST_LOW = strtol(argv[i]+2,&eptr,10);
-            if (*eptr == '\0')
-              { HIST_LOW = 1;
-                HIST_HGH = 0x7fff;
-                break;
-              }
-            else if (eptr > argv[i]+2)
+            if (eptr > argv[i]+2)
               { if (HIST_LOW < 1 || HIST_LOW > 0x7fff)
                   { fprintf(stderr,"\n%s: Histogram count %d is out of range\n",
                                    Prog_Name,HIST_LOW);
@@ -1266,6 +1261,11 @@ int main(int argc, char *argv[])
                     HIST_LOW = 1;
                     break;
                   }
+              }
+            else if (*eptr == 0)
+              { HIST_LOW = 1;
+                HIST_HGH = 0x7fff;
+                break;
               }
             fprintf(stderr,"\n%s: Syntax of -h option invalid -h[<int(1)>:]<int>\n",Prog_Name);
             exit (1);

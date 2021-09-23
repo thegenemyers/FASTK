@@ -190,30 +190,114 @@ static void *merge_thread(void *args)
 typedef struct
   { int           tid;
     char        **argv;
+    int           kmer;
+    int64         fidx;
+    int64         nidx;
     FILE         *pout;
     FILE         *dout;
     int           fpart;
     int64         first;
     int           lpart;
     int64         last;
+    int64         buffer[16384];
   } PP;
 
 static void *prof_thread(void *args)
-{ PP   *parm   = (PP *) args;
-  int   lpart  = parm->lpart;
-  FILE *dout   = parm->dout;
-  FILE *pout   = parm->pout;
-  int   c;
+{ PP    *parm   = (PP *) args;
+  char **argv   = parm->argv;
+  FILE  *dout   = parm->dout;
+  FILE  *pout   = parm->pout;
+  int    fpart  = parm->fpart;
+  int64  first  = parm->first;
+  int    lpart  = parm->fpart;
+  int64  last   = parm->last;
+  int64 *buffer = parm->buffer;
 
-  (void) dout;
-  (void) pout;
+  int64  q, cindex, lindex;
+  int64  base, offs;
+  int64  fdata, ldata;
+  char  *path, *root;
+  int    imer, nthreads;
+  FILE  *f;
+  int    c, t;
 
-  for (c = parm->fpart; c <= lpart; c++)
-    { if (parm->last == 0)
-        break;
-      // open c;
-      // advance to first;
+  fwrite(&(parm->kmer),sizeof(int),1,pout);
+  fwrite(&(parm->fidx),sizeof(int64),1,pout);
+  fwrite(&(parm->nidx),sizeof(int64),1,pout);
+
+  base = -1;
+  for (c = fpart; c <= lpart; c++) 
+    { path = PathTo(argv[c]);
+      root = Root(argv[c],".prof");
+
+      f = fopen(Catenate(path,"/",root,".prof"),"r");
+      if (f == NULL)
+        { fprintf(stderr,"%s: Cannot open profile %s\n",Prog_Name,argv[c]);
+          exit (1);
+        }
+      fread(&imer,sizeof(int),1,f);
+      fread(&nthreads,sizeof(int),1,f);
+      fclose(f);
+
+      for (t = 1; t <= nthreads; t++)
+        { f = fopen(Catenate(path,"/.",root,Numbered_Suffix(".pidx.",t,"")),"r");
+          if (f == NULL)
+            { fprintf(stderr,"%s: Cannot open profile index for %s\n",Prog_Name,argv[c]);
+              exit (1);
+            }
+          fread(&imer,sizeof(int),1,f);
+          fread(&cindex,sizeof(int64),1,f);
+          fread(&lindex,sizeof(int64),1,f);
+          lindex += cindex;
+          if (c == fpart && base < 0)
+            { if (lindex <= first) 
+                { fclose(f);
+                  break;
+                }
+              if (cindex < first)
+                fseeko(f,sizeof(int64)*(first-cindex),SEEK_CUR);
+              fread(&offs,sizeof(int64),1,f);
+              base = offs;
+              cindex = first;
+            }
+          else
+            fread(&offs,sizeof(int64),1,f);
+          fdata = offs;
+          if (c == lpart && lindex >= last)
+            { lindex = last;
+              t = nthreads;
+            }
+          for (q = cindex; q < lindex; q++)
+            { offs -= base;
+              fwrite(&offs,sizeof(int64),1,pout);
+              fread(&offs,sizeof(int64),1,f);
+            }
+          ldata = offs;
+          base = -(offs-base);
+          fclose(f);
+
+          f = fopen(Catenate(path,"/.",root,Numbered_Suffix(".prof.",t,"")),"r");
+          if (f == NULL)
+            { fprintf(stderr,"%s: Cannot open profile data for %s\n",Prog_Name,argv[c]);
+              exit (1);
+            }
+          if (fdata > 0)
+            fseeko(f,sizeof(int64)*fdata,SEEK_SET);
+          for (q = ldata-fdata; q >= 16384; q -= 16384)
+            { fread(buffer,sizeof(int64)*16384,1,f);
+              fwrite(buffer,sizeof(int64)*16384,1,dout);
+            }
+          if (q > 0)
+            { fread(buffer,sizeof(int64)*q,1,f);
+              fwrite(buffer,sizeof(int64)*q,1,dout);
+            }
+          fclose(f);
+        }
+
+      free(root);
+      free(path);
     }
+  fwrite(&offs,sizeof(int64),1,pout);
 
   return (NULL);
 }
@@ -475,94 +559,105 @@ int main(int argc, char *argv[])
 #ifndef DEBUG_THREADS
       pthread_t threads[NTHREADS];
 #endif
-      int64 psize[narg];
+      int64 psize[narg], totreads, rpt;
 
-      char *path, *root;
-      int   imer, nthreads;
-      int64 nreads, totreads, rpt;
-      FILE *f;
-      int   c, t;
+      { char *path, *root;
+        int   imer, nthreads;
+        int64 nreads;
+        FILE *f;
+        int   c, t;
     
-      totreads = 0;
-      for (c = 0; c < narg; c++)
-        { path = PathTo(argv[c]);
-          root = Root(argv[c],".prof");
-          f = fopen(Catenate(path,"/",root,".prof"),"r");
-          if (f == NULL)
-            { fprintf(stderr,"%s: Cannot open profile %s\n",Prog_Name,argv[c]);
-              exit (1);
-            }
-          fread(&imer,sizeof(int),1,f);
-          fread(&nthreads,sizeof(int),1,f);
-          fclose(f);
+        totreads = 0;
+        for (c = 0; c < narg; c++)
+          { path = PathTo(argv[c]);
+            root = Root(argv[c],".prof");
+            f = fopen(Catenate(path,"/",root,".prof"),"r");
+            if (f == NULL)
+              { fprintf(stderr,"%s: Cannot open profile %s\n",Prog_Name,argv[c]);
+                exit (1);
+              }
+            fread(&imer,sizeof(int),1,f);
+            fread(&nthreads,sizeof(int),1,f);
+            fclose(f);
 
-          if (c == 0)
-            kmer = imer;
-          else
-            { if (imer != kmer)
-                { fprintf(stderr,"%s: K-mer profiles do not involve the same K\n",Prog_Name);
-                  exit (1);
-                }
-            }
+            if (c == 0)
+              kmer = imer;
+            else
+              { if (imer != kmer)
+                  { fprintf(stderr,"%s: K-mer profiles do not involve the same K\n",Prog_Name);
+                    exit (1);
+                  }
+              }
 
-          for (t = 1; t <= nthreads; t++)
-            { f = fopen(Catenate(path,"/.",root,Numbered_Suffix(".pidx.",t,"")),"r");
-              if (f == NULL)
-                { fprintf(stderr,"%s: Cannot open profile index for %s\n",Prog_Name,argv[c]);
-                  exit (1);
-                }
-              fread(&imer,sizeof(int),1,f);
-              fread(&nreads,sizeof(int64),1,f);
-              fread(&nreads,sizeof(int64),1,f);
-              totreads += nreads;
-              fclose(f);
-            }
-          psize[c] = totreads;
-        }
+            for (t = 1; t <= nthreads; t++)
+              { f = fopen(Catenate(path,"/.",root,Numbered_Suffix(".pidx.",t,"")),"r");
+                if (f == NULL)
+                  { fprintf(stderr,"%s: Cannot open profile index for %s\n",Prog_Name,argv[c]);
+                    exit (1);
+                  }
+                fread(&imer,sizeof(int),1,f);
+                fread(&nreads,sizeof(int64),1,f);
+                fread(&nreads,sizeof(int64),1,f);
+                totreads += nreads;
+                fclose(f);
+              }
 
-      rpt = totreads/NTHREADS;
+            psize[c] = totreads;
+            free(root);
+            free(path);
+          }
 
-      c = 0;
-      for (t = 0; t < NTHREADS; t++)
-        { int64 u;
+        rpt = totreads/NTHREADS;
+      }
 
-          parm[t].tid   = t;
-          parm[t].argv  = argv;
+      { int64 u;
+        int c, t;
 
-          u = ((t+1)*totreads)/NTHREADS;
-          while (psize[c] <= u)
-            c += 1;
-          parm[t].lpart = c;
-          parm[t].last  = u - psize[c];
+        c = 0;
+        u = 0;
+        for (t = 0; t < NTHREADS; t++)
+          { parm[t].tid   = t;
+            parm[t].argv  = argv;
+            parm[t].kmer  = kmer;
+            parm[t].fidx  = u;
 
-          parm[t].pout  = fopen(Catenate(Opath,"/.",Oroot,
-                                   Numbered_Suffix(".pidx.",t+1,"")),"w");
-          parm[t].dout  = fopen(Catenate(Opath,"/.",Oroot,
-                                   Numbered_Suffix(".prof.",t+1,"")),"w");
-        }
-      parm[0].fpart = 0;
-      parm[0].first = 0;
-      for (t = 1; t < NTHREADS; t++)
-        { parm[t].fpart = parm[t-1].lpart;
-          parm[t].first = parm[t-1].last;
-        }
+            u = ((t+1)*totreads)/NTHREADS;
+            while (psize[c] <= u)
+              c += 1;
+
+            parm[t].nidx  = u-parm[t].fidx;
+            parm[t].lpart = c;
+            parm[t].last  = u - psize[c];
+
+            parm[t].pout = fopen(Catenate(Opath,"/.",Oroot,
+                                  Numbered_Suffix(".pidx.",t+1,"")),"w");
+            parm[t].dout = fopen(Catenate(Opath,"/.",Oroot,
+                                 Numbered_Suffix(".prof.",t+1,"")),"w");
+          }
+        parm[0].fpart = 0;
+        parm[0].first = 0;
+        for (t = 1; t < NTHREADS; t++)
+          { parm[t].fpart = parm[t-1].lpart;
+            parm[t].first = parm[t-1].last;
+          }
 
 #ifdef DEBUG_THREADS
-      printf("\n");
-      for (t = 0; t < NTHREADS; t++)
-        printf("%d/%lld - %d/%lld\n",parm[t].fpart,parm[t].first,parm[t].lpart,parm[t].last);
+        printf("\n");
+        for (t = 0; t < NTHREADS; t++)
+          printf("%d/%lld - %d/%lld\n",parm[t].fpart,parm[t].first,parm[t].lpart,parm[t].last);
 #endif
     
 #ifdef DEBUG_THREADS
-      for (t = 0; t < NTHREADS; t++)
-        prof_thread(parm+t);
+        for (t = 0; t < NTHREADS; t++)
+          prof_thread(parm+t);
 #else
-      for (t = 1; t < NTHREADS; t++)
-        pthread_create(threads+t,NULL,prof_thread,parm+t);
-      prof_thread(parm);
-      for (t = 1; t < NTHREADS; t++)
-        pthread_join(threads[t],NULL);
+        for (t = 1; t < NTHREADS; t++)
+          pthread_create(threads+t,NULL,prof_thread,parm+t);
+        prof_thread(parm);
+        for (t = 1; t < NTHREADS; t++)
+          pthread_join(threads[t],NULL);
 #endif
+      }
     }
 
   free(Oroot);
