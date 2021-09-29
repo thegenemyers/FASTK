@@ -7,6 +7,7 @@
 - [Command Line](#command-line)
   - [FastK](#fastk)
   - [Fastrm, Fastcp, & Fastmv](#fastrm)
+  - [Fastmerge](#fastmerge)
 
 - [Core Applications](#sample-applications)
   - [Histex](#histex): Display a FastK histogram
@@ -150,6 +151,18 @@ about each file as to whether you want to delete it (rm) or overwrite an existin
 The &#8209;n option tells Fastmv and Fastcp to not overwrite any existing files.
 Finally, the &#8209;f option forces the creation of the new files and overides both the
 &#8209;i and &#8209;n options.
+            
+<a name="fastmerge"></a>
+
+```
+3. Fastmerge [-T<int(4)>] <target> <source>[.hist|.ktab|.prof] ...
+```
+
+On an HPC cluster, one may wish to partition a data set into a number of parts and call FastK
+on each part on a separate node of the cluster in order to reduce total wait time.  If so, then one needs to merge any histograms, k-mer tables, and profiles produced by the individual FastK jobs
+in order to obtain the final results.  Fastmerge does exactly this, producing a histogram, table, or profile index, all with root name \<target>.  Generally, one follows this with a list of the root
+source names of the individual parts to be merged.  If one qualifies these witha specific FastK suffix (i.e. .hist, .ktab, or .prof) then only the specified object type is merged.  Fastmerge uses 4 threads by default but you can specify any (reasonable) number with the -T option.
+
             
 ### Current Limitations & Known Bugs
 
@@ -748,15 +761,16 @@ in their order in the input data set, and the hidden index files,
 contain arrays of offsets into the P-files giving the start of each compressed profile,
 assuming the path name \<source> = \<dir>/\<base>.
 An A-file contains a brief header followed by an array of offsets.
-The number of offsets in the A-file is one more than the number of profiles.
-This last offset is to the end of the P-file so that the profile for
-sequence b+i is the bytes off[i] to off[i+1]-1 where off[i] is the i'th offset in the A-file.
+The number of offsets in the A-file is equal to the number of profiles and the i'th offset
+is to the first byte of the (i+1)'st profile.  Thus
+the last offset is to the end of the P-file so that the profile for
+sequence b+i is the bytes off[i-1] to off[i]-1 where off[-1] = 0.
 
 ```
       < kmer size(k)                                     : int   >
       < index of sequence of 1st profile in this file(b) : int64 >
       < # of profile offsets in this file(n)             : int64 >
-      ( < profile offset for sequence i in [b,b+n) : int64 > ) ^ n+1
+      ( < profile offset for sequence i in [b+1,b+n] : int64 > ) ^ n
 ```
 
 A P-file contains compressed profiles.

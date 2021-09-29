@@ -13,13 +13,14 @@
 #include <ctype.h>
 #include <pthread.h>
 
-#undef  DEBUG
-#undef  DEBUG_THREADS
-#undef  DEBUG_TRACE
+#undef    DEBUG
+#undef    DEBUG_THREADS
+#undef    DEBUG_TRACE
+#undef    DEBUG_PROF
 
 #include "libfastk.h"
 
-static char *Usage = " [-T<int(4)>] <out_root> <sources_root>[.ktab|.prof|.hist] ...";
+static char *Usage = " [-T<int(4)>] <target> <sources>[.ktab|.prof|.hist] ...";
 
 static int NTHREADS;
 
@@ -48,7 +49,7 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
   return (0);
 }
 
-static void *merge_thread(void *args)
+static void *table_thread(void *args)
 { TP *parm = (TP *) args;
   int           tid   = parm->tid;
   int           ntabs = parm->narg;
@@ -77,9 +78,9 @@ static void *merge_thread(void *args)
   ent = Malloc(sizeof(uint8 *)*ntabs,"Allocating thread working memory");
 
 #ifdef DEBUG_THREADS
-  printf("Doing %d:",tid);
+  printf("Doing %d:\n",tid);
   for (c = 0; c < ntabs; c++)
-    printf(" [%lld-%lld]",begs[c],ends[c]);
+    printf("  %2d: [%lld-%lld]",c,begs[c],ends[c]);
   printf("\n");
 #endif
 
@@ -188,18 +189,20 @@ static void *merge_thread(void *args)
  *****************************************************************************************/
 
 typedef struct
-  { int           tid;
-    char        **argv;
-    int           kmer;
-    int64         fidx;
+  { char        **argv;   //  input profiles
+#ifdef DEBUG_PROF
+    int           tid;
+#endif
+    int           kmer;   
+    int64         fidx;   //  output will contain profiles [fidx,fidx+nidx) 
     int64         nidx;
-    FILE         *pout;
+    FILE         *pout;   //  output files for profile .pidx and .prof part
     FILE         *dout;
-    int           fpart;
+    int           fpart;  //  output is fpart:first to lpart:last in terms of input blocks
     int64         first;
     int           lpart;
     int64         last;
-    int64         buffer[16384];
+    int64         buffer[16384];  //  buffer for data transfer
   } PP;
 
 static void *prof_thread(void *args)
@@ -209,95 +212,124 @@ static void *prof_thread(void *args)
   FILE  *pout   = parm->pout;
   int    fpart  = parm->fpart;
   int64  first  = parm->first;
-  int    lpart  = parm->fpart;
+  int    lpart  = parm->lpart;
   int64  last   = parm->last;
   int64 *buffer = parm->buffer;
 
   int64  q, cindex, lindex;
   int64  base, offs;
   int64  fdata, ldata;
-  char  *path, *root;
+  char  *path, *root, *name;
   int    imer, nthreads;
-  FILE  *f;
+  FILE  *f, *g;
   int    c, t;
+
 
   fwrite(&(parm->kmer),sizeof(int),1,pout);
   fwrite(&(parm->fidx),sizeof(int64),1,pout);
   fwrite(&(parm->nidx),sizeof(int64),1,pout);
 
-  base = -1;
   for (c = fpart; c <= lpart; c++) 
     { path = PathTo(argv[c]);
       root = Root(argv[c],".prof");
 
-      f = fopen(Catenate(path,"/",root,".prof"),"r");
+      if (c == lpart && last == 0)
+        break;
+
+      name = Malloc(strlen(path) + strlen(root) + 100,"Allocating path name");
+
+      sprintf(name,"%s/%s.prof",path,root);
+      f = fopen(name,"r");
       if (f == NULL)
-        { fprintf(stderr,"%s: Cannot open profile %s\n",Prog_Name,argv[c]);
+        { fprintf(stderr,"%s: Cannot open profile %s %d %lld\n",Prog_Name,argv[c],c,last);
           exit (1);
         }
       fread(&imer,sizeof(int),1,f);
       fread(&nthreads,sizeof(int),1,f);
       fclose(f);
+#ifdef DEBUG_PROF
+      printf("Opening %d: %d: n=%d\n",parm->tid,c,nthreads);
+#endif
 
       for (t = 1; t <= nthreads; t++)
-        { f = fopen(Catenate(path,"/.",root,Numbered_Suffix(".pidx.",t,"")),"r");
+        { sprintf(name,"%s/.%s.pidx.%d",path,root,t);
+          f = fopen(name,"r");
           if (f == NULL)
             { fprintf(stderr,"%s: Cannot open profile index for %s\n",Prog_Name,argv[c]);
               exit (1);
             }
+          sprintf(name,"%s/.%s.prof.%d",path,root,t);
+          g = fopen(name,"r");
+          if (g == NULL)
+            { fprintf(stderr,"%s: Cannot open profile data for %s\n",Prog_Name,argv[c]);
+              exit (1);
+            }
+
           fread(&imer,sizeof(int),1,f);
           fread(&cindex,sizeof(int64),1,f);
           fread(&lindex,sizeof(int64),1,f);
           lindex += cindex;
-          if (c == fpart && base < 0)
+#ifdef DEBUG_PROF
+          printf("Pidx %d: %d: %d: %lld - %lld base = %lld\n",parm->tid,c,t,cindex,lindex,base);
+#endif
+          fdata = 0;
+          if (c == fpart && cindex <= first)
             { if (lindex <= first) 
-                { fclose(f);
-                  break;
+                { if (lindex == first)
+                    { fseeko(f,sizeof(int64)*((first-cindex)-1),SEEK_CUR);
+                      fread(&fdata,sizeof(int64),1,f);
+                    }
+                  fclose(f);
+                  continue;
                 }
+              if (cindex+1 < first)
+                fseeko(f,sizeof(int64)*((first-cindex)-1),SEEK_CUR);
               if (cindex < first)
-                fseeko(f,sizeof(int64)*(first-cindex),SEEK_CUR);
-              fread(&offs,sizeof(int64),1,f);
-              base = offs;
+                { fread(&offs,sizeof(int64),1,f);
+                  fdata = offs;
+                }
+              base = -fdata;
               cindex = first;
             }
-          else
-            fread(&offs,sizeof(int64),1,f);
-          fdata = offs;
           if (c == lpart && lindex >= last)
             { lindex = last;
               t = nthreads;
             }
+#ifdef DEBUG_PROF
+          printf("Pidx %d: %d: %d: %lld - %lld base = %lld\n",parm->tid,c,t,cindex,lindex,base);
+#endif
           for (q = cindex; q < lindex; q++)
-            { offs -= base;
+            { fread(&ldata,sizeof(int64),1,f);
+              offs = ldata + base;
               fwrite(&offs,sizeof(int64),1,pout);
-              fread(&offs,sizeof(int64),1,f);
             }
-          ldata = offs;
-          base = -(offs-base);
+          base += ldata;
           fclose(f);
 
-          f = fopen(Catenate(path,"/.",root,Numbered_Suffix(".prof.",t,"")),"r");
-          if (f == NULL)
-            { fprintf(stderr,"%s: Cannot open profile data for %s\n",Prog_Name,argv[c]);
-              exit (1);
-            }
+#ifdef DEBUG_PROF
+          printf("Prof %d: %d: %d: range = %10lld-%10lld\n",parm->tid,c,t,fdata,ldata);
+#endif
           if (fdata > 0)
-            fseeko(f,sizeof(int64)*fdata,SEEK_SET);
+            fseeko(g,fdata,SEEK_SET);
           for (q = ldata-fdata; q >= 16384; q -= 16384)
-            { fread(buffer,sizeof(int64)*16384,1,f);
-              fwrite(buffer,sizeof(int64)*16384,1,dout);
+            { fread(buffer,16384,1,g);
+              fwrite(buffer,16384,1,dout);
             }
           if (q > 0)
-            { fread(buffer,sizeof(int64)*q,1,f);
-              fwrite(buffer,sizeof(int64)*q,1,dout);
+            { fread(buffer,q,1,g);
+              fwrite(buffer,q,1,dout);
             }
-          fclose(f);
+          fclose(g);
         }
 
+      free(name);
       free(root);
       free(path);
     }
   fwrite(&offs,sizeof(int64),1,pout);
+
+  fclose(pout);
+  fclose(dout);
 
   return (NULL);
 }
@@ -511,11 +543,11 @@ int main(int argc, char *argv[])
     
 #ifdef DEBUG_THREADS
         for (t = 0; t < NTHREADS; t++)
-          merge_thread(parm+t);
+          table_thread(parm+t);
 #else
         for (t = 1; t < NTHREADS; t++)
-          pthread_create(threads+t,NULL,merge_thread,parm+t);
-        merge_thread(parm);
+          pthread_create(threads+t,NULL,table_thread,parm+t);
+        table_thread(parm);
         for (t = 1; t < NTHREADS; t++)
           pthread_join(threads[t],NULL);
 #endif
@@ -559,7 +591,10 @@ int main(int argc, char *argv[])
 #ifndef DEBUG_THREADS
       pthread_t threads[NTHREADS];
 #endif
-      int64 psize[narg], totreads, rpt;
+      int64 psize[narg+1], totreads, rpt;
+
+      //  Determine total # of profiles (totreads), # in each arg (psize[c]), and
+      //      desired # per thread file (rpt)
 
       { char *path, *root;
         int   imer, nthreads;
@@ -599,16 +634,30 @@ int main(int argc, char *argv[])
                 fread(&nreads,sizeof(int64),1,f);
                 fread(&nreads,sizeof(int64),1,f);
                 totreads += nreads;
+#ifdef DEBUG
+                if (c == 0)
+                  printf(" %d: %d: %10lld %10lld %10lld\n",
+                         c+1,t,nreads,totreads,totreads);
+                else
+                  printf(" %d: %d: %10lld %10lld %10lld\n",
+                         c+1,t,nreads,totreads-psize[c-1],totreads);
+#endif
                 fclose(f);
               }
 
             psize[c] = totreads;
+#ifdef DEBUG
+            printf("   psize[%d] = %10lld\n",c,psize[c]);
+#endif
             free(root);
             free(path);
           }
+        psize[c] = totreads+1;
 
         rpt = totreads/NTHREADS;
       }
+
+      //  Setup division into threads in 'parm'
 
       { int64 u;
         int c, t;
@@ -616,8 +665,10 @@ int main(int argc, char *argv[])
         c = 0;
         u = 0;
         for (t = 0; t < NTHREADS; t++)
-          { parm[t].tid   = t;
-            parm[t].argv  = argv;
+          { parm[t].argv  = argv;
+#ifdef DEBUG_PROF
+            parm[t].tid   = t;
+#endif
             parm[t].kmer  = kmer;
             parm[t].fidx  = u;
 
@@ -627,12 +678,23 @@ int main(int argc, char *argv[])
 
             parm[t].nidx  = u-parm[t].fidx;
             parm[t].lpart = c;
-            parm[t].last  = u - psize[c];
+            if (c > 0)
+              parm[t].last  = u - psize[c-1];
+            else
+              parm[t].last  = u;
 
             parm[t].pout = fopen(Catenate(Opath,"/.",Oroot,
                                   Numbered_Suffix(".pidx.",t+1,"")),"w");
+            if (parm[t].pout == NULL)
+              { fprintf(stderr,"%s: Cannot create part .pidx file for ouput %s\n",Prog_Name,Oroot);
+                exit (1);
+              }
             parm[t].dout = fopen(Catenate(Opath,"/.",Oroot,
                                  Numbered_Suffix(".prof.",t+1,"")),"w");
+            if (parm[t].dout == NULL)
+              { fprintf(stderr,"%s: Cannot create part .prof file for ouput %s\n",Prog_Name,Oroot);
+                exit (1);
+              }
           }
         parm[0].fpart = 0;
         parm[0].first = 0;
@@ -645,6 +707,9 @@ int main(int argc, char *argv[])
         printf("\n");
         for (t = 0; t < NTHREADS; t++)
           printf("%d/%lld - %d/%lld\n",parm[t].fpart,parm[t].first,parm[t].lpart,parm[t].last);
+        printf("\n");
+        for (t = 0; t < NTHREADS; t++)
+          printf("  %lld + %lld = %10lld\n",parm[t].fidx,parm[t].nidx,parm[t].fidx+parm[t].nidx);
 #endif
     
 #ifdef DEBUG_THREADS
@@ -657,6 +722,20 @@ int main(int argc, char *argv[])
         for (t = 1; t < NTHREADS; t++)
           pthread_join(threads[t],NULL);
 #endif
+      }
+
+      //  Create stub file
+
+      { FILE *f;
+
+        f = fopen(Catenate(Opath,"/",Oroot,".prof"),"w");
+        if (f == NULL)
+          { fprintf(stderr,"%s: Cannot create stub file for ouput %s\n",Prog_Name,Oroot);
+            exit (1);
+          }
+        fwrite(&kmer,sizeof(int),1,f);
+        fwrite(&NTHREADS,sizeof(int),1,f);
+        fclose(f);
       }
     }
 
