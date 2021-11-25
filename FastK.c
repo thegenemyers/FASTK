@@ -383,6 +383,8 @@ int main(int argc, char *argv[])
     int64            gsize;
     int              rsize, val;
 
+    ROOT = PATH = "a";
+
     io = Partition_Input(argc,argv);
 
     if (OUT_NAME == NULL)

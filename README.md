@@ -155,13 +155,20 @@ Finally, the &#8209;f option forces the creation of the new files and overides b
 <a name="fastmerge"></a>
 
 ```
-3. Fastmerge [-T<int(4)>] <target> <source>[.hist|.ktab|.prof] ...
+3. Fastmerge [-htp] [-T<int(4)>] <target> <source:.hist+.ktab+.prof> ...
 ```
 
 On an HPC cluster, one may wish to partition a data set into a number of parts and call FastK
 on each part on a separate node of the cluster in order to reduce total wait time.  If so, then one needs to merge any histograms, k-mer tables, and profiles produced by the individual FastK jobs
-in order to obtain the final results.  Fastmerge does exactly this, producing a histogram, table, or profile index, all with root name \<target>.  Generally, one follows this with a list of the root
-source names of the individual parts to be merged.  If one qualifies these witha specific FastK suffix (i.e. .hist, .ktab, or .prof) then only the specified object type is merged.  Fastmerge uses 4 threads by default but you can specify any (reasonable) number with the -T option.
+in order to obtain the final results.  Fastmerge does exactly this, producing a histogram, table, and/or profile index, all with root name \<target>.
+
+One follows the target name with a list of the root source names of the individual parts to be merged.  If the source names happen to have a .hist, .ktab, or .prof suffix these are removed and
+the remaining root name considered.  If any of the -h, -t, or -p flags are set then Fastmerge
+produces a merged histogram (-h), table (-t), or profile (-t) as directed.  If none of these flags
+is set, then Fastmerge looks to see which objects are available for the sources and merges those.
+Note carefully that to producing a merged histogram file requires that one merge the tables, so if the -h option is given then the tables must be present.
+
+Fastmerge uses 4 threads by default but you can specify any (reasonable) number with the -T option.
 
             
 ### Current Limitations & Known Bugs

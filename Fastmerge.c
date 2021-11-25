@@ -20,7 +20,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = " [-T<int(4)>] <target> <sources>[.ktab|.prof|.hist] ...";
+static char *Usage = " [-htp] [-T<int(4)>] <target> <sources:.ktab+.prof+.hist> ...";
 
 static int NTHREADS;
 
@@ -39,6 +39,8 @@ typedef struct
     int64        *prefx;
     int64        *begs;
     int64        *ends;
+    int64        *hist;
+    int           dotab;
   } TP;
 
 static inline int mycmp(uint8 *a, uint8 *b, int n)
@@ -59,11 +61,13 @@ static void *table_thread(void *args)
   int64        *ends  = parm->ends;
   int64        *prefx = parm->prefx;
   FILE         *out   = parm->out;
+  int           dotab = parm->dotab;
 
   int hbyte = S[0]->kbyte-3;
   int kbyte = S[0]->kbyte;
   int kmer  = S[0]->kmer;
 
+  int64  *hist;
   int64   nels;
   uint8 **ent, *bst;
   int     itop, *in, cnt;
@@ -73,6 +77,10 @@ static void *table_thread(void *args)
 #ifdef DEBUG_TRACE
   char *buffer;
 #endif
+
+  hist = Malloc(sizeof(int64)*0x8001,"Allocating histogram");
+  bzero(hist,sizeof(int64)*0x8001);
+  hist -= 1;
 
   in  = Malloc(sizeof(int)*ntabs,"Allocating thread working memory");
   ent = Malloc(sizeof(uint8 *)*ntabs,"Allocating thread working memory");
@@ -97,8 +105,10 @@ static void *table_thread(void *args)
 #endif
 
    nels = 0;
-   fwrite(&kmer,sizeof(int),1,out);
-   fwrite(&nels,sizeof(int64),1,out);
+   if (dotab)
+     { fwrite(&kmer,sizeof(int),1,out);
+       fwrite(&nels,sizeof(int64),1,out);
+     }
 
   for (c = 0; c < ntabs; c++)
     GoTo_Kmer_Index(T[c],begs[c]);
@@ -132,9 +142,14 @@ static void *table_thread(void *args)
       for (c = 0; c < itop; c++)
         cnt += Current_Count(T[in[c]]);
       if (cnt > 0x7fff)
-        scnt = 0x7fff;
+        { scnt = 0x7fff;
+          hist[0x7fff] += 1;
+          hist[0x8001] += cnt;
+        }
       else
-        scnt = cnt;
+        { scnt = cnt;
+          hist[cnt] += 1;
+        }
 
 #ifdef DEBUG_TRACE
       for (c = 0; c < itop; c++)
@@ -144,11 +159,13 @@ static void *table_thread(void *args)
       printf("\n");
 #endif
 
-      fwrite(bst+3,hbyte,1,out);
-      fwrite(&scnt,sizeof(uint16),1,out);
-      x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
-      prefx[x] += 1;
-      nels += 1;
+      if (dotab)
+        { fwrite(bst+3,hbyte,1,out);
+          fwrite(&scnt,sizeof(uint16),1,out);
+          x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
+          prefx[x] += 1;
+          nels += 1;
+        }
 
       for (c = 0; c < itop; c++)
         { Kmer_Stream *t;
@@ -161,10 +178,12 @@ static void *table_thread(void *args)
         }
     }
 
-   rewind(out);
-   fwrite(&kmer,sizeof(int),1,out);
-   fwrite(&nels,sizeof(int64),1,out);
-   fclose(out);
+   if (dotab)
+     { rewind(out);
+       fwrite(&kmer,sizeof(int),1,out);
+       fwrite(&nels,sizeof(int64),1,out);
+       fclose(out);
+     }
 
   for (c = 0; c < ntabs; c++)
     free(ent[c]);
@@ -178,6 +197,7 @@ static void *table_thread(void *args)
   free(ent);
   free(in);
 
+  parm->hist = hist;
   return (NULL);
 }
 
@@ -358,16 +378,13 @@ int main(int argc, char *argv[])
     ARG_INIT("Fastmerge");
 
     NTHREADS = 4;
-    DO_HIST  = 0;
-    DO_TABLE = 0;
-    DO_PROF  = 0;
 
     j = 1;
     for (i = 1; i < argc; i++)
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("")
+            ARG_FLAGS("htp")
             break;
           case 'T':
             ARG_POSITIVE(NTHREADS,"Number of threads")
@@ -377,6 +394,10 @@ int main(int argc, char *argv[])
         argv[j++] = argv[i];
     argc = j;
 
+    DO_HIST  = flags['h'];
+    DO_TABLE = flags['t'];
+    DO_PROF  = flags['p'];
+
     if (argc < 4)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
@@ -384,83 +405,90 @@ int main(int argc, char *argv[])
         exit (1);
       } 
 
-    if (strcmp(argv[1]+(strlen(argv[1])-5),".ktab") == 0
-       || strcmp(argv[1]+(strlen(argv[1])-5),".hist") == 0
-       || strcmp(argv[1]+(strlen(argv[1])-5),".prof") == 0)
-      { fprintf(stderr,"%s: Output name %s has a FastK suffix ending??\n",Prog_Name,argv[1]);
-        exit (1);
+    for (i = 1; i < argc; i++)
+      { if (strcmp(argv[i]+(strlen(argv[i])-5),".ktab") == 0)
+          { fprintf(stderr,"%s: Argument %s should not have a .ktab suffix\n",Prog_Name,argv[i]);
+            exit (1);
+          }
+        if (strcmp(argv[i]+(strlen(argv[i])-5),".hist") == 0)
+          { fprintf(stderr,"%s: Argument %s should not have a .hist suffix\n",Prog_Name,argv[i]);
+            exit (1);
+          }
+        if (strcmp(argv[i]+(strlen(argv[i])-5),".prof") == 0)
+          { fprintf(stderr,"%s: Argument %s should not have a .prof suffix\n",Prog_Name,argv[i]);
+            exit (1);
+          }
       }
+
     Opath = PathTo(argv[1]);
     Oroot = Root(argv[1],".ktab");
 
     { FILE *f;
+      int   has_hist, has_table, has_prof;
     
       narg = argc-2;
       argv += 2;
 
-      if (strcmp(argv[0]+(strlen(argv[0])-5),".hist") == 0)
-        DO_HIST = 1;
-      else if (strcmp(argv[0]+(strlen(argv[0])-5),".ktab") == 0)
-        DO_TABLE = 1;
-      else if (strcmp(argv[0]+(strlen(argv[0])-5),".prof") == 0)
-        DO_PROF = 1;
-      else
+      has_hist = has_table = has_prof = 0;
+      for (i = 0; i < narg; i++)
         { f = fopen(Catenate(argv[0],".hist","",""),"r");
           if (f != NULL)
-            { DO_HIST = 1;
+            { has_hist += 1;
               fclose(f);
             } 
-
           f = fopen(Catenate(argv[0],".ktab","",""),"r");
           if (f != NULL)
-            { DO_TABLE = 1;
+            { has_table += 1;
               fclose(f);
             } 
-
           f = fopen(Catenate(argv[0],".prof","",""),"r");
           if (f != NULL)
-            { DO_PROF = 1;
+            { has_prof += 1;
               fclose(f);
             } 
+        }
 
-          if (DO_HIST + DO_TABLE + DO_PROF == 0)
-            { fprintf(stderr,"%s: There are no FastK objects with root %s !?\n",Prog_Name,argv[0]);
+      if (has_hist != 0 && has_hist != narg)
+        { fprintf(stderr,"%s: Some sources have .hist files, others do not?\n",Prog_Name);
+          exit (1);
+	}
+      if (has_table != 0 && has_table != narg)
+        { fprintf(stderr,"%s: Some sources have .ktab files, others do not?\n",Prog_Name);
+          exit (1);
+	}
+      if (has_prof != 0 && has_prof != narg)
+        { fprintf(stderr,"%s: Some sources have .prof files, others do not?\n",Prog_Name);
+          exit (1);
+	}
+
+      if (DO_HIST + DO_TABLE + DO_PROF == 0)
+        { DO_HIST  = (has_hist > 0);
+          DO_TABLE = (has_table > 0);
+          DO_PROF  = (has_prof > 0);
+        }
+      else
+        { if (DO_HIST && has_hist == 0)
+            { fprintf(stderr,"%s: Requesting histogram merge but no source .hist's\n",Prog_Name);
               exit (1);
             }
+          if (DO_TABLE && has_table == 0)
+            { fprintf(stderr,"%s: Requesting table merge but no source .ktab's\n",Prog_Name);
+              exit (1);
+            }
+          if (DO_PROF && has_prof == 0)
+            { fprintf(stderr,"%s: Requesting profile merge but no source .ktab's\n",Prog_Name);
+              exit (1);
+            }
+        }
+
+      if (DO_HIST && has_table == 0)
+        { fprintf(stderr,"%s: Need source tables to compute merged histograms\n",Prog_Name);
+          exit (1);
         }
     }
   }   
 
-  if (DO_HIST)
-    { int c, k;
-
-      Histogram *H = Load_Histogram(argv[0]);
-
-      for (c = 1; c < narg; c++) 
-        { Histogram *G = Load_Histogram(argv[c]);
-
-          if (G == NULL)
-            { fprintf(stderr,"%s: Cannot open histogram with root %s\n",Prog_Name,argv[c]);
-              exit (1);
-            }
-
-          if (G->low != H->low || G->high != G->high || G->kmer != H->kmer)
-            { fprintf(stderr,"%s: K-mer histograms do not involve the same K or range\n",Prog_Name);
-              exit (1);
-            }
-
-          for (k = G->low; k < G->high+3; k++)
-            H->hist[k] += G->hist[k];
-
-          Free_Histogram(G);
-        }
-
-      Write_Histogram(Catenate(Opath,"/",Oroot,".hist"), H);
-
-      Free_Histogram(H);
-    }
-
-  if (DO_TABLE)
+  if (DO_HIST || DO_TABLE)
     {
       { int c;
     
@@ -499,9 +527,13 @@ int main(int argc, char *argv[])
         int       t, a, i;
         int64     p;
     
-        ixlen = 0x1000000;
-        prefx = Malloc(sizeof(int64)*ixlen,"Allocating prefix table");
-        bzero(prefx,sizeof(int64)*ixlen);
+        if (DO_TABLE)
+          { ixlen = 0x1000000;
+            prefx = Malloc(sizeof(int64)*ixlen,"Allocating prefix table");
+            bzero(prefx,sizeof(int64)*ixlen);
+          }
+        else
+          prefx = NULL;
     
         for (a = 0; a < narg; a++)
           { range[0][a] = 0;
@@ -537,8 +569,10 @@ int main(int argc, char *argv[])
             parm[t].begs  = range[t];
             parm[t].ends  = range[t+1];
             parm[t].prefx = prefx;
-            parm[t].out   = fopen(Catenate(Opath,"/.",Oroot,
-                                  Numbered_Suffix(".ktab.",t+1,"")),"w");
+            parm[t].dotab = DO_TABLE;
+            if (DO_TABLE)
+              parm[t].out   = fopen(Catenate(Opath,"/.",Oroot,
+                                    Numbered_Suffix(".ktab.",t+1,"")),"w");
           }
     
 #ifdef DEBUG_THREADS
@@ -551,31 +585,56 @@ int main(int argc, char *argv[])
         for (t = 1; t < NTHREADS; t++)
           pthread_join(threads[t],NULL);
 #endif
-    
-        { int minval;
-          int three = 3;
-    
-          FILE  *f   = fopen(Catenate(Opath,"/",Oroot,".ktab"),"w");
-          int64 *prf = prefx;
 
-          minval = S[i]->minval;
-          for (i = 1; i < narg; i++)
-            if (S[i]->minval < minval)
-              minval = S[i]->minval;
+        if (DO_HIST)
+          { int64 *hist, *gist;
+            int    j, low, high;
+            int    f;
+
+            hist = parm[0].hist;
+            for (t = 1; t < NTHREADS; t++)
+              { gist = parm[t].hist;
+                for (j = 1; j <= 0x80001; j++)
+                  hist[j] += gist[j];
+	      } 
+            low  = 1;
+            high = 0x7fff;
+
+            f  = open(Catenate(Opath,"/",Oroot,".hist"),O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+            write(f,&kmer,sizeof(int));
+            write(f,&low,sizeof(int));
+            write(f,&high,sizeof(int));
+            write(f,hist+0x8000,sizeof(int64));
+            write(f,hist+0x8001,sizeof(int64));
+            write(f,hist+1,sizeof(int64)*0x7ffff);
+            close(f);
+          }
     
-          fwrite(&kmer,sizeof(int),1,f);
-          fwrite(&NTHREADS,sizeof(int),1,f);
-          fwrite(&minval,sizeof(int),1,f);
-          fwrite(&three,sizeof(int),1,f);
+        if (DO_TABLE)
+          { int minval;
+            int three = 3;
     
-          for (i = 1; i < ixlen; i++)
-            prf[i] += prf[i-1];
+            FILE  *f   = fopen(Catenate(Opath,"/",Oroot,".ktab"),"w");
+            int64 *prf = prefx;
+
+            minval = S[0]->minval;
+            for (i = 1; i < narg; i++)
+              if (S[i]->minval < minval)
+                minval = S[i]->minval;
     
-          fwrite(prf,sizeof(int64),ixlen,f);
-          fclose(f);
+            fwrite(&kmer,sizeof(int),1,f);
+            fwrite(&NTHREADS,sizeof(int),1,f);
+            fwrite(&minval,sizeof(int),1,f);
+            fwrite(&three,sizeof(int),1,f);
     
-          free(prefx);
-        }
+            for (i = 1; i < ixlen; i++)
+              prf[i] += prf[i-1];
+    
+            fwrite(prf,sizeof(int64),ixlen,f);
+            fclose(f);
+    
+            free(prefx);
+          }
       }
     
       { int c;

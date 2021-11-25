@@ -2011,7 +2011,10 @@ static void read_DB_stub(char *path, int *cut, int *all)
       goto stub_trash;
 
   if (fscanf(dbfile,"blocks = %9d\n",&nblocks) != 1)
-    goto stub_trash;
+    { fprintf(stderr,"\n%s: DB %s has not been split or its stub file is junk\n",Prog_Name,path);
+      fclose(dbfile);
+      Clean_Exit(1);
+    }
 
   if (fscanf(dbfile,"size = %11lld cutoff = %9d all = %1d\n",&size,cut,all) != 3)
     goto stub_trash;
