@@ -249,6 +249,7 @@ static void *prof_thread(void *args)
   fwrite(&(parm->fidx),sizeof(int64),1,pout);
   fwrite(&(parm->nidx),sizeof(int64),1,pout);
 
+  base = 0;
   for (c = fpart; c <= lpart; c++) 
     { path = PathTo(argv[c]);
       root = Root(argv[c],".prof");
@@ -400,6 +401,10 @@ int main(int argc, char *argv[])
 
     if (argc < 4)
       { fprintf(stderr,"\nUsage: %s %s\n",Prog_Name,Usage);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -h: Produce a merged histogram.\n");
+        fprintf(stderr,"      -t: Produce a merged k-mer table.\n");
+        fprintf(stderr,"      -p: Produce a merged profile.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -T: Use -T threads.\n");
         exit (1);
@@ -606,7 +611,7 @@ int main(int argc, char *argv[])
             write(f,&high,sizeof(int));
             write(f,hist+0x8000,sizeof(int64));
             write(f,hist+0x8001,sizeof(int64));
-            write(f,hist+1,sizeof(int64)*0x7ffff);
+            write(f,hist+1,sizeof(int64)*0x7fff);
             close(f);
           }
     
@@ -650,10 +655,9 @@ int main(int argc, char *argv[])
 #ifndef DEBUG_THREADS
       pthread_t threads[NTHREADS];
 #endif
-      int64 psize[narg+1], totreads, rpt;
+      int64 psize[narg+1], totreads;
 
-      //  Determine total # of profiles (totreads), # in each arg (psize[c]), and
-      //      desired # per thread file (rpt)
+      //  Determine total # of profiles (totreads), and # in each arg (psize[c])
 
       { char *path, *root;
         int   imer, nthreads;
@@ -712,8 +716,6 @@ int main(int argc, char *argv[])
             free(path);
           }
         psize[c] = totreads+1;
-
-        rpt = totreads/NTHREADS;
       }
 
       //  Setup division into threads in 'parm'
