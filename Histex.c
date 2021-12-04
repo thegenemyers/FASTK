@@ -90,6 +90,8 @@ int main(int argc, char *argv[])
         fprintf(stderr,"\n");
         fprintf(stderr,"      -h: Output histogram of counts in range given\n");
         fprintf(stderr,"      -k: Output histogram of k-mer instance counts (vs. unique k-mers)\n");
+        fprintf(stderr,"      -A: Output in simple tab-delimited ASCII format\n");
+        fprintf(stderr,"      -G: Output an ASCII format histogram especially for GeneScope.FK\n");
         exit (1);
       }
 
@@ -97,9 +99,11 @@ int main(int argc, char *argv[])
       { if (ASCII || !UNIQUE)
           fprintf(stderr,"%s: Warning, -G overrides both -A and -k flags\n",Prog_Name);
         ASCII = UNIQUE = 1;
-        if (HIST_LOW != 1)
-          fprintf(stderr,"%s: Warning: -G forces histogram range to start at 1\n",Prog_Name);
+        if (HIST_SET != 0)
+          fprintf(stderr,"%s: Warning: -G forces histogram range to [1,1000]\n",Prog_Name);
         HIST_LOW = 1;
+        HIST_HGH = 1000;
+        HIST_SET = 1;
       }
   }
 
@@ -141,7 +145,7 @@ int main(int argc, char *argv[])
           hist[HIST_HGH] = hist[HIST_HGH+2]/HIST_HGH;
         for (j = HIST_LOW; j <= HIST_HGH; j++)
           if (hist[j] > 0)
-            printf("%d %lld\n",j,hist[j]);
+            printf("%d\t%lld\n",j,hist[j]);
       }
 
     else

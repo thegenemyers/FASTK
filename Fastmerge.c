@@ -20,7 +20,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = " [-htp] [-T<int(4)>] <target> <sources:.ktab+.prof+.hist> ...";
+static char *Usage = " [-htp] [-T<int(4)>] <target> <sources>[.hist|.ktab|.prof] ...";
 
 static int NTHREADS;
 
@@ -141,7 +141,7 @@ static void *table_thread(void *args)
       cnt = 0;
       for (c = 0; c < itop; c++)
         cnt += Current_Count(T[in[c]]);
-      if (cnt > 0x7fff)
+      if (cnt >= 0x7fff)
         { scnt = 0x7fff;
           hist[0x7fff] += 1;
           hist[0x8001] += cnt;
@@ -411,17 +411,18 @@ int main(int argc, char *argv[])
       } 
 
     for (i = 1; i < argc; i++)
-      { if (strcmp(argv[i]+(strlen(argv[i])-5),".ktab") == 0)
-          { fprintf(stderr,"%s: Argument %s should not have a .ktab suffix\n",Prog_Name,argv[i]);
-            exit (1);
+      { int dot = strlen(argv[i])-5;
+        if (strcmp(argv[i]+dot,".hist") == 0)
+          { argv[i][dot] = '\0';
+            continue;
           }
-        if (strcmp(argv[i]+(strlen(argv[i])-5),".hist") == 0)
-          { fprintf(stderr,"%s: Argument %s should not have a .hist suffix\n",Prog_Name,argv[i]);
-            exit (1);
+        if (strcmp(argv[i]+dot,".ktab") == 0)
+          { argv[i][dot] = '\0';
+            continue;
           }
-        if (strcmp(argv[i]+(strlen(argv[i])-5),".prof") == 0)
-          { fprintf(stderr,"%s: Argument %s should not have a .prof suffix\n",Prog_Name,argv[i]);
-            exit (1);
+        if (strcmp(argv[i]+dot,".prof") == 0)
+          { argv[i][dot] = '\0';
+            continue;
           }
       }
 
@@ -531,7 +532,7 @@ int main(int argc, char *argv[])
         uint8    *ent;
         int       t, a, i;
         int64     p;
-    
+
         if (DO_TABLE)
           { ixlen = 0x1000000;
             prefx = Malloc(sizeof(int64)*ixlen,"Allocating prefix table");
@@ -576,10 +577,10 @@ int main(int argc, char *argv[])
             parm[t].prefx = prefx;
             parm[t].dotab = DO_TABLE;
             if (DO_TABLE)
-              parm[t].out   = fopen(Catenate(Opath,"/.",Oroot,
-                                    Numbered_Suffix(".ktab.",t+1,"")),"w");
+              parm[t].out = fopen(Catenate(Opath,"/.",Oroot,
+                                   Numbered_Suffix(".ktab.",t+1,"")),"w");
           }
-    
+
 #ifdef DEBUG_THREADS
         for (t = 0; t < NTHREADS; t++)
           table_thread(parm+t);
@@ -599,8 +600,9 @@ int main(int argc, char *argv[])
             hist = parm[0].hist;
             for (t = 1; t < NTHREADS; t++)
               { gist = parm[t].hist;
-                for (j = 1; j <= 0x80001; j++)
+                for (j = 1; j <= 0x8001; j++)
                   hist[j] += gist[j];
+                free(gist+1);
 	      } 
             low  = 1;
             high = 0x7fff;
@@ -613,8 +615,10 @@ int main(int argc, char *argv[])
             write(f,hist+0x8001,sizeof(int64));
             write(f,hist+1,sizeof(int64)*0x7fff);
             close(f);
+
+            free(hist+1);
           }
-    
+
         if (DO_TABLE)
           { int minval;
             int three = 3;
@@ -641,7 +645,7 @@ int main(int argc, char *argv[])
             free(prefx);
           }
       }
-    
+
       { int c;
     
         for (c = 0; c < narg; c++)
