@@ -144,7 +144,11 @@ static void *table_thread(void *args)
       if (cnt >= 0x7fff)
         { scnt = 0x7fff;
           hist[0x7fff] += 1;
-          hist[0x8001] += cnt;
+          for (c = 0; c < itop; c++)
+            { cnt = Current_Count(T[in[c]]);
+              if (cnt < 0x7fff)
+                hist[0x8001] += cnt;
+            }
         }
       else
         { scnt = cnt;
@@ -604,9 +608,20 @@ int main(int argc, char *argv[])
                   hist[j] += gist[j];
                 free(gist+1);
 	      } 
+
+            for (t = 0; t < narg; t++)
+              { Histogram *H = Load_Histogram(argv[t]);
+                if (H == NULL)
+                  { fprintf(stderr,"%s: Cannot open histogram %s\n",Prog_Name,argv[t]);
+                    exit (1);
+                  }
+                hist[0x8001] += H->hist[0x8001];
+                Free_Histogram(H);
+              }
+            hist[0x8000] = hist[1];
+
             low  = 1;
             high = 0x7fff;
-
             f  = open(Catenate(Opath,"/",Oroot,".hist"),O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
             write(f,&kmer,sizeof(int));
             write(f,&low,sizeof(int));
