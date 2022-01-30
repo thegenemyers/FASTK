@@ -168,23 +168,28 @@ int main(int argc, char *argv[])
         else
           printf(" %d-mer instances\n",H->kmer);
 
-        printf("\n     Freq:        Count   Cum. %%\n");
+        if (stotal == 0)
+          printf("\n     Empty\n");
 
-        ssum = hist[HIST_HGH];
-        if (ssum > 0)
-          printf(" >= %5d: %12lld   %5.1f%%\n",HIST_HGH,ssum,(100.*ssum)/stotal);
+        else
+          { printf("\n     Freq:        Count   Cum. %%\n");
 
-        for (j = HIST_HGH-1; j > HIST_LOW; j--)
-          { ssum += hist[j];
-            if (hist[j] > 0)
-              printf("    %5d: %12lld   %5.1f%%\n",j,hist[j],(100.*ssum)/stotal);
-          }
-
-        if (HIST_HGH > 1 && hist[HIST_LOW] > 0)
-          { if (HIST_LOW == 1)
-               printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
-            else
-              printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
+            ssum = hist[HIST_HGH];
+            if (ssum > 0)
+              printf(" >= %5d: %12lld   %5.1f%%\n",HIST_HGH,ssum,(100.*ssum)/stotal);
+    
+            for (j = HIST_HGH-1; j > HIST_LOW; j--)
+              { ssum += hist[j];
+                if (hist[j] > 0)
+                  printf("    %5d: %12lld   %5.1f%%\n",j,hist[j],(100.*ssum)/stotal);
+              }
+    
+            if (HIST_HGH > 1 && hist[HIST_LOW] > 0)
+              { if (HIST_LOW == 1)
+                   printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
+                else
+                  printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
+              }
           }
       }
   }

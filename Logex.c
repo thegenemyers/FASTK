@@ -1398,6 +1398,7 @@ int main(int argc, char *argv[])
     FILE    **out[NTHREADS];
     int64    *prefx[nass];
     int       ixlen = 0;
+    int       pivot;
     char     *seq;
     uint8    *ent;
     int       t, a, i;
@@ -1424,23 +1425,43 @@ int main(int argc, char *argv[])
         range[NTHREADS][a] = S[a]->nels;
       }
 
+    pivot = 0;
+    for (a = 1; a < narg; a++)
+      if (S[a]->nels > S[pivot]->nels)
+        pivot = a;
+
     seq = Current_Kmer(S[0],NULL);
     ent = Current_Entry(S[0],NULL);
     for (t = 1; t < NTHREADS; t++)
-      { p = (S[0]->nels*t)/NTHREADS; 
-        GoTo_Kmer_Index(S[0],p);
+      { p = (S[pivot]->nels*t)/NTHREADS; 
+        GoTo_Kmer_Index(S[pivot],p);
+
 #ifdef DEBUG
-        printf("\n %lld: %s\n",p,Current_Kmer(S[0],seq));
+        printf("\n %lld:",p);
+        if (p < S[pivot]->nels)
+          printf(" %s\n",Current_Kmer(S[pivot],seq));
+        else
+          printf(" EOT\n");
 #endif
-        ent = Current_Entry(S[0],ent);                //  Break at prefix boundaries
-        for (i = IB_OUT; i < S[0]->kbyte; i++)
-          ent[i] = 0;
-        for (a = 0; a < narg; a++)
-          { GoTo_Kmer_Entry(S[a],ent);
+
+        if (p >= S[pivot]->nels)
+          for (a = 0; a < narg; a++)
+            range[t][a] = S[a]->nels;
+        else
+          { ent = Current_Entry(S[pivot],ent);                //  Break at prefix boundaries
+            for (i = IB_OUT; i < S[0]->kbyte; i++)
+              ent[i] = 0;
+            for (a = 0; a < narg; a++)
+              { GoTo_Kmer_Entry(S[a],ent);
 #ifdef DEBUG
-            printf(" %lld: %s\n",S[a]->cidx,Current_Kmer(S[a],seq));
+                printf(" %lld:",S[a]->cidx);
+                if (S[a]->cidx < S[a]->nels)
+                  printf("  %s\n",Current_Kmer(S[a],seq));
+                else
+                  printf(" EOT\n");
 #endif
-            range[t][a] = S[a]->cidx;
+                range[t][a] = S[a]->cidx;
+              }
           }
       }
     free(seq);

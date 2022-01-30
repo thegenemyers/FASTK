@@ -164,17 +164,13 @@ static void Fetch_File(char *arg, File_Object *input, int gz_ok)
     }
 
   if (i == 3 || i == 4)
-    { ftype = DAZZ;
-      zipd  = 0;
-    }
+    ftype = DAZZ;
   else if (i >= 5)
-    { ftype = FASTA - (i%2);
-      zipd  = (i >= 9);
-    }
+    ftype = FASTA - (i%2);
   else
-    { ftype = i;
-      zipd  = 0;
-    }
+    ftype = i;
+  zipd = (i >= 9);
+
   path = Strdup(Catenate(pwd,"/",root,extend[i]),"Allocating full path name");
 
   zoffs = NULL;
@@ -268,6 +264,14 @@ static void Free_File(File_Object *input, int gz_ok)
   free(input->path);
   free(input->root);
   free(input->pwd);
+}
+
+static void Free_Gunzips( File_Object *input, int n)
+{ int i;
+
+  for (i = 0; i < n; i++)
+    if (input[i].zipd)
+      unlink(input[i].path);
 }
 
 
@@ -2321,6 +2325,8 @@ Input_Partition *Partition_Input(int argc, char *argv[])
         if (f > 0)
           { if (fobj[f].ftype != ftype)
               { fprintf(stderr,"\n%s: All files must be of the same type\n",Prog_Name);
+                if (gz_ok)
+                  Free_Gunzips(fobj,f);
                 Clean_Exit(1);
               }
           }
@@ -2383,7 +2389,10 @@ Input_Partition *Partition_Input(int argc, char *argv[])
         if (need_buf)
           { bf = Malloc(ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
             if (bf == NULL)
-              Clean_Exit(1);
+              { if (gz_ok)
+                  Free_Gunzips(fobj,nfiles);
+                Clean_Exit(1);
+              }
           }
         else
           bf = NULL;
@@ -2426,7 +2435,10 @@ Input_Partition *Partition_Input(int argc, char *argv[])
     if (need_buf)
       { bf = Malloc(ITHREADS*IO_BLOCK,"Allocating IO_Buffer\n");
         if (bf == NULL)
-          Clean_Exit(1);
+          { if (gz_ok)
+              Free_Gunzips(fobj,nfiles);
+            Clean_Exit(1);
+          }
       }
     else
       bf = NULL;
@@ -2514,7 +2526,10 @@ Input_Partition *Partition_Input(int argc, char *argv[])
       { if (need_buf)
           { bf = Realloc(bf,t*IO_BLOCK,"Allocating IO_Buffer\n");
             if (bf == NULL)
-              Clean_Exit(1);
+              { if (gz_ok)
+                  Free_Gunzips(fobj,nfiles);
+                Clean_Exit(1);
+              }
             for (i = 0; i < t; i++)
               if (need_buf)
                 parm[i].buf = bf + i*IO_BLOCK;

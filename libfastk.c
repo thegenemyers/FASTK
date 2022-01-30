@@ -890,10 +890,19 @@ Kmer_Stream *Open_Kmer_Stream(char *name)
   S->part  = 1;
 
   More_Kmer_Stream(S);
+
   S->cidx  = 0;
-  S->cpre  = 0;
-  while (S->index[S->cpre] <= 0)
-    S->cpre += 1;
+
+  if (S->cidx >= S->nels)
+    { S->csuf = NULL;
+      S->cpre = S->ixlen;
+      S->part = S->nthr+1;
+    }
+  else
+    { S->cpre  = 0;
+      while (S->index[S->cpre] <= 0)
+        S->cpre += 1;
+    }
 
   return ((Kmer_Stream *) S);
 }
@@ -926,9 +935,17 @@ Kmer_Stream *Clone_Kmer_Stream(Kmer_Stream *O)
 
   More_Kmer_Stream(S);
   S->cidx  = 0;
-  S->cpre  = 0;
-  while (S->index[S->cpre] <= 0)
-    S->cpre += 1;
+
+  if (S->cidx >= S->nels)
+    { S->csuf = NULL;
+      S->cpre = S->ixlen;
+      S->part = S->nthr+1;
+    }
+  else
+    { S->cpre  = 0;
+      while (S->index[S->cpre] <= 0)
+        S->cpre += 1;
+    }
 
   return ((Kmer_Stream *) S);
 }

@@ -1822,12 +1822,16 @@ void Sorting(char *path, char *root)
         psav = 0.;
         for (p = 0; p < NPARTS; p++)
           { wtot += Wkmers[p];
-            if ((1.*Ukmers[p])/Wkmers[p] > psav)
-              psav = (1.*Ukmers[p])/Wkmers[p];
+            if (Wkmers[p] > 0)
+              { if ((1.*Ukmers[p])/Wkmers[p] > psav)
+                  psav = (1.*Ukmers[p])/Wkmers[p];
+              }
             utot += Ukmers[p];
           }
-        if ((1.*utot)/wtot > psav)
-          psav = (1.*utot)/wtot;
+        if (wtot > 0)
+          { if ((1.*utot)/wtot > psav)
+              psav = (1.*utot)/wtot;
+          }
 
         wwide = Number_Digits(wtot);
         awide = Number_Digits((int64) psav); 
@@ -1844,11 +1848,17 @@ void Sorting(char *path, char *root)
         for (p = 0; p < NPARTS; p++)
           { fprintf(stderr,"     %5d:  ",p);
             Print_Number(Wkmers[p],wwide,stderr);
-            fprintf(stderr,"  %*.1f\n",awide,(1.*Ukmers[p])/Wkmers[p]);
+            if (Wkmers[p] > 0)
+              fprintf(stderr,"  %*.1f\n",awide,(1.*Ukmers[p])/Wkmers[p]);
+            else
+              fprintf(stderr,"  %*sNA\n",awide-2,"");
           }
         fprintf(stderr,"       All:  ");
         Print_Number(wtot,wwide,stderr);
-        fprintf(stderr,"  %*.1f\n",awide,(1.*utot)/wtot);
+        if (wtot > 0)
+          fprintf(stderr,"  %*.1f\n",awide,(1.*utot)/wtot);
+        else
+          fprintf(stderr,"  %*sNA\n",awide-2,"");
         fflush(stderr);
       }
 

@@ -176,34 +176,42 @@ void timeTo(FILE *f, int all)
 
 static char *PATH;
 static char *ROOT;
+static Input_Partition *IOPACK;
 
 void Clean_Exit(int status)
 { char *command;
 
   fprintf(stderr,"\n*** Error Exit %d ***\n",status);
 
-  command = Malloc(3*strlen(ROOT) + 3*strlen(PATH) + strlen(SORT_PATH) + 500,"Command string");
-  if (command == NULL)
-    goto could_not;
+  if (ROOT != NULL)
+    { command = Malloc(3*strlen(ROOT) + 3*strlen(PATH) + strlen(SORT_PATH) + 500,"Command string");
+      if (command == NULL)
+        goto could_not;
 
-  sprintf(command,"rm -f %s/%s.hist %s/%s.ktab %s/%s.prof",PATH,ROOT,PATH,ROOT,PATH,ROOT);
-  if (system(command) != 0)
-    goto could_not;
+      sprintf(command,"rm -f %s/%s.hist %s/%s.ktab %s/%s.prof",PATH,ROOT,PATH,ROOT,PATH,ROOT);
+      if (system(command) != 0)
+        goto could_not;
 
-  sprintf(command,"rm -f %s/.%s.ktab.* %s/.%s.pidx.* %s/.%s.prof.*",PATH,ROOT,PATH,ROOT,PATH,ROOT);
-  system(command);
-  if (system(command) != 0)
-    goto could_not;
+      sprintf(command,"rm -f %s/.%s.ktab.* %s/.%s.pidx.* %s/.%s.prof.*",
+                      PATH,ROOT,PATH,ROOT,PATH,ROOT);
+      system(command);
+      if (system(command) != 0)
+        goto could_not;
 
-  sprintf(command,"rm -f %s/%s.*.[TLP]*",SORT_PATH,ROOT);
-  system(command);
-  if (system(command) != 0)
-    goto could_not;
+      sprintf(command,"rm -f %s/%s.*.[TLP]*",SORT_PATH,ROOT);
+      system(command);
+      if (system(command) != 0)
+        goto could_not;
 
-  sprintf(command,"Fastrm -f %s/%s.U*.ktab",SORT_PATH,ROOT);
-  system(command);
-  if (system(command) != 0)
-    goto could_not;
+      sprintf(command,"Fastrm -f %s/%s.U*.ktab",SORT_PATH,ROOT);
+      system(command);
+      if (system(command) != 0)
+        goto could_not;
+
+    }
+
+  if (IOPACK != NULL)
+    Free_Input_Partition(IOPACK);
 
   exit (status);
 
@@ -383,10 +391,12 @@ int main(int argc, char *argv[])
     int64            gsize;
     int              rsize, val;
 
-    ROOT = PATH = "a";
+    ROOT = PATH = NULL;
+    IOPACK = NULL;
 
     io = Partition_Input(argc,argv);
 
+    IOPACK = io;
     if (OUT_NAME == NULL)
       { ROOT = First_Root(io);
         PATH = First_Pwd (io);
@@ -409,8 +419,9 @@ int main(int argc, char *argv[])
     rsize  = KMER_BYTES + 2;
     gsize  = block->totlen - KMER*block->nreads;
     if (gsize < block->totlen/3)
-      { fprintf(stderr,"\n%s: Sequences are on average smaller than 1.5x k-mer size!\n",Prog_Name);
-        Clean_Exit(1);
+      { fprintf(stderr,
+                "\n%s: Warming Sequences are on average smaller than 1.5x k-mer size!\n",
+                Prog_Name);
       }
     gsize = gsize*block->ratio*rsize;
     NPARTS = (gsize-1)/SORT_MEMORY + 1;
