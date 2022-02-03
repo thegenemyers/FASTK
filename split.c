@@ -21,7 +21,7 @@
 #include "libfastk.h"
 #include "FastK.h"
 
-#undef   USE_MAPPING
+#define  USE_MAPPING
 #undef   HISTOGRAM_TEST
 #undef   MAXIMUM_TEST
 #undef   FIND_MTHRESH
@@ -675,9 +675,9 @@ int Determine_Scheme(DATA_BLOCK *block)
         mtot += parmt[j].nmin;
 
       if (ktot < (block->totlen - (KMER-1)*block->nreads)/2)
-        { fprintf(stderr,"\n%s: Too much of the data is in reads less than the k-mer size\n",
-                         Prog_Name);
-          Clean_Exit(1);
+        { fprintf(stderr,
+               "\n%s: Warning: Too much of the data is in reads on the order of the k-mer size\n",
+               Prog_Name);
         }
 
       kthresh = ktot/npieces;
@@ -1586,7 +1586,10 @@ void Split_Kmers(Input_Partition *io, char *root)
         fprintf(stderr," bps\n");
         kwide = Number_Digits(ktot);
         nwide = Number_Digits(ntot);
-        awide = Number_Digits(ktot/ntot);
+        if (ntot == 0)
+          awide = 0;
+        else
+          awide = Number_Digits(ktot/ntot);
         kwide += (kwide-1)/3;
         nwide += (nwide-1)/3;
         awide += 2;
@@ -1617,7 +1620,10 @@ void Split_Kmers(Input_Partition *io, char *root)
             Print_Number(s,kwide,stderr);
             fprintf(stderr,"  ");
             Print_Number(m,nwide,stderr);
-            fprintf(stderr,"  %*.1f\n",awide,(1.*s)/m);
+            if (m == 0)
+              fprintf(stderr,"  %*sNA\n",awide-2,"");
+            else
+              fprintf(stderr,"  %*.1f\n",awide,(1.*s)/m);
           }
         if (KMAX < s)
           KMAX = s;
@@ -1631,13 +1637,19 @@ void Split_Kmers(Input_Partition *io, char *root)
         Print_Number(ktot,kwide,stderr);
         fprintf(stderr,"  ");
         Print_Number(ntot,nwide,stderr);
-        fprintf(stderr,"  %*.1f\n",awide,(1.*ktot)/ntot);
+        if (ntot == 0)
+          fprintf(stderr,"  %*sNA\n",awide-2,"");
+        else
+          fprintf(stderr,"  %*.1f\n",awide,(1.*ktot)/ntot);
 
         fprintf(stderr,"\n      Range ");
         Print_Number(kmin,0,stderr);
         fprintf(stderr," - ");
         Print_Number(KMAX,0,stderr);
-        fprintf(stderr," (%.2f%%)\n",(200.*(KMAX-kmin))/(KMAX+kmin));
+        if (KMAX+kmin == 0)
+          fprintf(stderr,"\n");
+        else
+          fprintf(stderr," (%.2f%%)\n",(200.*(KMAX-kmin))/(KMAX+kmin));
       }
 
     KMAX_BYTES = 0;
