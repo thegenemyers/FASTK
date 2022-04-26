@@ -31,7 +31,7 @@ int    DO_STAGE;   //  Which step to perform
 
 #endif
 
-static char *Usage[] = { "[-k<int(40)>] -t[<int(4)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int(0)>]",
+static char *Usage[] = { "[-k<int(40)>] -t[<int(1)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int(0)>]",
                          "  [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]",
                          "    <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz] ..."
                        };
@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
     VERBOSE    = flags['v'];   //  Globally declared in filter.h
     COMPRESS   = flags['c'];
     if (flags['t'])
-      DO_TABLE = 4;
+      DO_TABLE = 1;
     if (flags['p'])
       DO_PROFILE = 1;
 

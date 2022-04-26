@@ -16,7 +16,7 @@
 
 #include "libfastk.h"
 
-static char *Usage = "<source_root>[.prof] <read:int> ...";
+static char *Usage = "<source_root>[.prof] <read:int>[-(<read:int>|#)] ...";
 
 /****************************************************************************************
  *
@@ -58,8 +58,9 @@ int main(int argc, char *argv[])
       exit (1);
     }
 
-  { int     i, c, id;
-    char   *eptr;
+  { int     i, c, p;
+    int     id1, id2;
+    char   *eptr, *fptr;
     uint16 *profile;
     int     pmax, plen;
 
@@ -67,24 +68,50 @@ int main(int argc, char *argv[])
     profile = Malloc(pmax*sizeof(uint16),"Profile array");
 
     for (c = 2; c < argc; c++)
-      { id = strtol(argv[c],&eptr,10);
-        if (*eptr != '\0' || argv[c][0] == '\0')
-          { fprintf(stderr,"%s: argument '%s' is not an integer\n",Prog_Name,argv[c]);
-             exit (1);
+      { id1 = strtol(argv[c],&eptr,10);
+        if (*eptr == '-')
+          { if (eptr[1] == '#')
+              { id2  = P->nbase[P->nparts-1];
+                fptr = eptr+2;
+              }
+            else
+              id2 = strtol(eptr+1,&fptr,10);
+            if (*fptr != '\0')
+              { fprintf(stderr,"%s: argument '%s' is not an integer range\n",Prog_Name,argv[c]);
+                exit (1);
+              }
           }
-        if (id <= 0 || id > P->nbase[P->nparts-1])
-          { fprintf(stderr,"%s: Id %d is out of range\n",Prog_Name,id);
+        else
+          { if (*eptr != '\0')
+              { fprintf(stderr,"%s: argument '%s' is not an integer\n",Prog_Name,argv[c]);
+                exit (1);
+              }
+            id2 = id1;
+          }
+        if (id1 > id2)
+          { fprintf(stderr,"%s: range %s is empty!\n",Prog_Name,argv[c]);
             exit (1);
           }
-        plen = Fetch_Profile(P,(int64) id-1,pmax,profile);
-        if (plen > pmax)
-          { pmax    = 1.2*plen + 1000;
-            profile = Realloc(profile,pmax*sizeof(uint16),"Profile array");
-            Fetch_Profile(P,(int64) id-1,pmax,profile);
+        if (id1 <= 0 || id2 > P->nbase[P->nparts-1])
+          { if (id1 == id2)
+              fprintf(stderr,"%s: Id %d is out of range",Prog_Name,id1);
+            else
+              fprintf(stderr,"%s: Range %d-%d is out of range",Prog_Name,id1,id2);
+            fprintf(stderr," [1,%lld]\n",P->nbase[P->nparts-1]);
+            exit (1);
           }
-        printf("\nRead %d:\n",id);
-        for (i = 0; i < plen; i++)
-          printf(" %5d: %5d\n",i,profile[i]);
+
+        for (p = id1; p <= id2; p++)
+          { plen = Fetch_Profile(P,(int64) p-1,pmax,profile);
+            if (plen > pmax)
+              { pmax    = 1.2*plen + 1000;
+                profile = Realloc(profile,pmax*sizeof(uint16),"Profile array");
+                Fetch_Profile(P,(int64) p-1,pmax,profile);
+              }
+            printf("\nRead %d:\n",p);
+            for (i = 0; i < plen; i++)
+              printf(" %5d: %5d\n",i,profile[i]);
+          }
       }
     free(profile);
   }

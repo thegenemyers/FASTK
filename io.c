@@ -1442,7 +1442,6 @@ static int sam_record_scan(BAM_FILE *sf, samRecord *theR)
 
     theR->header = q;
 
-    p = index(p+1,'\t');
     flags = strtol(q=p+1,&p,0);
     CHECK( p == q, "Cannot parse flags")
 

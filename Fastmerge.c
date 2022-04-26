@@ -5,6 +5,7 @@
  *
  *  Author:  Gene Myers
  *  Date  :  Sep. 20, 2021
+ *  Date  :  Mar. 31, 2022  priority queue, tailored prefix size, thread parts
  *
  ********************************************************************************************/
 
@@ -20,10 +21,13 @@
 
 #include "libfastk.h"
 
-static char *Usage = " [-htp] [-T<int(4)>] <target> <sources>[.hist|.ktab|.prof] ...";
+static char *Usage = " [-htp] [-T<int(4)>] [-P<int(1)>} <target> <sources>[.hist|.ktab|.prof] ...";
 
-static int NTHREADS;
-
+static int   NTHREADS;
+static int   NPARTS;
+static char *OPATH;
+static char *OROOT;
+static int   PIVOT;
 
 /****************************************************************************************
  *
@@ -35,8 +39,8 @@ typedef struct
   { int           tid;
     Kmer_Stream **S;
     int           narg;
-    FILE         *out;
     int64        *prefx;
+    int           ibyte;
     int64        *begs;
     int64        *ends;
     int64        *hist;
@@ -49,6 +53,95 @@ static inline int mycmp(uint8 *a, uint8 *b, int n)
         return (a[-1] < b[-1] ? -1 : 1);
     }
   return (0);
+}    
+
+  //  Heap of input buffer pointers ordering on k-mer at ->ptr
+
+static int KBYTE;
+
+#define EQ_NONE  0x0   
+#define EQ_RGHT  0x1   //  node value is equal to that of its right child
+#define EQ_LEFT  0x2   //  node value is equal to that of its left child
+#define EQ_BOTH  0x3
+
+static void reheap(int s, int *heap, int *equb, int hsize, uint8 **ent)
+{ int       c, l, r;
+  int       hs, hr, hl;
+  uint8    *es, *er, *el;
+  int       s1, s2;
+  
+  c   = s;
+  hs  = heap[s];
+  es  = ent[hs];
+  while ((l = (c<<1)) <= hsize)
+    { r  = l+1;
+      hl = heap[l];
+      el = ent[hl];
+      if (r > hsize)
+        s1 = 1;
+      else
+        { hr = heap[r];
+          er = ent[hr];
+          s1 = mycmp(er,el,KBYTE);
+        }
+      if (s1 > 0)
+        { s2 = mycmp(es,el,KBYTE);
+          if (s2 > 0)
+            { heap[c] = hl;
+              equb[c] = (equb[l] ? EQ_LEFT : EQ_NONE);
+              c = l;
+            }
+          else if (s2 == 0)
+            { heap[c] = hs;
+              equb[c] = EQ_LEFT;
+              return;
+            }
+          else
+            break;
+        }
+      else if (s1 == 0)
+        { s2 = mycmp(es,el,KBYTE);
+          if (s2 > 0)
+            { heap[c] = hl;
+              equb[c] = (equb[l] ? EQ_BOTH : EQ_RGHT);
+              c = l;
+            }
+          else if (s2 == 0)
+            { heap[c] = hs;
+              equb[c] = EQ_BOTH;
+              return;
+            }
+          else
+            break;
+        }
+      else
+        { s2 = mycmp(es,er,KBYTE);
+          if (s2 > 0)
+            { heap[c] = hr;
+              equb[c] = (equb[r] ? EQ_RGHT : EQ_NONE);
+              c = r;
+            }
+          else if (s2 == 0)
+            { heap[c] = hs;
+              equb[c] = EQ_RGHT;
+              return;
+            }
+          else
+            break;
+        }
+    }
+  heap[c] = hs;
+  equb[c] = EQ_NONE;
+}
+
+
+static int next_group(int node, int *equb, int gtop, int *group)
+{ if (equb[node] & EQ_RGHT)
+    gtop = next_group(2*node+1,equb,gtop,group);
+  if (equb[node] & EQ_LEFT)
+    gtop = next_group(2*node,equb,gtop,group);
+  group[++gtop] = node;
+  return (gtop);
 }
 
 static void *table_thread(void *args)
@@ -56,23 +149,28 @@ static void *table_thread(void *args)
   int           tid   = parm->tid;
   int           ntabs = parm->narg;
   Kmer_Stream **S     = parm->S;
-  Kmer_Stream **T;
   int64        *begs  = parm->begs;
   int64        *ends  = parm->ends;
   int64        *prefx = parm->prefx;
-  FILE         *out   = parm->out;
+  int           ibyte = parm->ibyte;
   int           dotab = parm->dotab;
 
-  int hbyte = S[0]->kbyte-3;
   int kbyte = S[0]->kbyte;
   int kmer  = S[0]->kmer;
+  int hbyte = kbyte-ibyte;
 
+  Kmer_Stream **T, *t, *p;
+  char   *nbuf;
+  FILE   *out;
+  int64   nels, pend;
+  int     npr;
   int64  *hist;
-  int64   nels;
-  uint8 **ent, *bst;
-  int     itop, *in, cnt;
+  int     hsize, *heap, *equb;
+  uint8 **ent, *best;
+  int    *grp, gtop;
+  int64  *cnt, icnt;
   uint16  scnt;
-  int     c, x;
+  int     c, x, i, k;
 
 #ifdef DEBUG_TRACE
   char *buffer;
@@ -82,13 +180,17 @@ static void *table_thread(void *args)
   bzero(hist,sizeof(int64)*0x8001);
   hist -= 1;
 
-  in  = Malloc(sizeof(int)*ntabs,"Allocating thread working memory");
-  ent = Malloc(sizeof(uint8 *)*ntabs,"Allocating thread working memory");
+  cnt  = Malloc(sizeof(int64)*ntabs,"Allocating thread working memory");
+  grp  = Malloc(sizeof(int64)*ntabs,"Allocating thread working memory");
+  ent  = Malloc(sizeof(uint8 *)*ntabs,"Allocating thread working memory");
+  heap = Malloc(sizeof(int)*(ntabs+1),"Allocating thread working memory");
+  equb = Malloc(sizeof(int)*(ntabs+1),"Allocating thread working memory");
+  nbuf = Malloc(strlen(OPATH)+strlen(OROOT)+20,"Allocating thread working memory");
 
 #ifdef DEBUG_THREADS
-  printf("Doing %d:\n",tid);
+  printf("Doing %d: pivot %d\n",tid,PIVOT);
   for (c = 0; c < ntabs; c++)
-    printf("  %2d: [%lld-%lld]",c,begs[c],ends[c]);
+    printf("  %2d: [%lld-%lld]\n",c,begs[c],ends[c]);
   printf("\n");
 #endif
 
@@ -99,95 +201,145 @@ static void *table_thread(void *args)
     }
   else
     T = S;
+  p = T[PIVOT];
 
 #ifdef DEBUG_TRACE
   buffer = Current_Kmer(T[0],NULL);
 #endif
 
-   nels = 0;
    if (dotab)
-     { fwrite(&kmer,sizeof(int),1,out);
+     { npr  = 1;
+       pend = begs[PIVOT] + ((ends[PIVOT] - begs[PIVOT]) * npr) / NPARTS;
+
+       sprintf(nbuf,"%s/.%s.ktab.%d",OPATH,OROOT,tid*NPARTS+npr);
+       out = fopen(nbuf,"w");
+
+#ifdef DEBUG_THREADS
+       printf("  Making %s to %d:%lld\n",nbuf,npr,pend);
+#endif
+
+       nels = 0;
+       fwrite(&kmer,sizeof(int),1,out);
        fwrite(&nels,sizeof(int64),1,out);
      }
 
   for (c = 0; c < ntabs; c++)
     GoTo_Kmer_Index(T[c],begs[c]);
 
+  hsize = ntabs;
   for (c = 0; c < ntabs; c++)
-    ent[c] = Current_Entry(T[c],NULL);
-
-  while (1)
-    { for (c = 0; c < ntabs; c++)
-        if (T[c]->cidx < ends[c])
-          break;
-      if (c >= ntabs)
-        break;
-      itop  = 1;
-      in[0] = c;
-      bst = ent[c];
-      for (c++; c < ntabs; c++)
-        { if (T[c]->cidx >= ends[c])
-            continue;
-          x = mycmp(ent[c],bst,kbyte);
-          if (x == 0)
-            in[itop++] = c;
-          else if (x < 0)
-            { itop  = 1;
-              in[0] = c;
-              bst = ent[c];
-            }
-        }
-
-      cnt = 0;
-      for (c = 0; c < itop; c++)
-        cnt += Current_Count(T[in[c]]);
-      if (cnt >= 0x7fff)
-        { scnt = 0x7fff;
-          hist[0x7fff] += 1;
-          for (c = 0; c < itop; c++)
-            { cnt = Current_Count(T[in[c]]);
-              if (cnt < 0x7fff)
-                hist[0x8001] += cnt;
-            }
-        }
-      else
-        { scnt = cnt;
-          hist[cnt] += 1;
-        }
-
-#ifdef DEBUG_TRACE
-      for (c = 0; c < itop; c++)
-        { x = in[c];
-          printf(" %d: %s %5d",x,Current_Kmer(T[x],buffer),Current_Count(T[x]));
-        }
-      printf("\n");
-#endif
-
-      if (dotab)
-        { fwrite(bst+3,hbyte,1,out);
-          fwrite(&scnt,sizeof(uint16),1,out);
-          x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
-          prefx[x] += 1;
-          nels += 1;
-        }
-
-      for (c = 0; c < itop; c++)
-        { Kmer_Stream *t;
-
-          x = in[c];
-          t = T[x];
-          Next_Kmer_Entry(t);
-          if (t->csuf != NULL)
-            Current_Entry(t,ent[x]);
+    { ent[c] = Current_Entry(T[c],NULL);
+      if (T[c]->cidx >= ends[c])
+        { for (k = 0; k < kbyte; k++)
+            ent[c][k] = 0xff;
+          *((uint16 *) (ent[c] + kbyte)) = 0;
+          hsize -= 1;
         }
     }
 
-   if (dotab)
-     { rewind(out);
-       fwrite(&kmer,sizeof(int),1,out);
-       fwrite(&nels,sizeof(int64),1,out);
-       fclose(out);
-     }
+  KBYTE = kbyte;
+  for (c = 1; c <= ntabs; c++)
+    { heap[c] = c-1;
+      equb[c] = EQ_NONE;
+    }
+
+  if (ntabs > 3)
+    for (x = ntabs/2; x >= 1; x--)
+      reheap(x,heap,equb,ntabs,ent);
+
+  while (hsize > 0)
+    { gtop = next_group(1,equb,-1,grp);
+      best = ent[heap[1]];
+
+      icnt = (cnt[gtop] = *((uint16 *) (best + kbyte)));
+      for (x = 0; x < gtop; x++)
+        icnt += (cnt[x] = *((uint16 *) (ent[heap[grp[x]]] + kbyte)));
+
+      if (icnt > 0x7fff)
+        { scnt = 0x7fff;
+          hist[0x7fff] += 1;
+          for (x = 0; x <= gtop; x++)
+            if (cnt[x] < 0x7fff)
+              hist[0x8001] += cnt[x];
+        }
+      else
+        { scnt = icnt;
+          hist[icnt] += 1;
+        }
+
+#ifdef DEBUG_TRACE
+      printf("%lld: ",count);
+      printf("%s: %5d\n",Current_Kmer(T[heap[1]],buffer),scnt);
+      for (x = 0; x <= gtop; x++)
+        printf("    %2d: %2d: %2d: %10lld\n",x,grp[x],heap[grp[x]],cnt[x]);
+      fflush(stdout);
+
+/*
+      for (i = 1; i <= ntabs; i++)      // Show heap
+        { c = heap[i];
+          if (T[c]->cidx < ends[c])
+            printf(" %2d: %2d(%d) -> %s\n",i,c,equb[i],Current_Kmer(T[c],buffer));
+          else
+            printf(" %2d: %2d(%d) -> ttt...\n",i,heap[i],equb[i]);
+        }
+*/
+  }
+#endif
+
+      if (dotab)
+        { fwrite(best+ibyte,hbyte,1,out);
+          fwrite(&scnt,sizeof(uint16),1,out);
+
+          x = best[0];
+          for (i = 1; i < ibyte; i++)
+            x = (x << 8) | best[i];
+          prefx[x] += 1;
+          nels += 1;
+
+          if (p->cidx >= pend && npr < NPARTS)
+            { rewind(out);
+              fwrite(&kmer,sizeof(int),1,out);
+              fwrite(&nels,sizeof(int64),1,out);
+              fclose(out);
+
+              npr += 1;
+              pend = begs[PIVOT] + ((ends[PIVOT] - begs[PIVOT]) * npr) / NPARTS;
+              sprintf(nbuf,"%s/.%s.ktab.%d",OPATH,OROOT,tid*NPARTS+npr);
+              out = fopen(nbuf,"w");
+
+#ifdef DEBUG_THREADS
+              printf("  Making %s to %d:%lld\n",nbuf,npr,pend);
+#endif
+
+              nels = 0;
+              fwrite(&kmer,sizeof(int),1,out);
+              fwrite(&nels,sizeof(int64),1,out);
+            }
+        }
+
+      for (x = 0; x <= gtop; x++)
+        { i = grp[x];
+          c = heap[i];
+          t = T[c];
+          Next_Kmer_Entry(t);
+          if (t->cidx < ends[c])
+            Current_Entry(t,ent[c]);
+          else
+            { for (k = 0; k < kbyte; k++)
+                ent[c][k] = 0xff;
+              *((uint16 *) (ent[c] + kbyte)) = 0;
+              hsize -= 1;
+            }
+          reheap(i,heap,equb,ntabs,ent);
+        }
+    }
+
+  if (dotab)
+    { rewind(out);
+      fwrite(&kmer,sizeof(int),1,out);
+      fwrite(&nels,sizeof(int64),1,out);
+      fclose(out);
+    }
 
   for (c = 0; c < ntabs; c++)
     free(ent[c]);
@@ -198,8 +350,12 @@ static void *table_thread(void *args)
       free(T);
     }
 
+  free(nbuf);
+  free(equb);
+  free(heap);
   free(ent);
-  free(in);
+  free(grp);
+  free(cnt);
 
   parm->hist = hist;
   return (NULL);
@@ -247,7 +403,6 @@ static void *prof_thread(void *args)
   int    imer, nthreads;
   FILE  *f, *g;
   int    c, t;
-
 
   fwrite(&(parm->kmer),sizeof(int),1,pout);
   fwrite(&(parm->fidx),sizeof(int64),1,pout);
@@ -368,7 +523,6 @@ static void *prof_thread(void *args)
 
 int main(int argc, char *argv[])
 { int           narg, kmer;
-  char         *Opath, *Oroot;
   Kmer_Stream **S;
   int           DO_HIST;
   int           DO_TABLE;
@@ -383,6 +537,7 @@ int main(int argc, char *argv[])
     ARG_INIT("Fastmerge");
 
     NTHREADS = 4;
+    NPARTS   = 1;
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -390,6 +545,9 @@ int main(int argc, char *argv[])
         switch (argv[i][1])
         { default:
             ARG_FLAGS("htp")
+            break;
+          case 'P':
+            ARG_POSITIVE(NPARTS,"Number of parts per thread")
             break;
           case 'T':
             ARG_POSITIVE(NTHREADS,"Number of threads")
@@ -411,6 +569,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -p: Produce a merged profile.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -T: Use -T threads.\n");
+        fprintf(stderr,"      -P: Produce -P parts per thread.\n");
         exit (1);
       } 
 
@@ -430,8 +589,8 @@ int main(int argc, char *argv[])
           }
       }
 
-    Opath = PathTo(argv[1]);
-    Oroot = Root(argv[1],".ktab");
+    OPATH = PathTo(argv[1]);
+    OROOT = Root(argv[1],".ktab");
 
     { FILE *f;
       int   has_hist, has_table, has_prof;
@@ -532,14 +691,28 @@ int main(int argc, char *argv[])
         TP        parm[NTHREADS];
         int64    *prefx;
         int       ixlen = 0;
+        int       ibyte = 3;
         char     *seq;
         uint8    *ent;
-        int       pivot;
         int       t, a, i;
         int64     p;
 
         if (DO_TABLE)
-          { ixlen = 0x1000000;
+          { int64 nels = 0;
+            for (a = 1; a < narg; a++)
+              nels = S[a]->nels;
+            if (nels >= 0x8000000)
+              { ixlen = 0x1000000;
+                ibyte = 3;
+              }
+            else if (nels >= 0x80000)
+              { ixlen = 0x10000;
+                ibyte = 2;
+              }
+            else
+              { ixlen = 0x100;
+                ibyte = 1;
+              }
             prefx = Malloc(sizeof(int64)*ixlen,"Allocating prefix table");
             bzero(prefx,sizeof(int64)*ixlen);
           }
@@ -551,30 +724,30 @@ int main(int argc, char *argv[])
             range[NTHREADS][a] = S[a]->nels;
           }
 
-        pivot = 0;
+        PIVOT = 0;
         for (a = 1; a < narg; a++)
-          if (S[a]->nels > S[pivot]->nels)
-            pivot = a;
+          if (S[a]->nels > S[PIVOT]->nels)
+            PIVOT = a;
 
         seq = Current_Kmer(S[0],NULL);
         ent = Current_Entry(S[0],NULL);
         for (t = 1; t < NTHREADS; t++)
-          { p = (S[pivot]->nels*t)/NTHREADS; 
-            GoTo_Kmer_Index(S[pivot],p);
+          { p = (S[PIVOT]->nels*t)/NTHREADS; 
+            GoTo_Kmer_Index(S[PIVOT],p);
 #ifdef DEBUG
-            printf("\n%d: %0*x\n",t,2*S[pivot]->ibyte,S[pivot]->cpre);
+            printf("\n%d: %0*x\n",t,2*S[PIVOT]->ibyte,S[PIVOT]->cpre);
             printf(" %lld:",p);
-            if (p < S[pivot]->nels)
-              printf(" %s\n",Current_Kmer(S[pivot],seq));
+            if (p < S[PIVOT]->nels)
+              printf(" %s\n",Current_Kmer(S[PIVOT],seq));
             else
               printf(" EOT\n");
 #endif
-            if (p >= S[pivot]->nels)
+            if (p >= S[PIVOT]->nels)
               for (a = 0; a < narg; a++)
                 range[t][a] = S[a]->nels;
             else
-              { ent = Current_Entry(S[pivot],ent);                //  Break at prefix boundaries
-                for (i = S[0]->ibyte; i < S[0]->kbyte; i++)
+              { ent = Current_Entry(S[PIVOT],ent);                //  Break at prefix boundaries
+                for (i = ibyte; i < S[0]->kbyte; i++)
                   ent[i] = 0;
                 for (a = 0; a < narg; a++)
                   { GoTo_Kmer_Entry(S[a],ent);
@@ -598,10 +771,8 @@ int main(int argc, char *argv[])
             parm[t].begs  = range[t];
             parm[t].ends  = range[t+1];
             parm[t].prefx = prefx;
+            parm[t].ibyte = ibyte;
             parm[t].dotab = DO_TABLE;
-            if (DO_TABLE)
-              parm[t].out = fopen(Catenate(Opath,"/.",Oroot,
-                                   Numbered_Suffix(".ktab.",t+1,"")),"w");
           }
 
 #ifdef DEBUG_THREADS
@@ -641,7 +812,7 @@ int main(int argc, char *argv[])
 
             low  = 1;
             high = 0x7fff;
-            f  = open(Catenate(Opath,"/",Oroot,".hist"),O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
+            f  = open(Catenate(OPATH,"/",OROOT,".hist"),O_CREAT|O_TRUNC|O_WRONLY,S_IRWXU);
             write(f,&kmer,sizeof(int));
             write(f,&low,sizeof(int));
             write(f,&high,sizeof(int));
@@ -654,21 +825,21 @@ int main(int argc, char *argv[])
           }
 
         if (DO_TABLE)
-          { int minval;
-            int three = 3;
+          { int minval, nparts;
     
-            FILE  *f   = fopen(Catenate(Opath,"/",Oroot,".ktab"),"w");
+            FILE  *f   = fopen(Catenate(OPATH,"/",OROOT,".ktab"),"w");
             int64 *prf = prefx;
 
             minval = S[0]->minval;
             for (i = 1; i < narg; i++)
               if (S[i]->minval < minval)
                 minval = S[i]->minval;
+            nparts = NTHREADS * NPARTS;
     
             fwrite(&kmer,sizeof(int),1,f);
-            fwrite(&NTHREADS,sizeof(int),1,f);
+            fwrite(&nparts,sizeof(int),1,f);
             fwrite(&minval,sizeof(int),1,f);
-            fwrite(&three,sizeof(int),1,f);
+            fwrite(&ibyte,sizeof(int),1,f);
     
             for (i = 1; i < ixlen; i++)
               prf[i] += prf[i-1];
@@ -758,88 +929,100 @@ int main(int argc, char *argv[])
 
       //  Setup division into threads in 'parm'
 
-      { int64 u;
-        int c, t;
+      { int64 u, plast;
+        int c, t, p, plpart;
 
         c = 0;
         u = 0;
-        for (t = 0; t < NTHREADS; t++)
-          { parm[t].argv  = argv;
+        plpart = 0;
+        plast  = 0;
+
+        for (p = 0; p < NPARTS; p++)
+          { for (t = 0; t < NTHREADS; t++)
+              { parm[t].argv  = argv;
 #ifdef DEBUG_PROF
-            parm[t].tid   = t;
+                parm[t].tid   = t;
 #endif
-            parm[t].kmer  = kmer;
-            parm[t].fidx  = u;
-
-            u = ((t+1)*totreads)/NTHREADS;
-            while (psize[c] <= u)
-              c += 1;
-
-            parm[t].nidx  = u-parm[t].fidx;
-            parm[t].lpart = c;
-            if (c > 0)
-              parm[t].last  = u - psize[c-1];
-            else
-              parm[t].last  = u;
-
-            parm[t].pout = fopen(Catenate(Opath,"/.",Oroot,
-                                  Numbered_Suffix(".pidx.",t+1,"")),"w");
-            if (parm[t].pout == NULL)
-              { fprintf(stderr,"%s: Cannot create part .pidx file for ouput %s\n",Prog_Name,Oroot);
-                exit (1);
+                parm[t].kmer  = kmer;
+                parm[t].fidx  = u;
+    
+                u = ((p*NTHREADS+t+1)*totreads)/(NTHREADS*NPARTS);
+                while (psize[c] <= u)
+                  c += 1;
+    
+                parm[t].nidx  = u-parm[t].fidx;
+                parm[t].lpart = c;
+                if (c > 0)
+                  parm[t].last  = u - psize[c-1];
+                else
+                  parm[t].last  = u;
+    
+                parm[t].pout = fopen(Catenate(OPATH,"/.",OROOT,
+                                      Numbered_Suffix(".pidx.",p*NTHREADS+t+1,"")),"w");
+                if (parm[t].pout == NULL)
+                  { fprintf(stderr,"%s: Cannot create part .pidx file for ouput %s\n",
+                                   Prog_Name,OROOT);
+                    exit (1);
+                  }
+                parm[t].dout = fopen(Catenate(OPATH,"/.",OROOT,
+                                     Numbered_Suffix(".prof.",p*NTHREADS+t+1,"")),"w");
+                if (parm[t].dout == NULL)
+                  { fprintf(stderr,"%s: Cannot create part .prof file for ouput %s\n",
+                                   Prog_Name,OROOT);
+                    exit (1);
+                  }
               }
-            parm[t].dout = fopen(Catenate(Opath,"/.",Oroot,
-                                 Numbered_Suffix(".prof.",t+1,"")),"w");
-            if (parm[t].dout == NULL)
-              { fprintf(stderr,"%s: Cannot create part .prof file for ouput %s\n",Prog_Name,Oroot);
-                exit (1);
+            parm[0].fpart = plpart;
+            parm[0].first = plast;
+            for (t = 1; t < NTHREADS; t++)
+              { parm[t].fpart = parm[t-1].lpart;
+                parm[t].first = parm[t-1].last;
               }
-          }
-        parm[0].fpart = 0;
-        parm[0].first = 0;
-        for (t = 1; t < NTHREADS; t++)
-          { parm[t].fpart = parm[t-1].lpart;
-            parm[t].first = parm[t-1].last;
-          }
-
-#ifdef DEBUG_THREADS
-        printf("\n");
-        for (t = 0; t < NTHREADS; t++)
-          printf("%d/%lld - %d/%lld\n",parm[t].fpart,parm[t].first,parm[t].lpart,parm[t].last);
-        printf("\n");
-        for (t = 0; t < NTHREADS; t++)
-          printf("  %lld + %lld = %10lld\n",parm[t].fidx,parm[t].nidx,parm[t].fidx+parm[t].nidx);
-#endif
+            plpart = parm[NTHREADS-1].lpart;
+            plast  = parm[NTHREADS-1].last;
     
 #ifdef DEBUG_THREADS
-        for (t = 0; t < NTHREADS; t++)
-          prof_thread(parm+t);
-#else
-        for (t = 1; t < NTHREADS; t++)
-          pthread_create(threads+t,NULL,prof_thread,parm+t);
-        prof_thread(parm);
-        for (t = 1; t < NTHREADS; t++)
-          pthread_join(threads[t],NULL);
+            printf("\n");
+            for (t = 0; t < NTHREADS; t++)
+              printf("%d/%lld - %d/%lld\n",parm[t].fpart,parm[t].first,parm[t].lpart,parm[t].last);
+            printf("\n");
+            for (t = 0; t < NTHREADS; t++)
+              printf("  %lld + %lld = %10lld\n",
+                     parm[t].fidx,parm[t].nidx,parm[t].fidx+parm[t].nidx);
 #endif
+        
+#ifdef DEBUG_THREADS
+            for (t = 0; t < NTHREADS; t++)
+              prof_thread(parm+t);
+#else
+            for (t = 1; t < NTHREADS; t++)
+              pthread_create(threads+t,NULL,prof_thread,parm+t);
+            prof_thread(parm);
+            for (t = 1; t < NTHREADS; t++)
+              pthread_join(threads[t],NULL);
+#endif
+          }
       }
 
       //  Create stub file
 
       { FILE *f;
+        int   nparts;
 
-        f = fopen(Catenate(Opath,"/",Oroot,".prof"),"w");
+        f = fopen(Catenate(OPATH,"/",OROOT,".prof"),"w");
         if (f == NULL)
-          { fprintf(stderr,"%s: Cannot create stub file for ouput %s\n",Prog_Name,Oroot);
+          { fprintf(stderr,"%s: Cannot create stub file for ouput %s\n",Prog_Name,OROOT);
             exit (1);
           }
+        nparts = NTHREADS*NPARTS;
         fwrite(&kmer,sizeof(int),1,f);
-        fwrite(&NTHREADS,sizeof(int),1,f);
+        fwrite(&nparts,sizeof(int),1,f);
         fclose(f);
       }
     }
 
-  free(Oroot);
-  free(Opath);
+  free(OROOT);
+  free(OPATH);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

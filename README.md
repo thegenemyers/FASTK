@@ -58,7 +58,7 @@ about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 <a name="fastk"></a>
 
 ```
-1. FastK [-k<int(40)>] [-t[<int(4)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int>]
+1. FastK [-k<int(40)>] [-t[<int(1)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int>]
           [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
             <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz]] ...
 ```
@@ -79,8 +79,10 @@ FastK always outputs a file with path name `<source>.hist` that contains a histo
 distribution where the highest possible count is 2<sup>15</sup>-1 = 32,767 -- FastK clips all higher values to this upper limit.  Its exact format is described in the section on Data Encodings.
 
 One can optionally request, by specifying the &#8209;t option, that FastK produce a sorted table of
-all canonical k&#8209;mers that occur &#8209;t or more times along with their counts, where the default
-for the threshold is 4.
+all canonical k&#8209;mers along with their counts.
+If an integer follows then only those k&#8209;mers that occur &#8209;t or more times
+where the default threshold is 1.  In those applications where low count k&#8209;mers are
+not needed this can save significant time and space as most such k&#8209;mers are error&#8209;mers.
 The output is placed in a single *stub* file with path name `<source>.ktab` and N
 roughly equal-sized *hidden* files with the path names `<dir>/.<base>.ktab.#` assuming
 \<source> = \<dir>/\<base> and
@@ -155,7 +157,7 @@ Finally, the &#8209;f option forces the creation of the new files and overides b
 <a name="fastmerge"></a>
 
 ```
-3. Fastmerge [-htp] [-T<int(4)>] <target> <source:.hist+.ktab+.prof> ...
+3. Fastmerge [-htp] [-T<int(4)>] [-P<int(1)>] <target> <source:.hist+.ktab+.prof> ...
 ```
 
 On an HPC cluster, one may wish to partition a data set into a number of parts and call FastK
@@ -169,6 +171,7 @@ is set, then Fastmerge looks to see which objects are available for the sources 
 Note carefully that to producing a merged histogram file requires that one merge the tables, so if the -h option is given then the tables must be present.
 
 Fastmerge uses 4 threads by default but you can specify any (reasonable) number with the -T option.
+Normally the number of parts a table or profile are split into is equal to the number of threads, i.e. a part is produced by each thread.  This is usual good, but if you are merging a very large number of files, say 100, with fewer threads, say 10, then you may want each thread to produce multiple parts.  The -P parameter allows you to specify how many, e.g., -P5 in our running example would result in tables and profiles split into 50 hidden part files.
 
             
 ### Current Limitations & Known Bugs
@@ -228,13 +231,15 @@ if found.  If the &#8209;t option is given than only those k&#8209;mers with cou
 
 <a name="profex"></a>
 ```
-3. Profex <source>[.prof] <read:int> ...
+3. Profex <source>[.prof] <read:int>[-(<read:int>|#)] ...
 ```
 
 Given that a set of profile files have been generated and are represented by stub file
 \<source>.prof, ***Profex*** opens the corresonding hidden profile files (two per thread)
-and gives a display of each sequence profile whose ordinal id is given on
-the remainder of the command line.  The index of the first read is 1 (not 0).
+and gives a display of each sequence profile whose ordinal id is either listed individually
+or in an integer range specified on the remainder of the command line.  # is a proxy
+for the id of the last profile.
+The index of the first read is 1 (not 0).
 
 <a name="logex"></a>
 ```
