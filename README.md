@@ -8,13 +8,15 @@
   - [FastK](#fastk)
   - [Fastrm, Fastcp, & Fastmv](#fastrm)
   - [Fastmerge](#fastmerge)
+  - [Fastcat](#fastcat)
 
-- [Core Applications](#sample-applications)
+- [HPC Operation](#hpc)
+
+- [Core Applications](#core-applications)
   - [Histex](#histex): Display a FastK histogram
   - [Tabex](#tabex): List, Check, or find a k&#8209;mer in a FastK table
   - [Profex](#profex): Display a FastK profile
   - [Logex](#logex): Combine kmer,count tables with logical expressions & filter with count cutoffs
-  - [Vennex](#vennex): Produce histograms for the Venn diagram of 2 or more tables
   - [Symmex](#symmex): Produce a symmetric k-mer table from a canonical one
 
 - [C-Library Interface](#c-library-interface)
@@ -28,6 +30,8 @@
   - [`.ktab`: K-mer Table Files](#k-mer-table-files)
   - [`.prof`: K-mer Profile Files](#k-mer-profile-files)
 
+
+<a name="command-line"></a>
 
 ## Command Line
 
@@ -54,6 +58,7 @@ The histogram is always produced whereas the production of a k&#8209;mer table (
 are controlled by command
 line options.  The table (2.) is over just the *canonical* k&#8209;mers present in the data set.  Producing profiles (3.&4.) as part of the underlying sort is much more efficient than producing them after the fact using a table or hash of all k&#8209;mers such as is necessitated when using other k&#8209;mer counter programs.  The profiles are recorded in a space-efficient compressed form, e.g.
 about 4.7-bits per base for a recent 50X HiFi asssembly data set.
+
 
 <a name="fastk"></a>
 
@@ -128,6 +133,7 @@ FastK by design uses a modest amount of memory, the default 12GB should generall
 be more than enough.
 Lastly, the &#8209;T option allows the user to specify the number of threads to use.
 Generally, this is ideally set to the actual number of physical cores in one's machine.
+
             
 <a name="fastrm"></a>
 
@@ -153,25 +159,70 @@ about each file as to whether you want to delete it (rm) or overwrite an existin
 The &#8209;n option tells Fastmv and Fastcp to not overwrite any existing files.
 Finally, the &#8209;f option forces the creation of the new files and overides both the
 &#8209;i and &#8209;n options.
+
             
 <a name="fastmerge"></a>
 
 ```
-3. Fastmerge [-htp] [-T<int(4)>] [-P<int(1)>] <target> <source:.hist+.ktab+.prof> ...
+3. Fastmerge [-ht] [-T<int(4)>] [-#<int(1)>] [-P<dir(/tmp)>] [-S<N:int>of<D:int>]
+             <target> <source>[.hist|.ktab] ...
 ```
 
 On an HPC cluster, one may wish to partition a data set into a number of parts and call FastK
-on each part on a separate node of the cluster in order to reduce total wait time.  If so, then one needs to merge any histograms, k-mer tables, and profiles produced by the individual FastK jobs
-in order to obtain the final results.  Fastmerge does exactly this, producing a histogram, table, and/or profile index, all with root name \<target>.
+on each part on a separate node of the cluster in order to reduce total wait time.  If so, then one needs to merge any k-mer tables produced by the individual FastK jobs in order to obtain the final results.  Fastmerge does exactly this, producing a table and/or histogram with root name \<target>.
+Note carefully that both histograms and profiles cannot be directly merged but can only be derived
+from a final merged k-mer table.  Fastmerge provides an option to produce the histogram of the
+merged table.  But if one wants profiles then one must use the relative profile feature of FastK,
+running the source data against the final merged k-mer table.
 
-One follows the target name with a list of the root source names of the individual parts to be merged.  If the source names happen to have a .hist, .ktab, or .prof suffix these are removed and
-the remaining root name considered.  If any of the -h, -t, or -p flags are set then Fastmerge
-produces a merged histogram (-h), table (-t), or profile (-t) as directed.  If none of these flags
-is set, then Fastmerge looks to see which objects are available for the sources and merges those.
-Note carefully that to producing a merged histogram file requires that one merge the tables, so if the -h option is given then the tables must be present.
+One follows the target name with a list of the root source names of the individual parts to be merged.  If the source names happen to have a .hist or .ktab suffix these are removed and
+the remaining root name considered.  If the -t option is set then a table of the merged sources
+is output.  If the -h option is set then a histogram of the merged table is output.  At least
+one of the two flags must be set.
+Note carefully that to producing a histogram requires that one merge the source tables,
+so if the -h option is given then the source tables must be present, any source histograms
+are irrelevant.
 
 Fastmerge uses 4 threads by default but you can specify any (reasonable) number with the -T option.
-Normally the number of parts a table or profile are split into is equal to the number of threads, i.e. a part is produced by each thread.  This is usual good, but if you are merging a very large number of files, say 100, with fewer threads, say 10, then you may want each thread to produce multiple parts.  The -P parameter allows you to specify how many, e.g., -P5 in our running example would result in tables and profiles split into 50 hidden part files.
+Normally the number of parts a table or profile are split into is equal to the number of threads, i.e. a part is produced by each thread.  This is usual good, but if you are merging a very large number of files, say 100, with fewer threads, say 10, then you may want each thread to produce multiple parts.  The -# parameter allows you to specify how many, e.g., -#5 in our running example would result in tables split into 50 hidden part files.
+
+IO between an HPC's distributed file system and compute nodes is a potential choke point as too many
+IO requests from a node will impede the performance of the distributed file system and switching
+network of the cluster.  So on HPC clusters we strongly recommend
+that you cash the source files to the relevant compute node's local disk by specifying the -P
+option with the path to the node's local scratch area.  When this option is given, the relevant parts of the source files are first moved to the compute node's local disk before the merge begins.
+
+Lastly, for very, very large merges the amount of data to be cached with the -P option may exceed
+the capacity of the local disk space associated with compute nodes.  In this case, one can break
+the work down into any number of "slices" so that the cache requirement of each slice is within
+limits.  This is done with the -S option where D is the number of slices desired and N is the number of the slice to be performed by this call.  So if you wish to break the merge into say 10 slices
+then you
+will run 10 distinct jobs on different nodes, with N set to 1, 2, ... 10.  Using the same value of
+D in all 10 jobs guarantees that the data is sliced the same way for each job so that once all the
+jobs are completed the slices can be concatenated together with **Fastcat** to produce the final
+result.
+
+            
+<a name="fastcat"></a>
+
+```
+4. Fastcat [-vk] [-htp] <target> <source>[.hist|.ktab|.prof] ...
+```
+
+Fastcat splices together tables and histograms produced for disjoint slices of a data set produced
+by Fastmerge with the -S option, or a series of profiles produced on disjoint sections of a data
+set with the relative profile option of FastK.  See the section on HPC operation for examples.
+
+Given a series of table and/or histogram slices produced by Fastmerge with the -S option, Fastcat
+with the -h or -t flags set combines the slices
+into a single histogram (-h) and/or table (-t) with root name \<target\> .  The slices must be
+given in order of N, the slice number in the -S option of each call to Fastmerge.  By default
+all the sources are used **destructively** to make the concatenated result.  But if the -k option is
+set then at the expense of a fair bit of file copying the sources are preserved.
+
+Similarly given a series of relative profiles produced against a partitioning of the data set,
+Fastcat with the -p flag set, will stitch the profiles into a single aggregate profile with root
+name \<target\>.  Again, the sources are destroyed in the process unless the -k flag is set.
 
             
 ### Current Limitations & Known Bugs
@@ -187,6 +238,122 @@ FastK is not working for k greater than roughly 128.  Again this is an unusually
 &nbsp;
 
 &nbsp;
+
+<a name="hpc"></a>
+
+## HPC Operation
+
+FastK is designed to handle large data sets with a limited amount of memory.  As long as
+there is enough disk space and a handfull of cores (say 4 or 8), then running FastK on
+a single node or CPU should work just fine.  The only issue would be how long it takes,
+e.g. a wall-clock hour per 300GB given 8 cores on my laptop.  Even if you routinely run on an HPC
+cluster, I would recommend simply running FastK as a single node job, perhaps using more
+cores (up to 64) if they are available.
+
+With that said, given a truly collosal data set, say 2-3TB, or an urgent need for a rapid
+turn around, one may wish to take advantage of multiple nodes and compute a k-mer table
+or profiles in a job parallel fashion.  To that end, I developed Fastmerge and Fastcat to
+make this possible.  The documentation
+for these commands hopefully suffices, but here I give two examples of "job plans" that
+illustrate how to use the various FastK commands to accomplish a distributed computation.
+
+### Example 1
+
+In the first example, the k-mer tables passed to Fastmerge are assumed to fit on the local
+disk of the node it is run on.  Assume the input is in 4 equal sized files, `part1.fasta`,
+`part2.fast`, `part3.fast`, and `part4.fasta`.  In parallel, one can submit the 4 jobs:
+
+```
+     FastK -k40 -t part1.fasta
+     FastK -k40 -t part2.fasta
+     FastK -k40 -t part3.fasta
+     FastK -k40 -t part4.fasta
+```
+to produce 4 roughly equal-sized k-mer tables of each part.  These can then be merged by
+the single node job:
+
+```
+     Fastmerge -ht -P/tmp full part1 part2 part3 part4
+```
+assuming the `.ktab`-tables for the 4 parts fit in the local node's `/tmp` directory.  At this
+point one has the complete k-mer table `full` and histogram thereof.  If you further
+want profiles then in parallel one should next submit the 4 jobs:
+
+```
+     FastK -k40 -p:full part1
+     FastK -k40 -p:full part2
+     FastK -k40 -p:full part3
+     FastK -k40 -p:full part4
+```
+
+that produce profiles of the reads in each part relative to the full k-mer table.  These 4
+parts can then be stitched together into a single profile index with the command:
+
+```
+     Fastcat -p full part1 part2 part3 part4
+```
+
+### Example 2
+
+In the second example, we assume there is 25 times more data than in the first example, so that
+the local disk associated with each node cannot hold the k-mer tables of all the parts.
+Assume the input is now in 100 equal sized files, `part1.fasta` through `part100.fasta` of
+the same size as was true for the parts of the first example.  In parallel, one can submit the
+100 jobs:
+
+```
+     FastK -k40 -t part1.fasta
+     ...
+     FastK -k40 -t part100.fasta
+```
+
+This time a single merge of the 100 parts isn't possible, so rather 25 merges, each on
+a disjoint slice of the sorted k-mers is performed in the following 25 parallel jobs:
+
+```
+     Fastmerge -ht -P/tmp -S1of25 slice1 part1 ... part100
+     ...
+     Fastmerge -ht -P/tmp -S25of25 slice25 part1 ... part100
+```
+
+producing 25 k-mer tables `slice1	` through `slice25`.  Fastmerge only caches in the local disk
+`/tmp` the portion of each part table that it needs to compute the specified slice, which is
+in this example would be about 1/25th of the size of all the table put together.  It also computes
+each slice in 1/25th of the time it would take to merge all the parts together.  One should take
+care in determining how many slices are needed in order to guarantee that local disk does not
+overflow.  Next the slices can then be concatenated together
+into a single full table `full` with the command:
+
+```
+     Fastcat -ht full slice1 ... slice25
+```
+
+At this point one has the complete k-mer table `full` and histogram thereof.  If you further
+want profiles then in parallel one should next submit the 100 jobs:
+
+```
+     FastK -k40 -p:full part1.fasta
+     ...
+     FastK -k40 -p:full part100.fasta
+```
+
+that produce profiles of the reads in each part relative to the full k-mer table.  These 100
+parts can then be stitched together into a single profile index with the command:
+
+```
+     Fastcat -p full part1 ... part100
+```
+
+We conclude by noting that there is certainly a loss of efficiency in the plans above in that
+much more total CPU time, maybe about 3X, is consumed then if FastK was run directly.  However,
+total elapsed time is substantially improved, maybe 25X above, provided of course your cluster
+queues are not clogged with other jobs &#128512;
+
+&nbsp;
+
+&nbsp;
+
+<a name="core-applications"></a>
 
 ## Core Applications
 
@@ -319,34 +486,9 @@ In summary, k&#8209;mer&#8209;count expressions permit all the typical filtratio
 of the expressions but this is hopefully compensated for by the expressiveness of
 the concept which unifies most of the desired manipulations in a single program.
 
-<a name="vennex"></a>
-```
-5. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...
-```
-
-*UNDER CONSTRUCTION*
-
-Vennex takes two or more, say k, tables, and produces histograms of the counts for each
-region in the k-way Venn diagram.  That is `Vennex Alpha Beta` where
-`Alpha` and `Beta` are .ktab's will produce histograms of the
-counts of:
-
-* the k&#8209;mers in both Alpha and Beta, i.e. Alpha & Beta, in file `ALPHA.BETA.hist`
-* the k&#8209;mers in Alpha but not Beta, i.e. Alpha-Beta, in file `ALPHA.beta.hist`, and
-* the k&#8209;mers in Beta but not Alpha, i.e. Beta-Alpha, in file `alpha.BETA.hist`.
-
-Generalizing,
-`Vennex A B C`, produces 7 ( = 2<sup>k</sup>-1) histograms with the names, a.b.C, a.B.c, a.B.C.,
-A.b.c, A.b.C, A.B.c, and A.B.C where the convention is that a table name is in upper case if it is in, and the name is in
-lower case if it is out.  For example, a.B.c is a histogram of the counts of the k&#8209;mers  that are in B but not A and not C, i.e. B-A-C.  The range of the histograms is 1 to 100 (inclusive) by
-default but may be specified with the -h option.
-
-It may interest one to observe that the command `Vennex Alpha Beta` is equivalent to the command
-`Logex -H100 'ALPHA.BETA=#A&B' 'ALPHA.beta=#A-B' 'alpha.BETA=#B-A' Alpha Beta` further illustrating the flexibility of the Logex command.
-
 <a name="symmex"></a>
 ```
-6. Symmex [-v] [-T<int(4)>] [-P<dir(/tmp)] <source_root>[.ktab] <dest_root>[.ktab]
+5. Symmex [-v] [-T<int(4)>] [-P<dir(/tmp)] <source_root>[.ktab] <dest_root>[.ktab]
 ```
 
 Recall that a FastK table contains every k-mer occuring in a data set in cannonical form
@@ -356,22 +498,22 @@ unless it is a Watson-Crick palindrome, in which case it occurs once.  The non-c
 instance of the k-mer has the same count as its cannonical counterpart.  We call such a
 table, a **symmetric** table as opposed to the **canonical** tables produced by FastK.
 
-For some applications, a much faster code can be realized by streaming a symmetric table
-and hence the introduction of this command.  Producing a sorted symmetric table and then
-streaming it is 100's of time faster than looking up the symmetric list in a canonical
+For some applications, a much faster code can be realized by streaming a symmetric table,
+hence the introduction of this command.  Producing a sorted symmetric table and then
+streaming it is 100's of times faster than looking up the symmetric list in a canonical
 table.
 
 The -T option controls the number of threads used for sorting, and the -P option indicates
 where the temporary files for the sorting should be placed.
 
 ```
-7. Haplex [-g<int>:<int>] <source>[.ktab]
+6. Haplex [-g<int>:<int>] <source>[.ktab]
 ```
 
 **Deprecated**.  Code is still available but no longer maintained.
 
 ```
-8. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
+7. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
 ```
 
 **Deprecated**.  Code is still available but no longer maintained.
@@ -380,6 +522,7 @@ where the temporary files for the sorting should be placed.
 
 &nbsp;
 
+<a name="c-library-interface"></a>
 
 ## C-Library Interface
 
@@ -613,7 +756,7 @@ wishes to use them for tasks like partitioning a table for simultaneous processi
 As an example, the code below opens a stream for "foo.ktab", prints out the contents of the table, and ends by freeing all memory involved.
 
 ```
-Kmer_Stream *S = Open_Kmer_Stream("foo",1);
+Kmer_Stream *S = Open_Kmer_Stream("foo");
 char        *s = Current_Kmer(S,NULL);       //  Create buffer s, value ignored
 for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
   printf("%s : %d\n",Current_Kmer(S ,s),Current_Count(S));
@@ -684,6 +827,8 @@ given length is placed at the start of the array.
 
 &nbsp;
 
+<a name="file-encodings"></a>
+
 ## File Encodings
 
 ### K-mer Histogram File
@@ -743,7 +888,7 @@ The k&#8209;mers in each part are lexicographically ordered and the k&#8209;mers
 ```
     < kmer size(k)   : int   >
     < # of k-mers(n) : int64 >
-    ( < bit-encoded k-mer : uint8 ^ (ceiling(k/4)-p) > < count : uint16 ) ^ n
+    ( < bit-encoded k-mer : uint8 ^ (ceiling(k/4)-p) > < count : uint16 > ) ^ n
 ```
     
 In words, an initial integer gives the kmer size that FastK was run with followed by
