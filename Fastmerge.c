@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <pthread.h>
+#include <sys/resource.h>
 
 #undef    DEBUG
 #undef    DEBUG_THREADS
