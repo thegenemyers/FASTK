@@ -965,6 +965,31 @@ void Free_Kmer_Stream(Kmer_Stream *_S)
   free(S);
 }
 
+
+/****************************************************************************************
+ *
+ *  Hidden, for 1-code production useful to now the size of the largest prefix bucket
+ *
+ *****************************************************************************************/
+
+int Max_Bucket(Kmer_Stream *_S)
+{ _Kmer_Stream *S = STREAM(_S);
+  int64  pidx, *curr;
+  int    i, s, max;
+
+  pidx = 0;
+  curr = S->index;
+  max  = 0;
+  for (i = 0; i < S->ixlen; i++)
+    { s = curr[i] - pidx;
+      if (s > max)
+        max = s;
+      pidx = curr[i];
+    }
+  return (max);
+}
+
+
 /****************************************************************************************
  *
  *  Hidden, specialized version of Open, Clone, & Free used by Fastmerge

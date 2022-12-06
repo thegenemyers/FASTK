@@ -14,8 +14,15 @@
 #include <math.h>
 
 #include "libfastk.h"
+#include "ONElib.h"
 
-static char *Usage = " [-kAG] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
+static char *Usage = "[-1] [-kAG] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
+
+static char *One_Schema =
+  "P 3 kfq\n"
+  "D N 1 6 STRING\n"
+  "D R 2 3 INT 3 INT\n"
+  "O H 1 8 INT_LIST\n";
 
 int main(int argc, char *argv[])
 { Histogram *H;
@@ -25,6 +32,10 @@ int main(int argc, char *argv[])
   int    UNIQUE;
   int    ASCII;
   int    GSCOPE;
+  int    ONE_CODE;
+
+  OneSchema *schema;
+  OneFile   *file1;
 
   //  Process arguments
 
@@ -45,7 +56,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("kAG")
+            ARG_FLAGS("kAG1")
             break;
           case 'h':
             HIST_SET = 1;
@@ -82,6 +93,7 @@ int main(int argc, char *argv[])
     ASCII  = flags['A'];
     UNIQUE = 1-flags['k'];
     GSCOPE = flags['G'];
+    ONE_CODE = flags['1'];
     if (HIST_HGH > 0x7fff)
       HIST_HGH = 0x7fff;
 
@@ -92,7 +104,14 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -k: Output histogram of k-mer instance counts (vs. unique k-mers)\n");
         fprintf(stderr,"      -A: Output in simple tab-delimited ASCII format\n");
         fprintf(stderr,"      -G: Output an ASCII format histogram especially for GeneScope.FK\n");
+        fprintf(stderr,"      -1: Output in 1-code\n");
         exit (1);
+      }
+
+    if (ONE_CODE)
+      { if (ASCII)
+          fprintf(stderr,"%s: Warning, -1 overrides the -A flag\n",Prog_Name);
+        ASCII = 0;
       }
 
     if (GSCOPE)
@@ -131,68 +150,85 @@ int main(int argc, char *argv[])
 
   Modify_Histogram(H,HIST_LOW,HIST_HGH,UNIQUE);
 
+  if (ONE_CODE)
+    { schema = oneSchemaCreateFromText(One_Schema);
+      file1  = oneFileOpenWriteNew("-",schema,"kfq",true,1);
+
+      oneWriteLine(file1,'N',strlen(argv[1]),argv[1]);
+
+      oneInt(file1,0) = HIST_LOW;
+      oneInt(file1,1) = HIST_HGH;
+      oneWriteLine(file1,'R',0,NULL);
+
+      oneWriteLine(file1,'H',(HIST_HGH-HIST_LOW)+1,H->hist+HIST_LOW);
+
+      oneFileClose(file1);
+      oneSchemaDestroy(schema);
+    }
+
   //  Generate display
 
-  { char       *root;
-    int         j;
-    int64       ssum, stotal;
-    int64      *hist;
+  else
+    { char       *root;
+      int         j;
+      int64       ssum, stotal;
+      int64      *hist;
 
-    hist = H->hist;
-
-    if (ASCII)
-      { if (GSCOPE)
-          hist[HIST_HGH] = hist[HIST_HGH+2]/HIST_HGH;
-        for (j = HIST_LOW; j <= HIST_HGH; j++)
-          if (hist[j] > 0)
-            printf("%d\t%lld\n",j,hist[j]);
-      }
-
-    else
-      { root = Root(argv[1],NULL);
-        if (UNIQUE)
-          printf("\nHistogram of unique %d-mers of %s\n",H->kmer,root);
-        else
-          printf("\nHistogram of %d-mer instances of %s\n",H->kmer,root);
-        free(root);
-
-        stotal = 0;
-    
-        for (j = HIST_LOW; j <= HIST_HGH; j++)
-          stotal += hist[j];
-
-        printf("\n  Input: ");
-        Print_Number(stotal,0,stdout);
-        if (UNIQUE)
-          printf(" unique %d-mers\n",H->kmer);
-        else
-          printf(" %d-mer instances\n",H->kmer);
-
-        if (stotal == 0)
-          printf("\n     Empty\n");
-
-        else
-          { printf("\n     Freq:        Count   Cum. %%\n");
-
-            ssum = hist[HIST_HGH];
-            if (ssum > 0)
-              printf(" >= %5d: %12lld   %5.1f%%\n",HIST_HGH,ssum,(100.*ssum)/stotal);
-    
-            for (j = HIST_HGH-1; j > HIST_LOW; j--)
-              { ssum += hist[j];
-                if (hist[j] > 0)
-                  printf("    %5d: %12lld   %5.1f%%\n",j,hist[j],(100.*ssum)/stotal);
-              }
-    
-            if (HIST_HGH > 1 && hist[HIST_LOW] > 0)
-              { if (HIST_LOW == 1)
-                   printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
-                else
-                  printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
-              }
-          }
-      }
-  }
+      hist = H->hist;
+  
+      if (ASCII)
+        { if (GSCOPE)
+            hist[HIST_HGH] = hist[HIST_HGH+2]/HIST_HGH;
+          for (j = HIST_LOW; j <= HIST_HGH; j++)
+            if (hist[j] > 0)
+              printf("%d\t%lld\n",j,hist[j]);
+        }
+  
+      else
+        { root = Root(argv[1],NULL);
+          if (UNIQUE)
+            printf("\nHistogram of unique %d-mers of %s\n",H->kmer,root);
+          else
+            printf("\nHistogram of %d-mer instances of %s\n",H->kmer,root);
+          free(root);
+  
+          stotal = 0;
+      
+          for (j = HIST_LOW; j <= HIST_HGH; j++)
+            stotal += hist[j];
+  
+          printf("\n  Input: ");
+          Print_Number(stotal,0,stdout);
+          if (UNIQUE)
+            printf(" unique %d-mers\n",H->kmer);
+          else
+            printf(" %d-mer instances\n",H->kmer);
+  
+          if (stotal == 0)
+            printf("\n     Empty\n");
+  
+          else
+            { printf("\n     Freq:        Count   Cum. %%\n");
+  
+              ssum = hist[HIST_HGH];
+              if (ssum > 0)
+                printf(" >= %5d: %12lld   %5.1f%%\n",HIST_HGH,ssum,(100.*ssum)/stotal);
+      
+              for (j = HIST_HGH-1; j > HIST_LOW; j--)
+                { ssum += hist[j];
+                  if (hist[j] > 0)
+                    printf("    %5d: %12lld   %5.1f%%\n",j,hist[j],(100.*ssum)/stotal);
+                }
+      
+              if (HIST_HGH > 1 && hist[HIST_LOW] > 0)
+                { if (HIST_LOW == 1)
+                     printf("    %5d: %12lld   100.0%%\n",1,hist[1]);
+                  else
+                    printf(" <= %5d: %12lld   100.0%%\n",HIST_LOW,hist[HIST_LOW]);
+                }
+            }
+        }
+    }
 
   Free_Histogram(H);
 

@@ -15,8 +15,13 @@
 #include <math.h>
 
 #include "libfastk.h"
+#include "ONElib.h"
 
-static char *Usage = "<source_root>[.prof] <read:int>[-(<read:int>|#)] ...";
+static char *Usage = "[-1] <source_root>[.prof] [ <read:int>[-(<read:int>|#)] ... ]";
+
+static char *One_Schema =
+  "P 3 prf\n"
+  "O P 1 8 INT_LIST\n";
 
 /****************************************************************************************
  *
@@ -26,6 +31,7 @@ static char *Usage = "<source_root>[.prof] <read:int>[-(<read:int>|#)] ...";
 
 int main(int argc, char *argv[])
 { Profile_Index *P;
+  int            ONE_CODE;
 
   { int    i, j, k;
     int    flags[128];
@@ -39,15 +45,19 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("")
+            ARG_FLAGS("1")
             break;
         }
       else
         argv[j++] = argv[i];
     argc = j;
 
-    if (argc < 3)
+    ONE_CODE = flags['1'];
+
+    if (argc < 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -1: Produce 1-code as output.\n");
         exit (1);
       }
   }
@@ -64,29 +74,47 @@ int main(int argc, char *argv[])
     uint16 *profile;
     int     pmax, plen;
 
+    OneSchema *schema;
+    OneFile   *file1;
+    int64     *prof64;
+
     pmax    = 20000;
     profile = Malloc(pmax*sizeof(uint16),"Profile array");
 
-    for (c = 2; c < argc; c++)
-      { id1 = strtol(argv[c],&eptr,10);
-        if (*eptr == '-')
-          { if (eptr[1] == '#')
-              { id2  = P->nbase[P->nparts-1];
-                fptr = eptr+2;
-              }
-            else
-              id2 = strtol(eptr+1,&fptr,10);
-            if (*fptr != '\0')
-              { fprintf(stderr,"%s: argument '%s' is not an integer range\n",Prog_Name,argv[c]);
-                exit (1);
-              }
+    if (ONE_CODE)
+      { schema = oneSchemaCreateFromText(One_Schema);
+        file1  = oneFileOpenWriteNew("-",schema,"prf",1,1);
+        prof64 = Malloc(pmax*sizeof(int64),"Double Int Profile array");
+      }
+
+    for (c = 2; c <= argc; c++)
+      { if (c == argc)
+          { if (argc > 2)
+              break;
+            id1 = 1;
+            id2 = P->nbase[P->nparts-1];
           }
         else
-          { if (*eptr != '\0')
-              { fprintf(stderr,"%s: argument '%s' is not an integer\n",Prog_Name,argv[c]);
-                exit (1);
+          { id1 = strtol(argv[c],&eptr,10);
+            if (*eptr == '-')
+              { if (eptr[1] == '#')
+                  { id2  = P->nbase[P->nparts-1];
+                    fptr = eptr+2;
+                  }
+                else
+                  id2 = strtol(eptr+1,&fptr,10);
+                if (*fptr != '\0')
+                  { fprintf(stderr,"%s: argument '%s' is not an integer range\n",Prog_Name,argv[c]);
+                    exit (1);
+                  }
               }
-            id2 = id1;
+            else
+              { if (*eptr != '\0')
+                  { fprintf(stderr,"%s: argument '%s' is not an integer\n",Prog_Name,argv[c]);
+                    exit (1);
+                  }
+                id2 = id1;
+              }
           }
         if (id1 > id2)
           { fprintf(stderr,"%s: range %s is empty!\n",Prog_Name,argv[c]);
@@ -107,12 +135,27 @@ int main(int argc, char *argv[])
               { pmax    = 1.2*plen + 1000;
                 profile = Realloc(profile,pmax*sizeof(uint16),"Profile array");
                 Fetch_Profile(P,(int64) p-1,pmax,profile);
+                if (ONE_CODE)
+                  prof64 = Realloc(prof64,pmax*sizeof(int64),"Double Int Profile array");
               }
-            printf("\nRead %d:\n",p);
-            for (i = 0; i < plen; i++)
-              printf(" %5d: %5d\n",i,profile[i]);
+            if (ONE_CODE)
+              { for (i = 0; i < plen; i++)
+                  prof64[i] = profile[i];
+                oneWriteLine(file1,'P',plen,prof64);
+              }
+            else
+              { printf("\nRead %d:\n",p);
+                for (i = 0; i < plen; i++)
+                  printf(" %5d: %5d\n",i,profile[i]);
+              }
           }
       }
+
+    if (ONE_CODE)
+      { oneFileClose(file1);
+        oneSchemaDestroy(schema);
+      }
+        
     free(profile);
   }
 

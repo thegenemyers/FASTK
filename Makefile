@@ -40,14 +40,14 @@ Fastmerge: Fastmerge.c libfastk.c libfastk.h
 Fastcat: Fastcat.c libfastk.c libfastk.h
 	$(CC) $(CFLAGS) -o Fastcat Fastcat.c libfastk.c -lpthread -lm
 
-Histex: Histex.c libfastk.c libfastk.h
-	$(CC) $(CFLAGS) -o Histex Histex.c libfastk.c -lpthread -lm
+Histex: Histex.c libfastk.c libfastk.h ONElib.h ONElib.c
+	$(CC) $(CFLAGS) -o Histex Histex.c libfastk.c ONElib.c -lpthread -lm
 
-Tabex: Tabex.c libfastk.c libfastk.h
-	$(CC) $(CFLAGS) -o Tabex Tabex.c libfastk.c -lpthread -lm
+Tabex: Tabex.c libfastk.c libfastk.h ONElib.h ONElib.c
+	$(CC) $(CFLAGS) -o Tabex Tabex.c libfastk.c ONElib.c -lpthread -lm
 
-Profex: Profex.c libfastk.c libfastk.h
-	$(CC) $(CFLAGS) -o Profex Profex.c libfastk.c -lpthread -lm
+Profex: Profex.c libfastk.c libfastk.h ONElib.h ONElib.c
+	$(CC) $(CFLAGS) -o Profex Profex.c libfastk.c ONElib.c -lpthread -lm
 
 Logex: Logex.c libfastk.c libfastk.h
 	$(CC) $(CFLAGS) -o Logex Logex.c libfastk.c -lpthread -lm

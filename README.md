@@ -13,9 +13,9 @@
 - [HPC Operation](#hpc)
 
 - [Core Applications](#core-applications)
-  - [Histex](#histex): Display a FastK histogram
-  - [Tabex](#tabex): List, Check, or find a k&#8209;mer in a FastK table
-  - [Profex](#profex): Display a FastK profile
+  - [Histex](#histex): Display a FastK histogram or convert to 1-code
+  - [Tabex](#tabex): List, Check, find a k&#8209;mer in a FastK table, or convert to 1-code
+  - [Profex](#profex): Display a FastK profile or convert to 1-code
   - [Logex](#logex): Combine kmer,count tables with logical expressions & filter with count cutoffs
   - [Symmex](#symmex): Produce a symmetric k-mer table from a canonical one
 
@@ -359,7 +359,7 @@ queues are not clogged with other jobs &#128512;
 
 <a name="histex"></a>
 ```
-1. Histex [-kAG] [-h[<int(1)>:]<int(100)>] <source>[.hist]
+1. Histex [-1] [-kAG] [-h[<int(1)>:]<int(100)>] <source>[.hist]
 ```
 
 This command and also Tabex and Profex are presented specifically to
@@ -384,9 +384,22 @@ outputs a correct estimate of genome size and % repetitiveness.  (**GenomeScope2
 requires an unbounded histogram whereas GeneScope.FK typically only requires the
 first 1000 or so frequencies.)
 
+If the -1 option is set then Histex output the histogram in .kfq 1-code file.
+This option supercedes the -A option.
+[1-code](https://www.github.com/thegenemyers/ONEcode)
+is a powerful self-describing, simple to use, data system with built in compression.
+The ASCII version of a .kfq file contains the name of the histogram on an N line, the range of
+the histogram on an R line, and the vector of histogram frequencies on an H line.
+
+```
+    N <name: string>
+    R <low: int> <high: int>
+    H <counts: int_list>
+```
+
 <a name="tabex"></a>
 ```
-2. Tabex [-t<int>] <source>[.ktab] (LIST|CHECK|(<k-mer:string>) ...
+2. Tabex [-t<int>] <source>[.ktab] ( -1 | (LIST|CHECK|(<k-mer:string>) ...)
 ```
 
 Given that a set of k&#8209;mer counter table files have been generated represented by stub file
@@ -396,9 +409,34 @@ of the table in radix order.  CHECK checks that the table is indeed sorted.  Oth
 argument is interpreted as a k&#8209;mer and it is looked up in the table and its count returned
 if found.  If the &#8209;t option is given than only those k&#8209;mers with counts greater or equal to the given value are operated upon.
 
+Alternative to a list of actions, the -1 option has Tabex output a 1-code .kmr file encoding the k-mer table
+(possible truncated with the -t option).  
+[1-code](https://www.github.com/thegenemyers/ONEcode)
+is a powerful self-describing, simple to use, data system with built in compression.
+The 1-code version of a k-mer table is typically xxx% smaller than FastK's ktab's.
+
+The first line of a .kmr file is a K line that gives the k-mer length, prefix length, and minimum k-mer count
+(of any k-mer in the table), respectively.
+
+```
+    K <k-mer length (k): int> <prefix length (p): int> <min count: int>
+```
+
+Each DNA prefix is considered a number between 0 and 4^p-1 where p is the prefix length.  For each prefix
+in order a pair of S and C lines are given that contain the information for all the k-mers that begin with
+that prefix in lexicographical order.  The S-line contains a single dna string that is the concatenation of
+all the suffixes of the k-mers with the given prefix.  So if there are, say t, of these, then the length of
+the string is t*(k-p).  The C-line contains a list of t integers giving the respective count of each k-mer
+with this prefix in the given sorted order.
+
+```
+    S <cat'd suffix string: dna>
+    C <counts: int_list>
+```
+
 <a name="profex"></a>
 ```
-3. Profex <source>[.prof] <read:int>[-(<read:int>|#)] ...
+3. Profex [-1] <source>[.prof] <read:int>[-(<read:int>|#)] ...
 ```
 
 Given that a set of profile files have been generated and are represented by stub file
@@ -407,6 +445,17 @@ and gives a display of each sequence profile whose ordinal id is either listed i
 or in an integer range specified on the remainder of the command line.  # is a proxy
 for the id of the last profile.
 The index of the first read is 1 (not 0).
+
+If the -1 option is set then Histex output the histogram in .prf 1-code file.
+This option supercedes the -A option.
+[1-code](https://www.github.com/thegenemyers/ONEcode)
+is a powerful self-describing, simple to use, data system with built in compression.
+A .prf file contains a P line for each profile requested, which consists of an integer list
+of the profile counts:
+
+```
+    P <counts: int_list>
+```
 
 <a name="logex"></a>
 ```
