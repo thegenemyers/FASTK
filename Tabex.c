@@ -107,7 +107,7 @@ static void List_Kmer_Stream(Kmer_Stream *S, int cut, FILE *out)
   free(seq);
 }
 
-static void One_Kmer_Stream(Kmer_Stream *S, int cut)
+static void One_Kmer_Stream(Kmer_Stream *S, int cut, char *command)
 { OneSchema *schema;
   OneFile   *file1;
   char      *suffix, *seq;
@@ -122,6 +122,7 @@ static void One_Kmer_Stream(Kmer_Stream *S, int cut)
 
   schema = oneSchemaCreateFromText(One_Schema);
   file1  = oneFileOpenWriteNew("-",schema,"kmr",true,1);
+  oneAddProvenance(file1,Prog_Name,"1.0","%s >?.kmr",command);
 
   imer = S->ibyte;
   gmer = 4*imer;
@@ -166,9 +167,12 @@ static void One_Kmer_Stream(Kmer_Stream *S, int cut)
 int main(int argc, char *argv[])
 { Kmer_Table  *T;
   Kmer_Stream *S;
+  char        *command;
   int          CUT;
   int          STREAM;
   int          ONE_CODE;
+
+  //  Process options and capture command line for provenance
 
   { int    i, j, k;
     int    flags[128];
@@ -177,6 +181,26 @@ int main(int argc, char *argv[])
     (void) flags;
 
     ARG_INIT("Tabex");
+
+    { int   n, t;
+      char *c;
+
+      n = 0;
+      for (t = 1; t < argc; t++)
+        n += strlen(argv[t])+1;
+
+      command = Malloc(n+1,"Allocating command string");
+      if (command == NULL)
+        exit (1);
+
+      c = command;
+      if (argc >= 1)
+        { c += sprintf(c,"%s",argv[1]);
+          for (t = 2; t < argc; t++)
+            c += sprintf(c," %s",argv[t]);
+        }
+      *c = '\0';
+    }
 
     CUT = 0;
 
@@ -217,7 +241,7 @@ int main(int argc, char *argv[])
         } 
     
       if (ONE_CODE)
-        One_Kmer_Stream(S,CUT);
+        One_Kmer_Stream(S,CUT,command);
      
       else
         { int   c;
@@ -294,6 +318,8 @@ int main(int argc, char *argv[])
     
       Free_Kmer_Table(T);
     }
+
+  free(command);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

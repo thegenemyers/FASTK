@@ -26,6 +26,7 @@ static char *One_Schema =
 
 int main(int argc, char *argv[])
 { Histogram *H;
+  char      *command;
   int    HIST_SET;
   int    HIST_LOW;
   int    HIST_HGH;
@@ -37,7 +38,7 @@ int main(int argc, char *argv[])
   OneSchema *schema;
   OneFile   *file1;
 
-  //  Process arguments
+  //  Process options and capture command line for provenance
 
   { int    i, j, k;
     int    flags[128];
@@ -46,6 +47,26 @@ int main(int argc, char *argv[])
     (void) flags;
 
     ARG_INIT("Histex")
+
+    { int   n, t;
+      char *c;
+
+      n = 0;
+      for (t = 1; t < argc; t++)
+        n += strlen(argv[t])+1;
+
+      command = Malloc(n+1,"Allocating command string");
+      if (command == NULL)
+        exit (1);
+
+      c = command;
+      if (argc >= 1)
+        { c += sprintf(c,"%s",argv[1]);
+          for (t = 2; t < argc; t++)
+            c += sprintf(c," %s",argv[t]);
+        }
+      *c = '\0';
+    }
 
     HIST_SET    = 0;
     HIST_LOW    = 1;
@@ -154,6 +175,8 @@ int main(int argc, char *argv[])
     { schema = oneSchemaCreateFromText(One_Schema);
       file1  = oneFileOpenWriteNew("-",schema,"kfq",true,1);
 
+      oneAddProvenance(file1,Prog_Name,"1.0","%s >?.kfq",command);
+
       oneWriteLine(file1,'N',strlen(argv[1]),argv[1]);
 
       oneInt(file1,0) = HIST_LOW;
@@ -231,6 +254,8 @@ int main(int argc, char *argv[])
     }
 
   Free_Histogram(H);
+
+  free(command);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);

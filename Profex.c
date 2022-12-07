@@ -31,7 +31,10 @@ static char *One_Schema =
 
 int main(int argc, char *argv[])
 { Profile_Index *P;
+  char          *command;
   int            ONE_CODE;
+
+  //  Process options and capture command line for provenance
 
   { int    i, j, k;
     int    flags[128];
@@ -39,6 +42,26 @@ int main(int argc, char *argv[])
     (void) flags;
 
     ARG_INIT("Profex");
+
+    { int   n, t;
+      char *c;
+
+      n = 0;
+      for (t = 1; t < argc; t++)
+        n += strlen(argv[t])+1;
+
+      command = Malloc(n+1,"Allocating command string");
+      if (command == NULL)
+        exit (1);
+
+      c = command;
+      if (argc >= 1)
+        { c += sprintf(c,"%s",argv[1]);
+          for (t = 2; t < argc; t++)
+            c += sprintf(c," %s",argv[t]);
+        }
+      *c = '\0';
+    }
 
     j = 1;
     for (i = 1; i < argc; i++)
@@ -84,6 +107,7 @@ int main(int argc, char *argv[])
     if (ONE_CODE)
       { schema = oneSchemaCreateFromText(One_Schema);
         file1  = oneFileOpenWriteNew("-",schema,"prf",1,1);
+        oneAddProvenance(file1,"1.0","%s >?.prf",command);
         prof64 = Malloc(pmax*sizeof(int64),"Double Int Profile array");
       }
 
@@ -160,6 +184,8 @@ int main(int argc, char *argv[])
   }
 
   Free_Profiles(P);
+
+  free(command);
 
   Catenate(NULL,NULL,NULL,NULL);
   Numbered_Suffix(NULL,0,NULL);
