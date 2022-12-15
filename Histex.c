@@ -19,10 +19,10 @@
 static char *Usage = "[-1] [-kAG] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
 
 static char *One_Schema =
-  "P 3 kfq\n"
-  "D N 1 6 STRING\n"
-  "D R 2 3 INT 3 INT\n"
-  "O H 1 8 INT_LIST\n";
+  "P 5 khist               a histogram 1-code file\n"
+  "D N 1 6 STRING          the name of the FastK .hist file this came from\n"
+  "D R 2 3 INT 3 INT       the frequency range [low,hgh] covered\n"
+  "O H 1 8 INT_LIST        a (hgh-low)+1 element list of the counts";
 
 int main(int argc, char *argv[])
 { Histogram *H;
@@ -173,9 +173,9 @@ int main(int argc, char *argv[])
 
   if (ONE_CODE)
     { schema = oneSchemaCreateFromText(One_Schema);
-      file1  = oneFileOpenWriteNew("-",schema,"kfq",true,1);
+      file1  = oneFileOpenWriteNew("-",schema,"khist",true,1);
 
-      oneAddProvenance(file1,Prog_Name,"1.0","%s >?.kfq",command);
+      oneAddProvenance(file1,Prog_Name,"1.0","%s >?.khist",command);
 
       oneWriteLine(file1,'N',strlen(argv[1]),argv[1]);
 

@@ -116,7 +116,7 @@ typedef struct
 
 typedef struct OneSchema
   {
-    char       primary[4] ;
+    char      *primary ;
     int        nSecondary ;
     char     **secondary ;
     OneInfo   *info[128] ;
@@ -141,8 +141,8 @@ typedef struct
 
     // these fields may be read by user - but don't change them!
 
-    char           fileType[4];
-    char           subType[4];
+    char          *fileType;
+    char          *subType;
     char           lineType;           // current lineType
     char           objectType;         // line designation character for primary objects
     char           groupType;          // line designation character for groups (optional)
@@ -202,8 +202,8 @@ OneSchema *oneSchemaCreateFromText (char *text) ;
   // These functions create a schema handle that can be used to open One-code data files 
   //   for reading and writing.  A schema file is itself a One-code file, consisting of
   //   a set of objects, one per primary file type.  Valid lines in this file are:
-  //      P <primary file type>   // a string of length 3
-  //      S <secondary file type> // a string of length 3 - any number of these
+  //      P <primary file type>   // a short string
+  //      S <secondary file type> // a short string - any number of these
   //      O <char> <field_list>   // definition of object type
   //      G <char> <field_list>   // definition of group type - first field must be an int
   //      D <char> <field_list>   // definition of line
@@ -259,8 +259,8 @@ char oneReadLine (OneFile *vf) ;
   //   if at the end of the data section.  The content macros immediately below are
   //   used to access the information of the line most recently read.
 
-void*   _oneList (OneFile *vf) ;                // lazy codec decompression if required
-void*   _oneCompressedList (OneFile *vf) ;      // lazy codec compression if required
+void   *_oneList (OneFile *vf) ;                // lazy codec decompression if required
+void   *_oneCompressedList (OneFile *vf) ;      // lazy codec compression if required
 
 #define oneInt(vf,x)        ((vf)->field[x].i)
 #define oneReal(vf,x)       ((vf)->field[x].r)

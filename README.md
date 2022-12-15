@@ -384,11 +384,11 @@ outputs a correct estimate of genome size and % repetitiveness.  (**GenomeScope2
 requires an unbounded histogram whereas GeneScope.FK typically only requires the
 first 1000 or so frequencies.)
 
-If the -1 option is set then Histex output the histogram in .kfq 1-code file.
+If the -1 option is set then Histex output the histogram in a .khist 1-code file.
 This option supercedes the -A option.
 [1-code](https://www.github.com/thegenemyers/ONEcode)
 is a powerful self-describing, simple to use, data system with built in compression.
-The ASCII version of a .kfq file contains the name of the histogram on an N line, the range of
+The ASCII version of a .khist file contains the name of the histogram on an N line, the range of
 the histogram on an R line, and the vector of histogram frequencies on an H line.
 
 ```

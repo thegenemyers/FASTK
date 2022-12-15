@@ -20,10 +20,10 @@
 static char *Usage = "[-t<int>] <source_root>[.ktab] (-1 | (LIST|CHECK|(k-mer:string>) ...)";
 
 static char *One_Schema =
-  "P 3 kmr\n"
-  "D K 3 3 INT 3 INT 3 INT\n"
-  "O S 1 3 DNA\n"
-  "D C 1 8 INT_LIST\n";
+  "P 3 kmr                       This is a k-mer table 1-code file\n"
+  "D K 3 3 INT 3 INT 3 INT       k-mer size, prefix length, and entry min. count for table\n"
+  "O S 1 3 DNA                   concatentation of the suffixes of the k-mers with given prefix\n"
+  "D C 1 8 INT_LIST              counts of the suffixes with the given prefix (in lex order)\n";
 
 static int Check_Kmer_Table(Kmer_Table *T)
 { char *curs, *last, *flip;
