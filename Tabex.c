@@ -102,8 +102,7 @@ static void List_Kmer_Stream(Kmer_Stream *S, int cut, FILE *out)
   for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
     { c = Current_Count(S);
       if (c >= cut)
-        fprintf(out," %9lld: %s = %3d, %3d\n",S->cidx,Current_Kmer(S,seq),(c>>8),(c&0xff));
-        // fprintf(out," %9lld: %s = %5d\n",S->cidx,Current_Kmer(S,seq),c);
+        fprintf(out," %9lld: %s = %5d\n",S->cidx,Current_Kmer(S,seq),c);
     }
   free(seq);
 }
