@@ -413,7 +413,7 @@ Alternative to a list of actions, the -1 option has Tabex output a 1-code .kmr f
 (possible truncated with the -t option).  
 [1-code](https://www.github.com/thegenemyers/ONEcode)
 is a powerful self-describing, simple to use, data system with built in compression.
-The 1-code version of a k-mer table is typically xxx% smaller than FastK's ktab's.
+The 1-code version of a k-mer table is typically 15% smaller than FastK's ktab's.
 
 The first line of a .kmr file is a K line that gives the k-mer length, prefix length, and minimum k-mer count
 (of any k-mer in the table), respectively.
@@ -446,8 +446,7 @@ or in an integer range specified on the remainder of the command line.  # is a p
 for the id of the last profile.
 The index of the first read is 1 (not 0).
 
-If the -1 option is set then Histex output the histogram in .prf 1-code file.
-This option supercedes the -A option.
+If the -1 option is set then Profex outputs the profiels into a .prf 1-code file.
 [1-code](https://www.github.com/thegenemyers/ONEcode)
 is a powerful self-describing, simple to use, data system with built in compression.
 A .prf file contains a P line for each profile requested, which consists of an integer list

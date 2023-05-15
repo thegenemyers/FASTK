@@ -75,7 +75,7 @@ static int Check_Kmer_Stream(Kmer_Stream *S)
   lpre = S->cpre;
   memcpy(lsuf,S->csuf,hbyte);
   for (Next_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
-    { if (S->cpre < lpre || (S->cpre == lpre && memcmp(S->csuf,lsuf,hbyte) < 0))
+    { if (S->cpre < lpre || (S->cpre == lpre && memcmp(S->csuf,lsuf,hbyte) <= 0))
         { fprintf(stderr,"\nOut of Order %02x %02x\n",S->cpre,lpre);
           for (u = 0; u < S->hbyte; u++)
             printf(" %02x %02x\n",S->csuf[u],lsuf[u]);
@@ -102,7 +102,8 @@ static void List_Kmer_Stream(Kmer_Stream *S, int cut, FILE *out)
   for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
     { c = Current_Count(S);
       if (c >= cut)
-        fprintf(out," %9lld: %s = %5d\n",S->cidx,Current_Kmer(S,seq),c);
+        fprintf(out," %9lld: %s = %3d, %3d\n",S->cidx,Current_Kmer(S,seq),(c>>8),(c&0xff));
+        // fprintf(out," %9lld: %s = %5d\n",S->cidx,Current_Kmer(S,seq),c);
     }
   free(seq);
 }
