@@ -20,7 +20,7 @@
 static char *Usage = "[-1] <source_root>[.prof] [ <read:int>[-(<read:int>|#)] ... ]";
 
 static char *One_Schema =
-  "P 3 prf               This is a 1-code fiel for prefixes\n"
+  "P 3 prf               This is a 1-code fiel for profiles\n"
   "O P 1 8 INT_LIST      The profile count vector for the next read\n";
 
 /****************************************************************************************
