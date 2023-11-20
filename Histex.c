@@ -16,7 +16,7 @@
 #include "libfastk.h"
 #include "ONElib.h"
 
-static char *Usage = "[-1] [-kAG] [-h[<int(1)>:]<int(100)>] <source_root>[.hist]";
+static char *Usage = "[-1] [-kAG] [-h[<int(1)>:]<int(-G?1000:100)>] <source_root>[.hist]";
 
 static char *One_Schema =
   "P 5 khist               a histogram 1-code file\n"
@@ -140,9 +140,18 @@ int main(int argc, char *argv[])
           fprintf(stderr,"%s: Warning, -G overrides both -A and -k flags\n",Prog_Name);
         ASCII = UNIQUE = 1;
         if (HIST_SET != 0)
-          fprintf(stderr,"%s: Warning: -G forces histogram range to [1,1000]\n",Prog_Name);
-        HIST_LOW = 1;
-        HIST_HGH = 1000;
+          { if (HIST_LOW > 1)
+              fprintf(stderr,"%s: Warning: -G forces histogram range to a superset of [1,1000]\n",
+                             Prog_Name);
+            HIST_LOW = 1;
+            if (HIST_HGH < 1000)
+              { fprintf(stderr,"%s: Warning: -G forces histogram range to a superset of [1,1000]\n",
+                               Prog_Name);
+                HIST_HGH = 1000;
+              }
+          }
+        else
+          HIST_HGH = 1000;
         HIST_SET = 1;
       }
   }

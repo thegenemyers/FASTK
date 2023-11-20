@@ -359,7 +359,7 @@ queues are not clogged with other jobs &#128512;
 
 <a name="histex"></a>
 ```
-1. Histex [-1] [-kAG] [-h[<int(1)>:]<int(100)>] <source>[.hist]
+1. Histex [-1] [-kAG] [-h[<int(1)>:]<int(-G?1000:100)>] <source>[.hist]
 ```
 
 This command and also Tabex and Profex are presented specifically to
@@ -382,7 +382,9 @@ input to other programs.  If the -G option is set, then Histex produces a specia
 histogram where the last entry is specifically adjusted so that **GeneScope.FK**
 outputs a correct estimate of genome size and % repetitiveness.  (**GenomeScope2.0**
 requires an unbounded histogram whereas GeneScope.FK typically only requires the
-first 1000 or so frequencies.)
+first 1000 or so frequencies.)  When this option is set the default -h top is 1000, and if
+a -h interval is explicitly given then it is forced to be a superset of [1,1000] if it is
+not already so.
 
 If the -1 option is set then Histex output the histogram in a .khist 1-code file.
 This option supercedes the -A option.
