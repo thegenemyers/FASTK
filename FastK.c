@@ -31,8 +31,8 @@ int    DO_STAGE;   //  Which step to perform
 
 #endif
 
-static char *Usage[] = { "[-k<int(40)>] -t[<int(1)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int(0)>]",
-                         "  [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]",
+static char *Usage[] = { "[-k<int(40)>] [-t[<int(1)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int>]",
+                         "[-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]",
                          "    <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz] ..."
                        };
 
@@ -363,7 +363,7 @@ int main(int argc, char *argv[])
       { cpath = getcwd(NULL,0);
         if (SORT_PATH[0] == '.')
           { if (SORT_PATH[1] == '/')
-              spath = Catenate(cpath,SORT_PATH+1,"","");
+              spath = Catenate(cpath,SORT_PATH+2,"","");
             else if (SORT_PATH[1] == '\0')
               spath = cpath;
             else

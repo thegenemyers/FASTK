@@ -64,7 +64,7 @@ about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 
 ```
 1. FastK [-k<int(40)>] [-t[<int(1)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int>]
-          [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
+         [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
             <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz]] ...
 ```
 
