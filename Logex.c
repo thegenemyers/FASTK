@@ -927,7 +927,7 @@ typedef struct
 static int    GC[256];
 static int    GCR[256];
 
-#define IB_OUT  3
+static int IB_OUT;
 
 static void gc_setup(int kmer)
 { static int isgc[4] = { 0, 100, 100, 0 };
@@ -1118,7 +1118,12 @@ static void *merge_thread(void *args)
                   { if (DO_TABLE)
                       { fwrite(bst+IB_OUT,hbyte,1,out[i]);
                         fwrite(&one,sizeof(short),1,out[i]);
-                        x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
+                        if (IB_OUT == 3)
+                          x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
+                        else if (IB_OUT == 2)
+                          x = (bst[0] << 8) | bst[1];
+                        else
+                          x = bst[0];
                         prefx[i][x] += 1;
                         nels[i] += 1;
                       }
@@ -1140,7 +1145,12 @@ static void *merge_thread(void *args)
                             else
                               sho = c;
                             fwrite(&sho,sizeof(short),1,out[i]);
-                            x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
+                            if (IB_OUT == 3)
+                              x = (bst[0] << 16) | (bst[1] << 8) | bst[2];
+                            else if (IB_OUT == 2)
+                              x = (bst[0] << 8) | bst[1];
+                            else
+                              x = bst[0];
                             prefx[i][x] += 1;
                             nels[i] += 1;
                           }
@@ -1404,9 +1414,21 @@ int main(int argc, char *argv[])
     int       t, a, i;
     int64     p;
 
+    for (a = 0; a < narg; a++)
+      { range[0][a] = 0;
+        range[NTHREADS][a] = S[a]->nels;
+      }
+
+    pivot = 0;
+    for (a = 1; a < narg; a++)
+      if (S[a]->nels > S[pivot]->nels)
+        pivot = a;
+
+    IB_OUT = S[pivot]->ibyte;
+    ixlen  = (0x1 << (8*IB_OUT));
+
     if (DO_TABLE)
-      { ixlen = 0x1000000;
-        prefx[0] = Malloc(sizeof(int64)*ixlen*nass,"Allocating prefix tables");
+      { prefx[0] = Malloc(sizeof(int64)*ixlen*nass,"Allocating prefix tables");
         bzero(prefx[0],sizeof(int64)*ixlen*nass);
         for (a = 1; a < nass; a++)
           prefx[a] = prefx[a-1] + ixlen;
@@ -1419,16 +1441,6 @@ int main(int argc, char *argv[])
             out[t][a] = fopen(Catenate(A[a]->path,"/.",A[a]->root,
                                         Numbered_Suffix(".ktab.",t+1,"")),"w");
       }
-
-    for (a = 0; a < narg; a++)
-      { range[0][a] = 0;
-        range[NTHREADS][a] = S[a]->nels;
-      }
-
-    pivot = 0;
-    for (a = 1; a < narg; a++)
-      if (S[a]->nels > S[pivot]->nels)
-        pivot = a;
 
     seq = Current_Kmer(S[0],NULL);
     ent = Current_Entry(S[0],NULL);
@@ -1493,7 +1505,6 @@ int main(int argc, char *argv[])
 
     if (DO_TABLE)
       { int minval;
-        int three = 3;
         int mins[narg];
 
         for (a = 0; a < narg; a++)
@@ -1508,7 +1519,7 @@ int main(int argc, char *argv[])
             fwrite(&kmer,sizeof(int),1,f);
             fwrite(&NTHREADS,sizeof(int),1,f);
             fwrite(&minval,sizeof(int),1,f);
-            fwrite(&three,sizeof(int),1,f);
+            fwrite(&IB_OUT,sizeof(int),1,f);
 
             for (i = 1; i < ixlen; i++)
               prf[i] += prf[i-1];

@@ -17,7 +17,7 @@
 #include "libfastk.h"
 #include "ONElib.h"
 
-static char *Usage = "[-1] <source_root>[.prof] [ <read:int>[-(<read:int>|#)] ... ]";
+static char *Usage = "[-1z] <source_root>[.prof] [ <read:int>[-(<read:int>|#)] ... ]";
 
 static char *One_Schema =
   "P 3 prf               This is a 1-code fiel for profiles\n"
@@ -33,6 +33,7 @@ int main(int argc, char *argv[])
 { Profile_Index *P;
   char          *command;
   int            ONE_CODE;
+  int            ZFLAG;
 
   //  Process options and capture command line for provenance
 
@@ -68,7 +69,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("1")
+            ARG_FLAGS("1z")
             break;
         }
       else
@@ -76,11 +77,13 @@ int main(int argc, char *argv[])
     argc = j;
 
     ONE_CODE = flags['1'];
+    ZFLAG    = flags['z'];
 
     if (argc < 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -1: Produce 1-code as output.\n");
+        fprintf(stderr,"      -z: Compress runs and ignore zeros.\n");
         exit (1);
       }
   }
@@ -169,8 +172,20 @@ int main(int argc, char *argv[])
               }
             else
               { printf("\nRead %d:\n",p);
-                for (i = 0; i < plen; i++)
-                  printf(" %5d: %5d\n",i,profile[i]);
+                if (ZFLAG)
+                  { int last = 0;
+                    for (i = 0; i < plen; i++)
+                      if (profile[i] != last)
+                        { if (last != 0)
+                            printf(" - %5d (%d)\n",i+P->kmer-1,last);
+                          if (profile[i] != 0)
+                            printf(" %5d",i);
+                          last = profile[i];
+                        }
+                  }
+                else
+                  for (i = 0; i < plen; i++)
+                    printf(" %5d: %5d\n",i,profile[i]);
               }
           }
       }
