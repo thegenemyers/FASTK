@@ -379,10 +379,10 @@ include the counts for the frequencies below and above them, respectively.
 
 If the -A option is set, then Histex outputs a simple ASCII listing suitable for
 input to other programs.  If the -G option is set, then Histex produces a special ASCII
-histogram where the last entry is specifically adjusted so that **GeneScope.FK**
-outputs a correct estimate of genome size and % repetitiveness.  (**GenomeScope2.0**
-requires an unbounded histogram whereas GeneScope.FK typically only requires the
-first 1000 or so frequencies.)  When this option is set the default -h top is 1000, and if
+histogram where the last entry is specifically adjusted so that the latest version
+of [GeneScope2.0](https://github.com/tbenavi1/genomescope2.0)
+outputs a correct estimate of genome size and % repetitiveness.
+When this option is set the default -h top is 1000, and if
 a -h interval is explicitly given then it is forced to be a superset of [1,1000] if it is
 not already so.
 
