@@ -385,7 +385,7 @@ int main(int argc, char *argv[])
             { fprintf(stderr,"\n%s: Cannot open histogram %s\n",Prog_Name,argv[c]);
               exit (1);
             }
-          for (i = 0; i <= 0x8001; i++)
+          for (i = H->low; i <= H->high+2; i++)
             H->hist[i] += G->hist[i];
           Free_Histogram(G);
         }
