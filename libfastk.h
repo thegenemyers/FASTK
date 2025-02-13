@@ -40,6 +40,9 @@ void       Modify_Histogram(Histogram *H, int low, int high, int unique);
 int        Write_Histogram(char *name, Histogram *H);
 void       Free_Histogram(Histogram *H);
 
+Histogram *Read_Histogram(FILE *f);
+int        Dump_Histogram(FILE *f, Histogram *H);
+
 
   //  K-MER TABLE
 
@@ -113,6 +116,6 @@ Profile_Index *Clone_Profiles(Profile_Index *P);
 
 void Free_Profiles(Profile_Index *P);
 
-int Fetch_Profile(Profile_Index *P, int64 id, int plen, uint16 *profile);
+int64 Fetch_Profile(Profile_Index *P, int64 id, int64 plen, uint16 *profile);
 
 #endif // _LIBFASTK
