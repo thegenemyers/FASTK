@@ -4,7 +4,7 @@ CFLAGS = -O3 -Wall -Wextra -Wno-unused-result -fno-strict-aliasing
 
 CC = gcc
 
-ALL = FastK Fastrm Fastmv Fastcp Fastmerge Histex Tabex Profex Logex Vennex Symmex Haplex Homex Fastcat
+ALL = FastK Fastrm Fastmv Fastcp Fastmerge Histex Tabex Profex Logex Vennex Symmex Haplex Homex Fastcat KmerMap
 
 all: deflate.lib libhts.a $(ALL)
 
@@ -64,6 +64,9 @@ Haplex: Haplex.c libfastk.c libfastk.h
 Homex: Homex.c libfastk.c libfastk.h
 	$(CC) $(CFLAGS) -o Homex Homex.c libfastk.c -lpthread -lm
 
+KmerMap: KmerMap.c libfastk.c libfastk.h
+	$(CC) $(CFLAGS) -o KmerMap KmerMap.c libfastk.c -lpthread -lm
+
 
 tidyup:
 	rm -f $(ALL)
@@ -82,4 +85,4 @@ install:
 
 package:
 	make clean
-	tar -zcf FastK.tar.gz LICENSE README.md Makefile *.h *.c
+	tar -zcf FastK.tar.gz LICENSE README.md Makefile *.h *.c HTSLIB LIBDEFLATE

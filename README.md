@@ -18,6 +18,7 @@
   - [Profex](#profex): Display a FastK profile or convert to 1-code
   - [Logex](#logex): Combine kmer,count tables with logical expressions & filter with count cutoffs
   - [Symmex](#symmex): Produce a symmetric k-mer table from a canonical one
+  - [KmerMap](#kmermap): Produce a .bed file showing all the regions in a target covered by a set of k-mers
 
 - [C-Library Interface](#c-library-interface)
   - [K-mer Histogram Class](#k-mer-histogram-class)
@@ -556,14 +557,37 @@ table.
 The -T option controls the number of threads used for sorting, and the -P option indicates
 where the temporary files for the sorting should be placed.
 
+<a name="kmermap"></a>
 ```
-6. Haplex [-g<int>:<int>] <source>[.ktab]
+6. KmerMap [-vm] [-T<int(4)>] [-P<dir(/tmp)] <kmers>[.ktab] <target>[."dna"] <out:bed>
+```
+
+Given a FastK k-mer table \<kmers> and target dna sequences in \<target>, produce a .bed file
+of all the intervals of the target covered by the k-mers in the table.  If the -m option is
+off then each k-mer interval is listed, and if on then the intervals that are the union of
+the individual k-mer intervals are listed.  The name of the output .bed file is
+\<out>.\<target>.kmers.bed or \<out>.\<target>.merged.kmers.bed depending on whether or not
+the -m option is set.
+
+The -T option controls the number of threads used for sorting, and the -P option indicates
+where the temporary files for the sorting should be placed.
+
+This addition was originally programmed by Nancy Han
+
+```
+7. Haplex [-g<int>:<int>] <source>[.ktab]
 ```
 
 **Deprecated**.  Code is still available but no longer maintained.
 
 ```
-7. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
+8. Homex -e<int> -g<int>:<int> <source_root>[.ktab]
+```
+
+**Deprecated**.  Code is still available but no longer maintained.
+
+```
+9. Vennex [-h[<int(1)>:]<int(100)>] <source_1>[.ktab] <source_2>[.ktab] ...
 ```
 
 **Deprecated**.  Code is still available but no longer maintained.
