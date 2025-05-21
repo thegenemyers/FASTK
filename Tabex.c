@@ -17,7 +17,7 @@
 #include "libfastk.h"
 #include "ONElib.h"
 
-static char *Usage = "[-t<int>] <source_root>[.ktab] (-1 | (LIST|CHECK|(k-mer:string>) ...)";
+static char *Usage = "[-1A] [-t<int>] <source_root>[.ktab] [LIST|CHECK|(k-mer:string>) ...)]";
 
 static char *One_Schema =
   "P 3 kmr                       This is a k-mer table 1-code file\n"
@@ -94,16 +94,23 @@ static int Check_Kmer_Stream(Kmer_Stream *S)
   return (S->csuf == NULL);
 }
 
-static void List_Kmer_Stream(Kmer_Stream *S, int cut, FILE *out)
+static void List_Kmer_Stream(Kmer_Stream *S, int cut, FILE *out, int ASCII)
 { char *seq;
   int   c;
 
   seq = Current_Kmer(S,NULL);
-  for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
-    { c = Current_Count(S);
-      if (c >= cut)
-        fprintf(out," %9lld: %s = %5d\n",S->cidx,Current_Kmer(S,seq),c);
-    }
+  if (ASCII)
+    for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
+      { c = Current_Count(S);
+        if (c >= cut)
+          fprintf(out,"%s\t%5d\n",Current_Kmer(S,seq),c);
+      }
+  else
+    for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
+      { c = Current_Count(S);
+        if (c >= cut)
+          fprintf(out," %9lld: %s = %5d\n",S->cidx,Current_Kmer(S,seq),c);
+      }
   free(seq);
 }
 
@@ -170,6 +177,7 @@ int main(int argc, char *argv[])
   char        *command;
   int          CUT;
   int          STREAM;
+  int          ASCII;
   int          ONE_CODE;
 
   //  Process options and capture command line for provenance
@@ -186,7 +194,7 @@ int main(int argc, char *argv[])
       char *c;
 
       n = 0;
-      for (t = 1; t < argc; t++)
+      for (t = 0; t < argc; t++)
         n += strlen(argv[t])+1;
 
       command = Malloc(n+1,"Allocating command string");
@@ -195,8 +203,8 @@ int main(int argc, char *argv[])
 
       c = command;
       if (argc >= 1)
-        { c += sprintf(c,"%s",argv[1]);
-          for (t = 2; t < argc; t++)
+        { c += sprintf(c,"%s",argv[0]);
+          for (t = 1; t < argc; t++)
             c += sprintf(c," %s",argv[t]);
         }
       *c = '\0';
@@ -209,7 +217,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("T1")
+            ARG_FLAGS("T1A")
             break;
           case 't':
             ARG_POSITIVE(CUT,"Cutoff for k-mer table")
@@ -221,11 +229,13 @@ int main(int argc, char *argv[])
 
     STREAM   = ! flags['T'];   //  This is undocumented and only for developer use.
     ONE_CODE = flags['1'];
+    ASCII    = flags['A'];
 
-    if ((ONE_CODE && argc != 2) || (!ONE_CODE && argc < 3))
+    if (! (argc >= 3 || (ONE_CODE && argc == 2)))
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -t: Trim all k-mers with counts less than threshold\n");
+        fprintf(stderr,"      -A: Output tab-delimited ASCII\n");
         fprintf(stderr,"      -1: Produce 1-code as output.\n");
         exit (1);
       }
@@ -256,20 +266,27 @@ int main(int argc, char *argv[])
     
           for (c = 2; c < argc; c++)
             if (strcmp(argv[c],"LIST") == 0)
-              List_Kmer_Stream(S,CUT,stdout);
+              List_Kmer_Stream(S,CUT,stdout,ASCII);
             else if (strcmp(argv[c],"CHECK") == 0)
               { if (Check_Kmer_Stream(S))
-                  printf("The table is OK\n");
+                  fprintf(stderr,"The table is OK\n");
               }
             else
               { if ((int) strlen(argv[c]) != S->kmer)
-                  printf("%*s: Not a %d-mer\n",S->kmer,argv[c],S->kmer);
+                  fprintf(stderr,"%*s: Not a %d-mer\n",S->kmer,argv[c],S->kmer);
                 else
-                  { if (GoTo_Kmer_String(S,argv[c]))
-                      printf("%*s: %5d @ idx = %lld\n",S->kmer,argv[c],Current_Count(S),S->cidx);
-                    else
-                      printf("%*s: Not found\n",S->kmer,argv[c]);
-                  }
+                  if (ASCII)
+                    { if (GoTo_Kmer_String(S,argv[c]))
+                        printf("%*s\t%d\t%lld\n",S->kmer,argv[c],Current_Count(S),S->cidx);
+                      else
+                        printf("%*s\t0\t0\n",S->kmer,argv[c]);
+                    }
+                 else
+                    { if (GoTo_Kmer_String(S,argv[c]))
+                        printf("%*s: %5d @ idx = %lld\n",S->kmer,argv[c],Current_Count(S),S->cidx);
+                      else
+                        printf("%*s: Not found\n",S->kmer,argv[c]);
+                    }
               }
         }
     
@@ -301,11 +318,11 @@ int main(int argc, char *argv[])
             List_Kmer_Table(T,CUT,stdout);
           else if (strcmp(argv[c],"CHECK") == 0)
             { if (Check_Kmer_Table(T))
-                printf("The table is OK\n");
+                fprintf(stderr,"The table is OK\n");
             }
           else
             { if ((int) strlen(argv[c]) != T->kmer)
-                printf("%*s: Not a %d-mer\n",T->kmer,argv[c],T->kmer);
+                fprintf(stderr,"%*s: Not a %d-mer\n",T->kmer,argv[c],T->kmer);
               else
                 { loc = Find_Kmer(T,argv[c]);
                   if (loc < 0)

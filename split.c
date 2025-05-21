@@ -731,6 +731,8 @@ int Determine_Scheme(DATA_BLOCK *block)
         printf(", gain = %.3f",(1.*last_max)/max_count);
       printf("\n");
       // print_tree(ktot,count);
+#else
+      (void) mtot;
 #endif
       
       //  If trie is core or improvment is less than 2%, stop

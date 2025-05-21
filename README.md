@@ -402,7 +402,7 @@ the histogram on an R line, and the vector of histogram frequencies on an H line
 
 <a name="tabex"></a>
 ```
-2. Tabex [-t<int>] <source>[.ktab] ( -1 | (LIST|CHECK|(<k-mer:string>) ...)
+2. Tabex [-1A] [-t<int>] <source>[.ktab] LIST|CHECK|(<k-mer:string>) ...)
 ```
 
 Given that a set of k&#8209;mer counter table files have been generated represented by stub file
@@ -412,8 +412,12 @@ of the table in radix order.  CHECK checks that the table is indeed sorted.  Oth
 argument is interpreted as a k&#8209;mer and it is looked up in the table and its count returned
 if found.  If the &#8209;t option is given than only those k&#8209;mers with counts greater or equal to the given value are operated upon.
 
-Alternative to a list of actions, the -1 option has Tabex output a 1-code .kmr file encoding the k-mer table
-(possible truncated with the -t option).  
+If the -A option is set then the output is tab-delimited ASCII suitable for easy import into
+another program/environment.
+
+If the -1 option is set then Tabex ignores any required argument other than the source and
+outputs a 1-code .kmr file encoding the entire table
+(possibly truncated with the -t option).  
 [1-code](https://www.github.com/thegenemyers/ONEcode)
 is a powerful self-describing, simple to use, data system with built in compression.
 The 1-code version of a k-mer table is typically 15% smaller than FastK's ktab's.
@@ -439,7 +443,7 @@ with this prefix in the given sorted order.
 
 <a name="profex"></a>
 ```
-3. Profex [-1] <source>[.prof] <read:int>[-(<read:int>|#)] ...
+3. Profex [-1Az] <source>[.prof] <read:int>[-(<read:int>|#)] ...
 ```
 
 Given that a set of profile files have been generated and are represented by stub file
@@ -449,7 +453,13 @@ or in an integer range specified on the remainder of the command line.  # is a p
 for the id of the last profile.
 The index of the first read is 1 (not 0).
 
-If the -1 option is set then Profex outputs the profiels into a .prf 1-code file.
+If the -z option is set then runs of the same profile count are reported as the range of positions
+and count on a single line.  A single count followed by a different value is considered a run.
+
+If the -A option is set then the output is tab-delimited ASCII suitable for easy import into
+another program/environment.
+
+If the -1 option is set then Profex outputs the profiles into a .prf 1-code file.
 [1-code](https://www.github.com/thegenemyers/ONEcode)
 is a powerful self-describing, simple to use, data system with built in compression.
 A .prf file contains a P line for each profile requested, which consists of an integer list
@@ -464,7 +474,7 @@ of the profile counts:
 4. Logex [-T<int(4)>] [-[hH][<int(1)>:]<int>] <name=expr> ... <source>[.ktab] ...
 ```
 
-Logex takes one or more k&#8209;mer table "assignments" as its initial arguments and applies these to the ordered merge of the k&#8209;mer count tables that follow, each yielding a new k&#8209;mer tables with the assigned names, of the k&#8209;mers satisfying the logic of the associated expression along with counts computed per the "modulators" of the expression.  For example,
+Logex takes one or more k&#8209;mer table "assignments" as its initial arguments and applies these to the ordered merge of the k&#8209;mer count tables that follow, each yielding a new k&#8209;mer table with the assigned names, of the k&#8209;mers satisfying the logic of the associated expression along with counts computed per the "modulators" of the expression.  For example,
 `Logex 'AnB = A &. B' Tab1 Tab2` would produce a new table stub file AnB.ktab
 and associated hidden files, of the k&#8209;mers common to the tables represented by the
 stub files Tab1.ktab and Tab2.ktab.  If the &#8209;h option is given then a histogram over
@@ -572,7 +582,7 @@ the -m option is set.
 The -T option controls the number of threads used for sorting, and the -P option indicates
 where the temporary files for the sorting should be placed.
 
-This addition was originally programmed by Nancy Han
+This addition was originally programmed by Nancy Hanson.
 
 ```
 7. Haplex [-g<int>:<int>] <source>[.ktab]
@@ -600,7 +610,7 @@ This addition was originally programmed by Nancy Han
 
 ## C-Library Interface
 
-For each of the 3 distinct outputs of FastK, we have suppled a simple C library
+For each of the 3 distinct outputs of FastK, we have supplied a simple C library
 that gives a user access to the data therein.  The library is simply embodied in
 the C&#8209;file, `libfastk.c`, and associated include file `libfastk.h`.
 The makefile commands for building Histex, Tabex, and Profex illustrate how to

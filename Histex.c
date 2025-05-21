@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
       char *c;
 
       n = 0;
-      for (t = 1; t < argc; t++)
+      for (t = 0; t < argc; t++)
         n += strlen(argv[t])+1;
 
       command = Malloc(n+1,"Allocating command string");
@@ -61,8 +61,8 @@ int main(int argc, char *argv[])
 
       c = command;
       if (argc >= 1)
-        { c += sprintf(c,"%s",argv[1]);
-          for (t = 2; t < argc; t++)
+        { c += sprintf(c,"%s",argv[0]);
+          for (t = 1; t < argc; t++)
             c += sprintf(c," %s",argv[t]);
         }
       *c = '\0';

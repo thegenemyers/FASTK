@@ -17,7 +17,7 @@
 #include "libfastk.h"
 #include "ONElib.h"
 
-static char *Usage = "[-1z] <source_root>[.prof] [ <read:int>[-(<read:int>|#)] ... ]";
+static char *Usage = "[-1Az] <source_root>[.prof] [ <read:int>[-(<read:int>|#)] ... ]";
 
 static char *One_Schema =
   "P 3 prf               This is a 1-code fiel for profiles\n"
@@ -34,6 +34,7 @@ int main(int argc, char *argv[])
   char          *command;
   int            ONE_CODE;
   int            ZFLAG;
+  int            ASCII;
 
   //  Process options and capture command line for provenance
 
@@ -48,7 +49,7 @@ int main(int argc, char *argv[])
       char *c;
 
       n = 0;
-      for (t = 1; t < argc; t++)
+      for (t = 0; t < argc; t++)
         n += strlen(argv[t])+1;
 
       command = Malloc(n+1,"Allocating command string");
@@ -57,8 +58,8 @@ int main(int argc, char *argv[])
 
       c = command;
       if (argc >= 1)
-        { c += sprintf(c,"%s",argv[1]);
-          for (t = 2; t < argc; t++)
+        { c += sprintf(c,"%s",argv[0]);
+          for (t = 1; t < argc; t++)
             c += sprintf(c," %s",argv[t]);
         }
       *c = '\0';
@@ -69,7 +70,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("1z")
+            ARG_FLAGS("1Az")
             break;
         }
       else
@@ -78,13 +79,21 @@ int main(int argc, char *argv[])
 
     ONE_CODE = flags['1'];
     ZFLAG    = flags['z'];
+    ASCII    = flags['A'];
 
     if (argc < 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -1: Produce 1-code as output.\n");
+        fprintf(stderr,"      -A: tab-delimited ASCII as output.\n");
         fprintf(stderr,"      -z: Compress runs and ignore zeros.\n");
         exit (1);
+      }
+
+    if (ONE_CODE)
+      { if (ASCII)
+          fprintf(stderr,"%s: Warning, -1 overrides the -A flag\n",Prog_Name);
+        ASCII = 0;
       }
   }
 
@@ -170,6 +179,25 @@ int main(int argc, char *argv[])
                   prof64[i] = profile[i];
                 oneWriteLine(file1,'P',plen,prof64);
               }
+            else if (ASCII)
+              { printf("\nRead\t%d\n",p); 
+                if (ZFLAG)
+                  { int last = 0;
+                    for (i = 0; i < plen; i++)
+                      if (profile[i] != last)
+                        { if (last != 0)
+                            printf("\t%d\t%d\n",i+P->kmer-1,last);
+                          if (profile[i] != 0)
+                            printf("%d",i);
+                          last = profile[i];
+                        }
+                    if (last != 0)
+                      printf("\t%d\t%d\n",plen+P->kmer-1,last);
+                  }
+                else
+                  for (i = 0; i < plen; i++)
+                    printf("%d\n",profile[i]);
+              }
             else
               { printf("\nRead %d:\n",p);
                 if (ZFLAG)
@@ -182,6 +210,8 @@ int main(int argc, char *argv[])
                             printf(" %5d",i);
                           last = profile[i];
                         }
+                    if (last != 0)
+                      printf(" - %5d (%d)\n",plen+P->kmer-1,last);
                   }
                 else
                   for (i = 0; i < plen; i++)
