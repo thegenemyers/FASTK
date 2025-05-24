@@ -17,7 +17,7 @@
 #include "libfastk.h"
 #include "ONElib.h"
 
-static char *Usage = "[-1A] [-t<int>] <source_root>[.ktab] [LIST|CHECK|(k-mer:string>) ...)]";
+static char *Usage = "[-1A] [-t<int>] <source_root>[.ktab] [LIST|CHECK|(k-mer:string> ...)]";
 
 static char *One_Schema =
   "P 3 kmr                       This is a k-mer table 1-code file\n"
@@ -103,7 +103,7 @@ static void List_Kmer_Stream(Kmer_Stream *S, int cut, FILE *out, int ASCII)
     for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
       { c = Current_Count(S);
         if (c >= cut)
-          fprintf(out,"%s\t%5d\n",Current_Kmer(S,seq),c);
+          fprintf(out,"%s\t%d\n",Current_Kmer(S,seq),c);
       }
   else
     for (First_Kmer_Entry(S); S->csuf != NULL; Next_Kmer_Entry(S))
@@ -256,13 +256,15 @@ int main(int argc, char *argv[])
       else
         { int   c;
 
-          printf("Opening %d-mer table with ",S->kmer);
-          Print_Number(S->nels,0,stdout);
-          printf(" entries");
-          if (S->minval > 1)
-            printf(" occuring %d-or-more times",S->minval);
-          printf("\n");
-          fflush(stdout);
+          if (!ASCII)
+            { printf("Opening %d-mer table with ",S->kmer);
+              Print_Number(S->nels,0,stdout);
+              printf(" entries");
+              if (S->minval > 1)
+                printf(" occuring %d-or-more times",S->minval);
+              printf("\n");
+              fflush(stdout);
+            }
     
           for (c = 2; c < argc; c++)
             if (strcmp(argv[c],"LIST") == 0)

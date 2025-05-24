@@ -180,19 +180,19 @@ int main(int argc, char *argv[])
                 oneWriteLine(file1,'P',plen,prof64);
               }
             else if (ASCII)
-              { printf("\nRead\t%d\n",p); 
+              { printf("Read\t%d\n",p); 
                 if (ZFLAG)
                   { int last = 0;
                     for (i = 0; i < plen; i++)
                       if (profile[i] != last)
                         { if (last != 0)
-                            printf("\t%d\t%d\n",i+P->kmer-1,last);
+                            printf("\t%d\t%d\n",i-1,last);
                           if (profile[i] != 0)
                             printf("%d",i);
                           last = profile[i];
                         }
                     if (last != 0)
-                      printf("\t%d\t%d\n",plen+P->kmer-1,last);
+                      printf("\t%d\t%d\n",plen-1,last);
                   }
                 else
                   for (i = 0; i < plen; i++)
@@ -205,13 +205,13 @@ int main(int argc, char *argv[])
                     for (i = 0; i < plen; i++)
                       if (profile[i] != last)
                         { if (last != 0)
-                            printf(" - %5d (%d)\n",i+P->kmer-1,last);
+                            printf(" - %5d (%d)\n",i-1,last);
                           if (profile[i] != 0)
                             printf(" %5d",i);
                           last = profile[i];
                         }
                     if (last != 0)
-                      printf(" - %5d (%d)\n",plen+P->kmer-1,last);
+                      printf(" - %5d (%d)\n",plen-1,last);
                   }
                 else
                   for (i = 0; i < plen; i++)

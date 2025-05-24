@@ -402,7 +402,7 @@ the histogram on an R line, and the vector of histogram frequencies on an H line
 
 <a name="tabex"></a>
 ```
-2. Tabex [-1A] [-t<int>] <source>[.ktab] LIST|CHECK|(<k-mer:string>) ...)
+2. Tabex [-1A] [-t<int>] <source>[.ktab] [LIST|CHECK|(<k-mer:string> ...)]
 ```
 
 Given that a set of k&#8209;mer counter table files have been generated represented by stub file
@@ -471,7 +471,7 @@ of the profile counts:
 
 <a name="logex"></a>
 ```
-4. Logex [-T<int(4)>] [-[hH][<int(1)>:]<int>] <name=expr> ... <source>[.ktab] ...
+4. Logex [-T<int(4)>] [-[hH][<int(1)>:]<int(32767)>] <name=expr> ... <source>[.ktab] ...
 ```
 
 Logex takes one or more k&#8209;mer table "assignments" as its initial arguments and applies these to the ordered merge of the k&#8209;mer count tables that follow, each yielding a new k&#8209;mer table with the assigned names, of the k&#8209;mers satisfying the logic of the associated expression along with counts computed per the "modulators" of the expression.  For example,

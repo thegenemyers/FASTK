@@ -118,6 +118,7 @@ static int check_table(char *name, int lmer)
 int main(int argc, char *argv[])
 { char  *KTAB, *ASM, *OUT;
   char  *AROOT, *KROOT;
+  int    KUNIT;
   char  *KPROF;
   int    NTHREADS;
   FILE  *fmap;
@@ -212,7 +213,8 @@ int main(int argc, char *argv[])
     if (VERBOSE)
       fprintf(stderr,"\n  Creating a profile of %s against the assembly %s\n",KROOT,AROOT);
   
-    KPROF = mktemp(templateKP);
+    KUNIT = mkstemp(templateKP);
+    KPROF = templateKP;
 
     if (VERBOSE)
       { sprintf(command,"FastK -v -T%d -P%s -k%d -p:%s %s -N%s",
@@ -240,6 +242,8 @@ int main(int argc, char *argv[])
   
     if (VERBOSE)
       printf("\n  Done\n\n");
+
+    close(KUNIT);
   }
 
   free(KROOT);

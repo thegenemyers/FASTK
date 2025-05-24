@@ -18,10 +18,10 @@
 
 #include "libfastk.h"
 
-static char *Usage[] = { " [-T<int(4)>] [-[hH][<int(1)>:]<int>]",
+static char *Usage[] = { " [-T<int(4)>] [-[hH][<int(1)>:]<int(32767)>]",
                          "   <output:name=expr> ... <source_root>[.ktab] ..." };
 
-#define MAX_TABS 8
+#define MAX_TABS 10
 
 static int DO_TABLE;
 static int NTHREADS;
@@ -92,8 +92,8 @@ static char *Error_Messages[] =
     "Do not recognize this operator",			// 7
     "Largest argument possible is H/h",			// 8
     "Modeless operator not in # argument",		// 9
-    "Invalid modulator"	                		// 10
-    "Expecting a , or }",				// 11
+    "Invalid modulator",	               		// 10
+    "Expecting a , or }"				// 11
   };
 
 static Node *node(int op, int mode, Node *lft, Node *rgt)
