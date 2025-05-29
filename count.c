@@ -973,7 +973,7 @@ static void *profile_list_thread(void *arg)
             for (i = RUN_BYTES; i > 0; i--)
               rbx[i] = sptr[SMER_WORD-i];
 #else
-            for (i = 0; i < PLEN_BYTES; i++)
+            for (i = 0; i < RUN_BYTES; i++)
               rbx[i] = sptr[STOT+i];
 #endif
             printf("%lld",ridx);
@@ -1229,7 +1229,10 @@ void Sorting(char *path, char *root)
     s = reload;
     for (i = 0; i < IO_UBITS; i++)
       { Fixed_Reload[IO_UBITS-i] = (i + SLEN_BITS - 1) / IO_UBITS;
-        Runer_Reload[IO_UBITS-i] = (i + RUN_BITS - 1) / IO_UBITS;
+        if (RUN_BITS < 17)
+          Runer_Reload[IO_UBITS-i] = (i + 18) / IO_UBITS;
+        else
+          Runer_Reload[IO_UBITS-i] = (i + RUN_BITS - 1) / IO_UBITS;
         Super_Reload[IO_UBITS-i] = s;
         for (n = 0; n < MAX_SUPER; n++)
           *s++ = (i + 2*(n+KMER) - 1) / IO_UBITS;
@@ -1379,8 +1382,12 @@ void Sorting(char *path, char *root)
                 RUN_BYTES  = (RUN_BITS+7) >> 3;
                 SMER_WORD += RUN_BYTES;
                 PROF_BYTES = RUN_BYTES + sizeof(uint64);
-                for (i = 0; i < IO_UBITS; i++)
-                  Runer_Reload[IO_UBITS-i] = (i + RUN_BITS - 1) / IO_UBITS;
+                if (RUN_BITS < 17)
+                  for (i = 0; i < IO_UBITS; i++)
+                    Runer_Reload[IO_UBITS-i] = (i + 18) / IO_UBITS;
+                else
+                  for (i = 0; i < IO_UBITS; i++)
+                    Runer_Reload[IO_UBITS-i] = (i + RUN_BITS - 1) / IO_UBITS;
               }
             s_sort = Malloc((NMAX+1)*SMER_WORD+1,"Allocating super-mer sort array");
             if (s_sort == NULL)

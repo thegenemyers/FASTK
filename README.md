@@ -1017,7 +1017,7 @@ sequence b+i is the bytes off[i-1] to off[i]-1 where off[-1] = 0.
 A P-file contains compressed profiles.
 The sequence of a profile is given by the first count followed by the first forward difference to
 each successive count as these are expected to be small integers that will compress well.
-The the first count is encoded in the first one or two bytes, depending on
+The first count is encoded in the first one or two bytes, depending on
 its value, as follows:
 
 ```
