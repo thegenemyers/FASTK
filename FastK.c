@@ -32,7 +32,7 @@ int    DO_STAGE;   //  Which step to perform
 #endif
 
 static char *Usage[] = { "[-k<int(40)>] [-t[<int(1)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int>]",
-                         "[-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]",
+                         "[-v] [-N<path_name>] [-P<dir($TMPDIR)>] [-M<int(12)>] [-T<int(4)>]",
                          "    <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz] ..."
                        };
 
@@ -234,7 +234,9 @@ int main(int argc, char *argv[])
     KMER        = 40;
     SORT_MEMORY = 12000000000ll;
     NTHREADS    = 4;
-    SORT_PATH   = "/tmp";
+    SORT_PATH   = getenv("TMPDIR");
+    if (SORT_PATH == NULL)
+      SORT_PATH = "/tmp";
     DO_TABLE    = 0;
     DO_PROFILE  = 0;
       PRO_TABLE   = NULL;

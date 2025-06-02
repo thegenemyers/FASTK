@@ -65,7 +65,7 @@ about 4.7-bits per base for a recent 50X HiFi asssembly data set.
 
 ```
 1. FastK [-k<int(40)>] [-t[<int(1)>]] [-p[:<table>[.ktab]]] [-c] [-bc<int>]
-         [-v] [-N<path_name>] [-P<dir(/tmp)>] [-M<int(12)>] [-T<int(4)>]
+         [-v] [-N<path_name>] [-P<dir($TMPDIR)>] [-M<int(12)>] [-T<int(4)>]
             <source>[.cram|.[bs]am|.db|.dam|.f[ast][aq][.gz]] ...
 ```
 
@@ -127,7 +127,9 @@ errors and thus the error rate of such "hoco" k&#8209;mers is five&#8209;fold le
 The &#8209;v option asks FastK to output information about its ongoing operation to standard error including a time and resource summary at completion.
 The &#8209;bc option allows you to ignore the prefix of each read of the indicated length, e.g. when
 the reads have a bar code at the start of each read.
-The &#8209;P option specifies where FastK should place all the numerous temporary files it creates, if not `/tmp` by default.
+The &#8209;P option specifies where FastK should place all the numerous temporary files it creates.
+By default this is the value of the system variable $TMPDIR, or should this be undefined, then
+`/tmp`.
 The &#8209;M option specifies the maximum amount of memory, in GB, FastK should use at any given
 moment.
 FastK by design uses a modest amount of memory, the default 12GB should generally
