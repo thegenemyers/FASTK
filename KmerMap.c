@@ -244,6 +244,7 @@ int main(int argc, char *argv[])
       printf("\n  Done\n\n");
 
     close(KUNIT);
+    unlink(KPROF);
   }
 
   free(KROOT);
