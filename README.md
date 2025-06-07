@@ -365,7 +365,8 @@ queues are not clogged with other jobs &#128512;
 1. Histex [-1] [-kAG] [-h[<int(1)>:]<int(-G?1000:100)>] <source>[.hist]
 ```
 
-This command and also Tabex and Profex are presented specifically to
+This command and also Tabex and Profex are presented specifically to be able to
+examine and use FastK's outputs, and to
 give a user simple examples of how to use the C&#8209;interface modules,
 <code>libfastk.c</code>,
 to manipulate the histogram, k&#8209;mer count tables, and profiles produced by FastK.
@@ -403,32 +404,47 @@ the histogram on an R line, and the vector of histogram frequencies on an H line
 ```
 
 <a name="tabex"></a>
+
 ```
-2. Tabex [-1A] [-t<int>] <source>[.ktab] [LIST|CHECK|(<k-mer:string> ...)]
+2. Tabex [-1AC] [-t<int>] <source>[.ktab] [ <address>[-<address>] ]
+ 
+          <address> = <int> | <dna:string>
 ```
 
-Given that a set of k&#8209;mer counter table files have been generated represented by stub file
-\<source>.ktab, ***Tabex*** opens the corresponding hidden table files (one per thread) and then performs the sequence of actions specified by the
-remaining arguments on the command line.  The literal argument LIST lists the contents
-of the table in radix order.  CHECK checks that the table is indeed sorted.  Otherwise the
-argument is interpreted as a k&#8209;mer and it is looked up in the table and its count returned
-if found.  If the &#8209;t option is given than only those k&#8209;mers with counts greater or equal to the given value are operated upon.
+Tabex displays all or a range of a k-mer table.
+If no specification follows the table argument, then the entire table is listed.
+If a range consisting of a single integer is given then the k-mer at that ordinal position
+in the table is listed.
+If a range consisting of a pair of integers separated by a - with *no intervening space* then the
+k-mers in that range of ordinal positions are displayed.
+If a dna string not greater than the k-mer size of the table is given as a range argument,
+then the k-mers whose prefix match the string is given, or the k-mers whose prefix is equal to
+or greater than the string if the first part of a range, and the k-mers whose prefix is equal to
+or less than the string if the second part of a range.  For example,
+```Tabex mytable aaaac-cacaca``` outputs the k-mers whose prefix is not less than ```aaaac``` and not
+greater than ```cacaca```.
 
-If the -A option is set then the output is tab-delimited ASCII suitable for easy import into
-another program/environment.
+By default Tabex lists the ordinal position, k-mer, and its count in a nicely formated list.
+If the -A option is specified then just the k-mer and its count are output per line with
+a tab separating them.
+If the -C option is specified then no other option should be specified and Tabex checks that
+the range of the table specified is indeed sorted reporting a sort violation should it find one.
+With the -t option set, only those k-mers whose count is at the associated integer or above
+are listed.
 
-If the -1 option is set then Tabex ignores any required argument other than the source and
-outputs a 1-code .kmr file encoding the entire table
+If the -1 option is set then Tabex ignores the -A option if present and
+outputs a 1-code .kmr file encoding the specified range of the table
 (possibly truncated with the -t option).  
 [1-code](https://www.github.com/thegenemyers/ONEcode)
 is a powerful self-describing, simple to use, data system with built in compression.
 The 1-code version of a k-mer table is typically 15% smaller than FastK's ktab's.
 
-The first line of a .kmr file is a K line that gives the k-mer length, prefix length, and minimum k-mer count
-(of any k-mer in the table), respectively.
+The first line of a .kmr file is a K line that gives the k-mer length, prefix length, minimum k-mer count
+(of any k-mer in the table), and the prefix for the first S-line (in the event the output table is a subset
+of a the input table), respectively.
 
 ```
-    K <k-mer length (k): int> <prefix length (p): int> <min count: int>
+    K <k-mer length (k): int> <prefix length (p): int> <min count: int> <1st prefix: int>
 ```
 
 Each DNA prefix is considered a number between 0 and 4^p-1 where p is the prefix length.  For each prefix
